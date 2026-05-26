@@ -5,6 +5,7 @@ import type { SimulationResponse, SimulationListResponse, ClubFinancialsResponse
 import { StatusBadge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { Spinner, PageLoader } from '@/components/ui/spinner'
 import { SCRResultPanel } from '@/components/simulator/SCRResultPanel'
 import { formatPence } from '@headroom/shared'
 import { useClubStore } from '@/stores/club'
@@ -38,6 +39,7 @@ function SimulationList() {
   // Per-row edit/delete state
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
+  const [savingId, setSavingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
 
   useEffect(() => {
@@ -63,6 +65,7 @@ function SimulationList() {
   }
 
   const saveEdit = async (id: string) => {
+    setSavingId(id)
     try {
       await api.simulations.updateLabel(id, editValue)
       setData((prev) =>
@@ -76,6 +79,7 @@ function SimulationList() {
           : prev
       )
     } finally {
+      setSavingId(null)
       setEditingId(null)
     }
   }
@@ -97,7 +101,7 @@ function SimulationList() {
     }
   }
 
-  if (loading) return <p className="text-sm text-slate-400">Loading simulations…</p>
+  if (loading) return <PageLoader />
   if (error) return <p className="text-sm text-red-600">{error}</p>
 
   const simulations = data?.simulations ?? []
@@ -146,6 +150,7 @@ function SimulationList() {
                 const result = sim.scrResult
                 const input = sim.transferInput as Record<string, unknown> | null
                 const isEditing = editingId === sim.id
+                const isSaving = savingId === sim.id
                 const isDeleting = deletingId === sim.id
 
                 return (
@@ -181,9 +186,11 @@ function SimulationList() {
                           />
                           <button
                             onClick={() => saveEdit(sim.id)}
-                            className="text-[12px] font-medium text-violet-600 hover:text-violet-700 whitespace-nowrap flex-shrink-0"
+                            disabled={isSaving}
+                            className="flex items-center gap-1 text-[12px] font-medium text-violet-600 hover:text-violet-700 whitespace-nowrap flex-shrink-0 disabled:opacity-60"
                           >
-                            Save
+                            {isSaving ? <Spinner size={11} /> : null}
+                            {isSaving ? 'Saving…' : 'Save'}
                           </button>
                         </div>
                       ) : (
@@ -254,9 +261,7 @@ function SimulationList() {
                         className="text-slate-300 hover:text-red-500 transition-colors disabled:opacity-40"
                         title="Delete simulation"
                       >
-                        {isDeleting ? (
-                          <span className="text-[12px]">…</span>
-                        ) : (
+                        {isDeleting ? <Spinner size={15} /> : (
                           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <polyline points="3 6 5 6 21 6" />
                             <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
@@ -296,7 +301,6 @@ function SimulationDetail({
   const [labelSaving, setLabelSaving] = useState(false)
   const [editing, setEditing] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(false)
 
   useEffect(() => {
     api.simulations
@@ -332,7 +336,7 @@ function SimulationDetail({
     }
   }
 
-  if (loading) return <p className="text-sm text-slate-400">Loading simulation…</p>
+  if (loading) return <PageLoader />
   if (error) return <p className="text-sm text-red-600">{error}</p>
   if (!sim) return null
 
@@ -349,18 +353,27 @@ function SimulationDetail({
 
       <div className="flex items-start justify-between mb-1 mt-4">
         {editing ? (
-          <input
-            value={labelEdit}
-            autoFocus
-            onChange={(e) => setLabelEdit(e.target.value)}
-            onBlur={saveLabel}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') saveLabel()
-              if (e.key === 'Escape') setEditing(false)
-            }}
-            className="text-[24px] font-bold text-slate-900 tracking-tight bg-transparent border-b border-violet-300 focus:outline-none focus:border-violet-600 px-0 py-0 w-full max-w-2xl"
-            disabled={labelSaving}
-          />
+          <div className="flex items-center gap-3 flex-1 max-w-2xl">
+            <input
+              value={labelEdit}
+              autoFocus
+              onChange={(e) => setLabelEdit(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') saveLabel()
+                if (e.key === 'Escape') setEditing(false)
+              }}
+              className="text-[24px] font-bold text-slate-900 tracking-tight bg-transparent border-b border-violet-300 focus:outline-none focus:border-violet-600 px-0 py-0 flex-1"
+              disabled={labelSaving}
+            />
+            <button
+              onClick={saveLabel}
+              disabled={labelSaving}
+              className="flex items-center gap-1.5 text-[13px] font-medium text-violet-600 hover:text-violet-700 whitespace-nowrap disabled:opacity-60"
+            >
+              {labelSaving ? <Spinner size={12} /> : null}
+              {labelSaving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
         ) : (
           <h1
             onClick={() => setEditing(true)}
@@ -381,36 +394,22 @@ function SimulationDetail({
             Export as PDF
           </Button>
 
-          {confirmDelete ? (
-            <div className="flex items-center gap-2">
-              <span className="text-[13px] text-red-600">Delete this simulation?</span>
-              <Button
-                variant="ghost"
-                onClick={handleDelete}
-                disabled={deleting}
-                className="text-red-600 hover:text-red-700 hover:bg-red-50 px-3"
-              >
-                {deleting ? 'Deleting…' : 'Yes, delete'}
-              </Button>
-              <Button variant="ghost" onClick={() => setConfirmDelete(false)} className="px-3">
-                Cancel
-              </Button>
-            </div>
-          ) : (
-            <Button
-              variant="ghost"
-              onClick={() => setConfirmDelete(true)}
-              className="text-slate-400 hover:text-red-500 hover:bg-red-50 px-2"
-              title="Delete simulation"
-            >
+          <Button
+            variant="ghost"
+            onClick={handleDelete}
+            disabled={deleting}
+            className="text-slate-400 hover:text-red-500 hover:bg-red-50 px-2"
+            title="Delete simulation"
+          >
+            {deleting ? <Spinner size={15} /> : (
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="3 6 5 6 21 6" />
                 <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
                 <path d="M10 11v6" /><path d="M14 11v6" />
                 <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
               </svg>
-            </Button>
-          )}
+            )}
+          </Button>
         </div>
       </div>
 

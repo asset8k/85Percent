@@ -761,3 +761,53 @@ onChange={(n) => field.onChange(isNaN(n) ? undefined : n)}
 
 ### TypeScript
 All packages typecheck clean (zero errors)
+
+---
+
+## Session 8 — UX Polish: Type Labels, Spinners, Logo, History Improvements (2026-05-26)
+
+### What was accomplished
+
+1. **Type column in history table** — Added "Type" column (`Buy` / `Sell` / `Loan In` / `Loan Out` badges) to simulation list and detail header. `TX_TYPE_LABEL` map with `?? 'buy'` fallback handles legacy simulations.
+
+2. **Type-aware status banner text** — "This transfer…" → "This sale…" / "This loan…" etc. in `SCRResultPanel`. `TX_NOUN` map (`buy: 'transfer'`, `sell: 'sale'`, `loan_in: 'loan'`, `loan_out: 'loan out'`) drives all 3 status strings.
+
+3. **History UX improvements**:
+   - Edit pencil icon is always visible (`text-slate-400`), not hover-only
+   - Delete is instant (no confirmation prompt on both list and detail views)
+   - Save button added to inline edit (was enter-only before), with spinner while saving
+   - Delete button shows spinner while deleting
+
+4. **ComplianceGauge label overlap fix** — When current and projected percentages are close (`|currentX - projectedX| < 10%` width), the projected label moves below the bar to prevent overlap. Current label+arrow stays above bar flush to bottom; projected arrow always rendered; projected label conditionally shown below bar with `mt-1.5`.
+
+5. **GitHub private repo** — Initialized git, committed 77 files, pushed to `https://github.com/asset8k/headroom` (private).
+
+6. **Football pitch H logo** — Redesigned sidebar H SVG as a top-down football pitch: two sidelines (posts), halfway line (crossbar), goals at top+bottom (opacity 0.65), center circle (opacity 0.6). Viewbox `0 0 18 22` — the extra 2px provides natural letter-spacing sidebearing so the "eadroom" wordmark sits at the right visual gap without any explicit `marginRight`.
+
+7. **Favicon** — Created `apps/web/public/favicon.svg`: 32×32 rounded square with football pitch H scaled to 19×26px (preserving 16:22 aspect ratio), centered at (6.5, 3). Replaces the previous empty favicon.
+
+8. **Club name update** — "Headroom Demo FC" → "Headroom FC" via Supabase SQL (`UPDATE clubs SET name = 'Headroom FC'`).
+
+9. **Purple spinners across all API calls** — Created shared `Spinner` + `PageLoader` components in `apps/web/src/components/ui/spinner.tsx`. Applied:
+   - `ProtectedRoute` — full-screen spinner during auth init (was invisible/null before)
+   - `HistoryPage` list + detail — `PageLoader` on data load
+   - `HistoryPage` save/delete — `Spinner` inside buttons
+   - `LoginPage` — `Spinner` in Sign In, Create Account, Send Magic Link buttons
+   - `ClubSetupPage` — `Spinner` in Save Settings button
+   - `SimulatorPage` — already had inline spin SVG, no change needed
+   - All spinners use `#6d28d9` (violet-700) and the `.spin` CSS animation from `index.css`
+
+### Files changed
+
+- `apps/web/src/components/ui/spinner.tsx` — new file: `Spinner` + `PageLoader`
+- `apps/web/src/components/auth/ProtectedRoute.tsx` — full-screen spinner instead of null
+- `apps/web/src/pages/HistoryPage.tsx` — type column/badge, type-aware detail, always-visible edit icon, instant delete, Save button with spinner, PageLoader
+- `apps/web/src/pages/LoginPage.tsx` — Spinner in all 3 submit buttons
+- `apps/web/src/pages/ClubSetupPage.tsx` — Spinner in Save Settings button
+- `apps/web/src/components/simulator/SCRResultPanel.tsx` — TX_NOUN map, type-aware status banner
+- `apps/web/src/components/simulator/ComplianceGauge.tsx` — stagger logic for overlapping labels
+- `apps/web/src/components/layout/Sidebar.tsx` — football pitch H SVG (viewBox 0 0 18 22)
+- `apps/web/public/favicon.svg` — new file: football pitch H favicon
+
+### TypeScript
+All packages typecheck clean (zero errors)

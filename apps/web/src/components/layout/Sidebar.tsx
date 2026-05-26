@@ -57,13 +57,21 @@ export function Sidebar() {
     <aside className="w-[240px] flex-shrink-0 h-screen border-r border-slate-200 bg-white flex flex-col sticky top-0">
       {/* Logo */}
       <div className="h-16 flex items-center px-5 border-b border-slate-100">
-        <span className="inline-flex items-baseline gap-[2px] select-none" style={{ color: '#6d28d9', fontFamily: 'Inter', fontWeight: 700, letterSpacing: '-0.02em', fontSize: 20 }}>
-          <span aria-hidden="true" className="inline-flex items-end" style={{ height: 20, marginRight: 1 }}>
-            <svg width={14} height={20} viewBox="0 0 14 20" fill="none">
-              <rect x="0" y="0" width="3" height="20" fill="#6d28d9" />
-              <rect x="11" y="0" width="3" height="20" fill="#6d28d9" />
-              <rect x="3" y="9" width="8" height="2.5" fill="#6d28d9" />
-              <rect x="3" y="2" width="8" height="1" fill="#6d28d9" opacity="0.25" />
+        <span className="inline-flex items-baseline gap-0 select-none" style={{ color: '#6d28d9', fontFamily: 'Inter', fontWeight: 700, letterSpacing: '-0.02em', fontSize: 20 }}>
+          <span aria-hidden="true" className="inline-flex items-end" style={{ height: 22 }}>
+            <svg width={18} height={22} viewBox="0 0 18 22" fill="none">
+              {/* Left post — sideline */}
+              <rect x="0" y="0" width="3.5" height="22" fill="#6d28d9" />
+              {/* Right post — sideline */}
+              <rect x="12.5" y="0" width="3.5" height="22" fill="#6d28d9" />
+              {/* Halfway line */}
+              <rect x="3.5" y="9.75" width="9" height="2.5" fill="#6d28d9" />
+              {/* Top goal */}
+              <rect x="5.5" y="0" width="5" height="3.5" fill="#6d28d9" opacity="0.65" />
+              {/* Bottom goal */}
+              <rect x="5.5" y="18.5" width="5" height="3.5" fill="#6d28d9" opacity="0.65" />
+              {/* Center circle */}
+              <circle cx="8" cy="11" r="2.6" stroke="#6d28d9" strokeWidth="1" fill="none" opacity="0.6" />
             </svg>
           </span>
           <span>eadroom</span>

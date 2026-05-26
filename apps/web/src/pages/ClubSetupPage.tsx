@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { api } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 import { NumericInput } from '@/components/ui/numeric-input'
 import { Card } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/badge'
@@ -221,6 +222,7 @@ export function ClubSetupPage() {
                 {error && <span className="text-red-600 ml-2">{error}</span>}
               </div>
               <Button type="submit" disabled={form.formState.isSubmitting}>
+                {form.formState.isSubmitting && <Spinner size={14} />}
                 {form.formState.isSubmitting ? 'Saving…' : 'Save Settings'}
               </Button>
             </div>

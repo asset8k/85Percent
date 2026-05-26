@@ -5,6 +5,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { supabase } from '@/lib/supabase'
 import { Button } from '@/components/ui/button'
+import { Spinner } from '@/components/ui/spinner'
 
 // ── Schemas ────────────────────────────────────────────────────────────────
 
@@ -168,6 +169,7 @@ function SignInForm({
         <input type="password" placeholder="••••••••" {...form.register('password')} className={INPUT} />
       </Field>
       <Button type="submit" className="w-full mt-2" disabled={form.formState.isSubmitting}>
+        {form.formState.isSubmitting && <Spinner size={14} />}
         {form.formState.isSubmitting ? 'Signing in…' : 'Sign In'}
       </Button>
       <p className="text-center text-[13px] text-slate-500 mt-1">
@@ -217,6 +219,7 @@ function SignUpForm({
         <input type="password" placeholder="••••••••" {...form.register('confirmPassword')} className={INPUT} />
       </Field>
       <Button type="submit" className="w-full mt-2" disabled={form.formState.isSubmitting}>
+        {form.formState.isSubmitting && <Spinner size={14} />}
         {form.formState.isSubmitting ? 'Creating account…' : 'Create Account'}
       </Button>
       <p className="text-center text-[13px] text-slate-500 mt-1">
@@ -277,6 +280,7 @@ function MagicLinkForm({
         <input type="email" placeholder="you@club.com" {...form.register('email')} className={INPUT} />
       </Field>
       <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
+        {form.formState.isSubmitting && <Spinner size={14} />}
         {form.formState.isSubmitting ? 'Sending…' : 'Send Magic Link'}
       </Button>
     </form>
