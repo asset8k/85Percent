@@ -1,0 +1,134 @@
+// This is your Prisma schema file.
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Club {
+  id        String   @id @default(uuid())
+  name      String
+  shortName String   @map("short_name")
+  leagueId  String   @map("league_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users      User[]
+  financials ClubFinancials[]
+  players    Player[]
+  contracts  Contract[]
+  simulations Simulation[]
+  auditLogs  AuditLog[]
+
+  @@map("clubs")
+}
+
+model User {
+  id        String   @id // Matches Supabase auth.users id
+  clubId    String   @map("club_id")
+  role      String   // 'cfo' | 'sporting_director' | 'finance_analyst' | 'admin'
+  fullName  String   @map("full_name")
+  email     String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  club        Club         @relation(fields: [clubId], references: [id])
+  simulations Simulation[]
+  auditLogs   AuditLog[]
+
+  @@map("users")
+}
+
+model ClubFinancials {
+  id                        String   @id @default(uuid())
+  clubId                    String   @map("club_id")
+  season                    String   // '2026-27'
+  // All monetary values stored as BigInt in pence — NEVER float
+  footballRelatedRevenue    BigInt   @map("football_related_revenue")
+  currentSquadCosts         BigInt   @map("current_squad_costs")
+  currentAllowanceRatio     Decimal  @map("current_allowance_ratio")
+  ownerEquityUsed1yr        BigInt?  @map("owner_equity_used_1yr") // Championship only
+  ownerEquityUsed3yr        BigInt?  @map("owner_equity_used_3yr") // Championship only
+  createdAt                 DateTime @default(now()) @map("created_at")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
+
+  club Club @relation(fields: [clubId], references: [id])
+
+  @@unique([clubId, season])
+  @@map("club_financials")
+}
+
+model Player {
+  id          String   @id @default(uuid())
+  clubId      String   @map("club_id")
+  name        String
+  position    String?
+  nationality String?
+  dateOfBirth DateTime? @map("date_of_birth")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  club      Club       @relation(fields: [clubId], references: [id])
+  contracts Contract[]
+
+  @@map("players")
+}
+
+model Contract {
+  id                  String   @id @default(uuid())
+  playerId            String   @map("player_id")
+  clubId              String   @map("club_id")
+  // All monetary values in pence
+  transferFee         BigInt   @map("transfer_fee")
+  annualWage          BigInt   @map("annual_wage")
+  contractStart       DateTime @map("contract_start")
+  contractEnd         DateTime @map("contract_end")
+  contractLengthYears Decimal  @map("contract_length_years")
+  agentFee            BigInt   @map("agent_fee")
+  bookValue           BigInt   @map("book_value")
+  isActive            Boolean  @default(true) @map("is_active")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  player Player @relation(fields: [playerId], references: [id])
+  club   Club   @relation(fields: [clubId], references: [id])
+
+  @@map("contracts")
+}
+
+model Simulation {
+  id                      String   @id @default(uuid())
+  clubId                  String   @map("club_id")
+  createdBy               String   @map("created_by")
+  season                  String
+  label                   String?
+  transferInput           Json     @map("transfer_input")
+  clubFinancialsSnapshot  Json     @map("club_financials_snapshot")
+  scrResult               Json     @map("scr_result")
+  createdAt               DateTime @default(now()) @map("created_at")
+
+  club Club @relation(fields: [clubId], references: [id])
+  user User @relation(fields: [createdBy], references: [id])
+
+  @@map("simulations")
+}
+
+// Append-only audit log — never delete rows
+model AuditLog {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  clubId        String   @map("club_id")
+  tableName     String   @map("table_name")
+  recordId      String   @map("record_id")
+  action        String   // 'create' | 'update' | 'delete'
+  previousValue Json?    @map("previous_value")
+  newValue      Json?    @map("new_value")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+  club Club @relation(fields: [clubId], references: [id])
+
+  @@map("audit_logs")
+}

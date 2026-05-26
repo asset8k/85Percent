@@ -1,0 +1,25 @@
+{
+  "name": "headroom",
+  "version": "0.0.1",
+  "private": true,
+  "packageManager": "pnpm@11.2.2",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.3",
+    "typescript": "^5.8.3",
+    "@types/node": "^22.15.18",
+    "prettier": "^3.5.3",
+    "eslint": "^9.27.0"
+  }
+}
