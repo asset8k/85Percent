@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import type { FastifyRequest, FastifyReply } from 'fastify'
 import { supabase } from '../lib/supabase.js'
 
@@ -65,18 +66,34 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
     }
   }
 
-  // Auto-provision: brand-new auth user with no app record → attach to the
-  // (single) club as CFO. MVP-only behaviour; replace with an invite flow later.
+  // Auto-provision: brand-new auth user with no app record → attach to a club as CFO.
+  // If no club exists yet, create one named "Headroom FC". MVP-only behaviour;
+  // replace with an invite + workspace-creation flow later.
   if (!user) {
-    const { data: club } = await supabase
+    let { data: club } = await supabase
       .from('clubs')
       .select('id')
       .limit(1)
       .maybeSingle()
 
     if (!club) {
-      request.log.error('authMiddleware: no club available for auto-provisioning')
-      return reply.status(403).send({ error: 'No club available — contact administrator' })
+      const newClubId = randomUUID()
+      const { data: createdClub, error: clubCreateErr } = await supabase
+        .from('clubs')
+        .insert({
+          id: newClubId,
+          name: 'Headroom FC',
+          short_name: 'HFC',
+          league_id: 'efl-championship',
+        })
+        .select('id')
+        .single()
+
+      if (clubCreateErr || !createdClub) {
+        request.log.error({ err: clubCreateErr }, 'authMiddleware: club auto-create failed')
+        return reply.status(503).send({ error: 'Failed to provision workspace' })
+      }
+      club = createdClub
     }
 
     const fullName =

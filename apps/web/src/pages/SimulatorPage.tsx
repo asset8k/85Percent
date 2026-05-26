@@ -1,9 +1,8 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { api } from '@/lib/api'
-import type { ClubFinancialsResponse } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
 import { Button } from '@/components/ui/button'
 import { NumericInput } from '@/components/ui/numeric-input'
@@ -12,6 +11,7 @@ import { SCRResultPanel, EmptyResults } from '@/components/simulator/SCRResultPa
 import type { SCRResult } from '@headroom/shared'
 import type { TransactionType } from '@headroom/shared'
 import { weeklyWageToAnnualPence } from '@headroom/shared'
+import { computeActiveBaseline } from '@/lib/scr'
 import { Link } from 'react-router-dom'
 
 // ─── Zod schema ──────────────────────────────────────────────────────────────
@@ -51,7 +51,7 @@ const TX_TYPES: { type: TransactionType; label: string }[] = [
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function SimulatorPage() {
-  const { financials, scrInfluence, simulationCount, totalStackedCostImpact, setStackedHistory } = useClubStore()
+  const { financials, leagueId, simulations, upsertSimulation } = useClubStore()
   const [result, setResult] = useState<SCRResult | null>(null)
   const [resultType, setResultType] = useState<TransactionType>('buy')
   const [simulationId, setSimulationId] = useState<string | null>(null)
@@ -62,14 +62,17 @@ export function SimulatorPage() {
     resolver: zodResolver(SimulatorSchema),
     defaultValues: {
       transactionType: 'buy',
-      transferFeePounds: 8_000_000,
-      contractLengthYears: 4,
-      weeklyWagePounds: 28_000,
-      agentFeePounds: 400_000,
     },
   })
 
   const txType = form.watch('transactionType')
+
+  // Active baseline = current squad costs + Σ deltas of all is_included sims.
+  // The simulator runs the new transaction on top of this.
+  const activeBaseline = useMemo(() => {
+    if (!financials || !leagueId) return null
+    return computeActiveBaseline(financials, leagueId, simulations)
+  }, [financials, leagueId, simulations])
 
   const onSubmit = async (data: SimulatorData) => {
     if (!financials) return
@@ -78,15 +81,33 @@ export function SimulatorPage() {
     setResult(null)
 
     try {
-      const payload = buildPayload(data, financials, scrInfluence, simulationCount, totalStackedCostImpact)
+      // When other sims are included in the active baseline, override BOTH squad costs
+      // and revenue so the engine's "current" position matches the topbar pill.
+      const hasStackedBaseline = !!activeBaseline && activeBaseline.includedCount > 0
+      const baselineSquadCostsOverride = hasStackedBaseline ? activeBaseline.baselineSquadCosts : undefined
+      // Engine expects footballRelatedRevenue WITHOUT owner equity (it adds equity internally).
+      const baselineRevenueOverride = hasStackedBaseline
+        ? activeBaseline.adjustedRevenue - (financials.ownerEquityUsed1yr ?? 0)
+        : undefined
+      const payload = buildPayload(data, baselineSquadCostsOverride, baselineRevenueOverride)
       const response = await api.simulations.create(payload)
       setResult(response.scrResult)
       setResultType(data.transactionType)
       setSimulationId(response.id)
-      setStackedHistory(
-        simulationCount + 1,
-        totalStackedCostImpact + response.scrResult.totalAnnualCostImpact
-      )
+      // Strip API-only baseline overrides + label/season before storing — `transferInput`
+      // in the store must hold ONLY the transaction deltas (matches the DB JSONB shape).
+      const { baselineSquadCostsPence: _bs, baselineRevenuePence: _br, label: _l, season: _s, ...transferInputClean } = payload
+      void _bs; void _br; void _l; void _s
+      // Add the new simulation to the store (is_included = false by default — does not
+      // affect the Current SCR pill until the CFO opts it in from /history).
+      upsertSimulation({
+        id: response.id,
+        label: response.label,
+        season: '2026-27',
+        transferInput: transferInputClean,
+        isIncluded: response.isIncluded,
+        createdAt: new Date().toISOString(),
+      })
     } catch (e) {
       setServerError(e instanceof Error ? e.message : 'Simulation failed')
     } finally {
@@ -142,14 +163,14 @@ export function SimulatorPage() {
               </div>
             </div>
 
-            {/* Stacked baseline badge */}
-            {scrInfluence && simulationCount > 0 && (
+            {/* Active baseline badge */}
+            {activeBaseline && activeBaseline.includedCount > 0 && (
               <div className="mb-5 flex items-center gap-2 px-3 py-2 rounded-lg bg-violet-50 border border-violet-200">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
                 </svg>
                 <span className="text-[12px] text-violet-700 font-medium">
-                  Baseline: Base + {simulationCount} stacked simulation{simulationCount !== 1 ? 's' : ''}
+                  Baseline: Base + {activeBaseline.includedCount} active simulation{activeBaseline.includedCount === 1 ? '' : 's'}
                 </span>
               </div>
             )}
@@ -177,14 +198,14 @@ export function SimulatorPage() {
               {(txType === 'buy') && (
                 <div className="grid grid-cols-2 gap-4">
                   <FieldWrapper label="Transfer Fee" helper="0 for free transfer" error={errs.transferFeePounds?.message}>
-                    <PoundInput name="transferFeePounds" control={form.control} max={200_000_000} hasError={!!errs.transferFeePounds} />
+                    <PoundInput name="transferFeePounds" control={form.control} max={200_000_000} hasError={!!errs.transferFeePounds} placeholder="5,000,000" />
                   </FieldWrapper>
                   <ContractLengthField form={form} error={errs.contractLengthYears?.message} label="Contract Length" helper="Years (0.5 steps)" />
                   <FieldWrapper label="Weekly Wage" helper="Annual equivalent shown in results" error={errs.weeklyWagePounds?.message}>
-                    <PoundInput name="weeklyWagePounds" control={form.control} max={500_000} hasError={!!errs.weeklyWagePounds} />
+                    <PoundInput name="weeklyWagePounds" control={form.control} max={500_000} hasError={!!errs.weeklyWagePounds} placeholder="20,000" />
                   </FieldWrapper>
                   <FieldWrapper label="Agent Fee (one-off)" helper="Spread across contract years" error={errs.agentFeePounds?.message}>
-                    <PoundInput name="agentFeePounds" control={form.control} max={20_000_000} hasError={!!errs.agentFeePounds} />
+                    <PoundInput name="agentFeePounds" control={form.control} max={20_000_000} hasError={!!errs.agentFeePounds} placeholder="500,000" />
                   </FieldWrapper>
                 </div>
               )}
@@ -193,16 +214,16 @@ export function SimulatorPage() {
               {txType === 'sell' && (
                 <div className="grid grid-cols-2 gap-4">
                   <FieldWrapper label="Sale Proceeds" error={errs.saleProceedsPounds?.message}>
-                    <PoundInput name="saleProceedsPounds" control={form.control} max={200_000_000} hasError={!!errs.saleProceedsPounds} />
+                    <PoundInput name="saleProceedsPounds" control={form.control} max={200_000_000} hasError={!!errs.saleProceedsPounds} placeholder="8,000,000" />
                   </FieldWrapper>
                   <FieldWrapper label="Player Book Value" helper="Remaining amortised value" error={errs.playerBookValuePounds?.message}>
-                    <PoundInput name="playerBookValuePounds" control={form.control} max={200_000_000} hasError={!!errs.playerBookValuePounds} />
+                    <PoundInput name="playerBookValuePounds" control={form.control} max={200_000_000} hasError={!!errs.playerBookValuePounds} placeholder="2,000,000" />
                   </FieldWrapper>
                   <FieldWrapper label="Weekly Wage Released" helper="Player's current weekly wage" error={errs.weeklyWageReleasedPounds?.message}>
-                    <PoundInput name="weeklyWageReleasedPounds" control={form.control} max={500_000} hasError={!!errs.weeklyWageReleasedPounds} />
+                    <PoundInput name="weeklyWageReleasedPounds" control={form.control} max={500_000} hasError={!!errs.weeklyWageReleasedPounds} placeholder="25,000" />
                   </FieldWrapper>
                   <FieldWrapper label="Annual Amortisation Relief" helper="Current annual amort charge" error={errs.annualAmortisationReliefPounds?.message}>
-                    <PoundInput name="annualAmortisationReliefPounds" control={form.control} max={50_000_000} hasError={!!errs.annualAmortisationReliefPounds} />
+                    <PoundInput name="annualAmortisationReliefPounds" control={form.control} max={50_000_000} hasError={!!errs.annualAmortisationReliefPounds} placeholder="1,000,000" />
                   </FieldWrapper>
                 </div>
               )}
@@ -211,11 +232,11 @@ export function SimulatorPage() {
               {txType === 'loan_in' && (
                 <div className="grid grid-cols-2 gap-4">
                   <FieldWrapper label="Loan Fee Paid" helper="0 for free loan" error={errs.transferFeePounds?.message}>
-                    <PoundInput name="transferFeePounds" control={form.control} max={20_000_000} hasError={!!errs.transferFeePounds} />
+                    <PoundInput name="transferFeePounds" control={form.control} max={20_000_000} hasError={!!errs.transferFeePounds} placeholder="500,000" />
                   </FieldWrapper>
                   <ContractLengthField form={form} error={errs.contractLengthYears?.message} label="Loan Duration" helper="Years (0.5 steps)" />
                   <FieldWrapper label="Weekly Wage Contribution" helper="Portion your club covers" error={errs.weeklyWagePounds?.message}>
-                    <PoundInput name="weeklyWagePounds" control={form.control} max={500_000} hasError={!!errs.weeklyWagePounds} />
+                    <PoundInput name="weeklyWagePounds" control={form.control} max={500_000} hasError={!!errs.weeklyWagePounds} placeholder="15,000" />
                   </FieldWrapper>
                 </div>
               )}
@@ -224,7 +245,7 @@ export function SimulatorPage() {
               {txType === 'loan_out' && (
                 <div className="grid grid-cols-2 gap-4">
                   <FieldWrapper label="Loan Fee Received" helper="0 for free loan" error={errs.loanFeeReceivedPounds?.message}>
-                    <PoundInput name="loanFeeReceivedPounds" control={form.control} max={20_000_000} hasError={!!errs.loanFeeReceivedPounds} />
+                    <PoundInput name="loanFeeReceivedPounds" control={form.control} max={20_000_000} hasError={!!errs.loanFeeReceivedPounds} placeholder="250,000" />
                   </FieldWrapper>
                   <FieldWrapper label="Loan Duration" helper="Years (0.5 steps)" error={errs.loanLengthYears?.message}>
                     <div className="relative">
@@ -235,6 +256,7 @@ export function SimulatorPage() {
                           <input
                             type="number" min={0.5} max={5} step={0.5}
                             value={field.value ?? ''}
+                            placeholder="1"
                             onChange={(e) => field.onChange(parseFloat(e.target.value))}
                             onBlur={(e) => {
                               const v = parseFloat(e.target.value)
@@ -250,7 +272,7 @@ export function SimulatorPage() {
                     </div>
                   </FieldWrapper>
                   <FieldWrapper label="Weekly Wage Covered" helper="Portion paid by borrowing club" error={errs.weeklyWageCoveredPounds?.message}>
-                    <PoundInput name="weeklyWageCoveredPounds" control={form.control} max={500_000} hasError={!!errs.weeklyWageCoveredPounds} />
+                    <PoundInput name="weeklyWageCoveredPounds" control={form.control} max={500_000} hasError={!!errs.weeklyWageCoveredPounds} placeholder="20,000" />
                   </FieldWrapper>
                 </div>
               )}
@@ -260,7 +282,7 @@ export function SimulatorPage() {
                 <FieldWrapper label="Scenario Label (optional)">
                   <input
                     type="text"
-                    placeholder="e.g. Striker option A — January window"
+                    placeholder="Striker option A — January window"
                     {...form.register('label')}
                     className={inputCls(false)}
                   />
@@ -310,16 +332,16 @@ export function SimulatorPage() {
 
 function buildPayload(
   data: SimulatorData,
-  financials: ClubFinancialsResponse,
-  scrInfluence: boolean,
-  simulationCount: number,
-  totalStackedCostImpact: number
+  baselineSquadCostsPence?: number,
+  baselineRevenuePence?: number
 ) {
-  const baselineSquadCostsPence = scrInfluence && simulationCount > 0
-    ? financials.currentSquadCosts + totalStackedCostImpact
-    : undefined
-
-  const base = { transactionType: data.transactionType, label: data.label, season: '2026-27', baselineSquadCostsPence }
+  const base = {
+    transactionType: data.transactionType,
+    label: data.label,
+    season: '2026-27',
+    baselineSquadCostsPence,
+    baselineRevenuePence,
+  }
 
   if (data.transactionType === 'buy' || data.transactionType === 'loan_in') {
     return {
@@ -354,11 +376,12 @@ function buildPayload(
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function PoundInput({ name, control, max, hasError }: {
+function PoundInput({ name, control, max, hasError, placeholder }: {
   name: keyof SimulatorData
   control: ReturnType<typeof useForm<SimulatorData>>['control']
   max: number
   hasError: boolean
+  placeholder?: string
 }) {
   return (
     <div className="relative">
@@ -373,6 +396,7 @@ function PoundInput({ name, control, max, hasError }: {
             onBlur={field.onBlur}
             ref={field.ref}
             max={max}
+            placeholder={placeholder}
             className={inputCls(hasError, 'pl-7')}
           />
         )}
@@ -398,6 +422,7 @@ function ContractLengthField({ form, error, label, helper }: {
             <input
               type="number" min={0.5} max={10} step={0.5}
               value={field.value ?? ''}
+              placeholder="3"
               onChange={(e) => field.onChange(parseFloat(e.target.value))}
               onBlur={(e) => {
                 const v = parseFloat(parseFloat(e.target.value).toFixed(2))

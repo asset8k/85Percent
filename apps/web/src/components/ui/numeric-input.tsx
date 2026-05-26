@@ -11,10 +11,11 @@ interface Props {
   onBlur?: () => void
   className?: string
   max?: number
+  placeholder?: string
 }
 
 export const NumericInput = forwardRef<HTMLInputElement, Props>(
-  function NumericInput({ value, onChange, onBlur, className, max }, ref) {
+  function NumericInput({ value, onChange, onBlur, className, max, placeholder }, ref) {
     const [focused, setFocused] = useState(false)
     const [display, setDisplay] = useState(() => fmt(value))
 
@@ -41,6 +42,7 @@ export const NumericInput = forwardRef<HTMLInputElement, Props>(
         type="text"
         inputMode="numeric"
         value={display}
+        placeholder={placeholder}
         onChange={handleChange}
         onFocus={() => setFocused(true)}
         onBlur={() => {

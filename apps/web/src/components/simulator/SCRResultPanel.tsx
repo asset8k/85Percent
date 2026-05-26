@@ -8,6 +8,10 @@ import { AmortisationTable } from './AmortisationTable'
 interface SCRResultPanelProps {
   result: SCRResult
   transactionType?: TransactionType
+  beforeSubtext?: string
+  // Which card represents the CFO's current reality. When set, that card gets visual
+  // emphasis (ring + shadow + "ACTIVE STATE" badge) and the other is dimmed.
+  activeSide?: 'before' | 'after'
 }
 
 function fmtPct(ratio: number) {
@@ -86,7 +90,23 @@ function StatusBanner({ result, transactionType }: { result: SCRResult; transact
   )
 }
 
-function ComparisonCards({ result }: { result: SCRResult }) {
+function ActiveStateBadge() {
+  return (
+    <span className="inline-flex items-center text-[9px] uppercase tracking-wider font-semibold px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 whitespace-nowrap">
+      Active State
+    </span>
+  )
+}
+
+function ComparisonCards({
+  result,
+  beforeSubtext,
+  activeSide,
+}: {
+  result: SCRResult
+  beforeSubtext?: string
+  activeSide?: 'before' | 'after'
+}) {
   const greenThreshold = result.currentGreenThreshold
   const revenue = greenThreshold / 0.85
   const currentSquadCosts = Math.round(result.currentSCRRatio * revenue)
@@ -103,18 +123,32 @@ function ComparisonCards({ result }: { result: SCRResult }) {
     red: 'text-red-700',
   }
 
+  const beforeActive = activeSide === 'before'
+  const afterActive = activeSide === 'after'
+  const beforeCardCls = activeSide
+    ? beforeActive
+      ? 'ring-2 ring-violet-400 shadow-md border-violet-200 bg-violet-50/30'
+      : 'border-slate-200 opacity-60'
+    : 'border-slate-200'
+
   return (
     <div className="grid grid-cols-2 gap-4">
       {/* Before */}
-      <div className="rounded-xl border border-slate-200 bg-white p-6 flex flex-col">
+      <div className={`rounded-xl border bg-white p-6 flex flex-col transition-all ${beforeCardCls}`}>
         <div className="flex items-center justify-between mb-5">
-          <span className="meta-label">Before Transfer</span>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="meta-label">Before Transfer</span>
+            {beforeActive && <ActiveStateBadge />}
+          </div>
           <StatusBadge status={beforeStatus as 'green' | 'amber' | 'red'}>{statusShort(beforeStatus)}</StatusBadge>
         </div>
         <div className="flex items-baseline gap-2.5">
           <span className="num text-[36px] font-semibold leading-none text-slate-900">{fmtPct(result.currentSCRRatio)}</span>
           <span className="text-[12px] text-slate-400">SCR</span>
         </div>
+        {beforeSubtext && (
+          <div className="text-[11px] text-slate-400 mt-2">{beforeSubtext}</div>
+        )}
         <div className="mt-6 pt-5 border-t border-slate-100 space-y-3 text-[13px]">
           <div className="flex items-center justify-between">
             <span className="text-slate-500">Squad Costs</span>
@@ -134,11 +168,22 @@ function ComparisonCards({ result }: { result: SCRResult }) {
       </div>
 
       {/* After */}
-      <div className={`rounded-xl border bg-white p-6 flex flex-col ${
-        afterStatus === 'amber' ? 'border-amber-200' : afterStatus === 'red' ? 'border-red-200' : 'border-slate-200'
+      <div className={`rounded-xl border bg-white p-6 flex flex-col transition-all ${
+        activeSide
+          ? afterActive
+            ? `ring-2 ring-violet-400 shadow-md bg-violet-50/30 ${
+                afterStatus === 'amber' ? 'border-amber-200' : afterStatus === 'red' ? 'border-red-200' : 'border-violet-200'
+              }`
+            : `opacity-60 ${
+                afterStatus === 'amber' ? 'border-amber-200' : afterStatus === 'red' ? 'border-red-200' : 'border-slate-200'
+              }`
+          : afterStatus === 'amber' ? 'border-amber-200' : afterStatus === 'red' ? 'border-red-200' : 'border-slate-200'
       }`}>
         <div className="flex items-center justify-between mb-5">
-          <span className="meta-label">After Transfer</span>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="meta-label">After Transfer</span>
+            {afterActive && <ActiveStateBadge />}
+          </div>
           <StatusBadge status={afterStatus as 'green' | 'amber' | 'red'}>{statusShort(afterStatus)}</StatusBadge>
         </div>
         <div className="flex items-baseline gap-2.5">
@@ -347,7 +392,7 @@ function SanctionsPanel({ result }: { result: SCRResult }) {
   return null
 }
 
-export function SCRResultPanel({ result, transactionType }: SCRResultPanelProps) {
+export function SCRResultPanel({ result, transactionType, beforeSubtext, activeSide }: SCRResultPanelProps) {
   const greenPct = 85
   const revenue = result.currentGreenThreshold / 0.85
   const redPct = (result.currentRedThreshold / revenue) * 100
@@ -359,7 +404,7 @@ export function SCRResultPanel({ result, transactionType }: SCRResultPanelProps)
   return (
     <div className="flex flex-col gap-5">
       <StatusBanner result={result} transactionType={transactionType} />
-      <ComparisonCards result={result} />
+      <ComparisonCards result={result} beforeSubtext={beforeSubtext} activeSide={activeSide} />
       <CostBreakdown result={result} transactionType={transactionType} />
       <Card className="p-6">
         <ComplianceGauge

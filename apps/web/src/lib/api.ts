@@ -40,8 +40,7 @@ export interface SimulationResponse {
   season: string
   label: string | null
   transferInput: unknown
-  clubFinancialsSnapshot: unknown
-  scrResult: SCRResult
+  isIncluded: boolean
   createdAt: string
   user?: { fullName: string; email: string }
 }
@@ -58,6 +57,7 @@ export interface CreateSimulationPayload {
   season?: string
   label?: string
   baselineSquadCostsPence?: number
+  baselineRevenuePence?: number
 
   // BUY & LOAN_IN
   transferFee?: number
@@ -98,7 +98,7 @@ export const api = {
   },
   simulations: {
     create: (payload: CreateSimulationPayload) =>
-      apiFetch<{ id: string; scrResult: SCRResult }>('/simulations', {
+      apiFetch<{ id: string; scrResult: SCRResult; label: string; isIncluded: boolean }>('/simulations', {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
@@ -109,6 +109,11 @@ export const api = {
       apiFetch<{ success: boolean }>(`/simulations/${id}/label`, {
         method: 'PATCH',
         body: JSON.stringify({ label }),
+      }),
+    setInclusion: (id: string, isIncluded: boolean) =>
+      apiFetch<{ success: boolean; isIncluded: boolean }>(`/simulations/${id}/inclusion`, {
+        method: 'PATCH',
+        body: JSON.stringify({ isIncluded }),
       }),
     delete: (id: string) =>
       apiFetch<{ success: boolean }>(`/simulations/${id}`, { method: 'DELETE' }),

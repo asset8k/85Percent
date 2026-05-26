@@ -7,10 +7,59 @@ import type { SimulationResponse } from './api'
 const DISCLAIMER =
   'This report is produced by Headroom for decision-support purposes only. It does not constitute legal or financial advice. Clubs should seek independent legal counsel before completing any transfer.'
 
+const TX_TYPE_LABEL: Record<string, string> = {
+  buy:      'Buy',
+  sell:     'Sell',
+  loan_in:  'Loan In',
+  loan_out: 'Loan Out',
+}
+
+function buildInputRows(t: Record<string, unknown>): string[][] {
+  const type = (t['transactionType'] as string | undefined) ?? 'buy'
+  const num = (v: unknown) => (typeof v === 'number' ? v : 0)
+
+  if (type === 'sell') {
+    return [
+      ['Sale Proceeds', formatPence(num(t['saleProceeds']))],
+      ['Player Book Value', formatPence(num(t['playerBookValue']))],
+      ['Annual Wage Relief', formatPence(num(t['annualWageRelief']))],
+      ['Weekly Wage Released (approx)', formatPence(Math.round(num(t['annualWageRelief']) / 52))],
+      ['Annual Amortisation Relief', formatPence(num(t['annualAmortisationRelief']))],
+    ]
+  }
+
+  if (type === 'loan_in') {
+    return [
+      ['Loan Fee Paid', formatPence(num(t['transferFee']))],
+      ['Loan Duration', `${num(t['contractLengthYears'])} years`],
+      ['Annual Wage Contribution', formatPence(num(t['annualWage']))],
+      ['Weekly Wage (approx)', formatPence(Math.round(num(t['annualWage']) / 52))],
+    ]
+  }
+
+  if (type === 'loan_out') {
+    return [
+      ['Loan Fee Received', formatPence(num(t['loanFeeReceived']))],
+      ['Loan Duration', `${num(t['loanLengthYears'])} years`],
+      ['Annual Wage Covered', formatPence(num(t['annualWageCovered']))],
+      ['Weekly Wage Covered (approx)', formatPence(Math.round(num(t['annualWageCovered']) / 52))],
+    ]
+  }
+
+  // buy (default)
+  return [
+    ['Transfer Fee', formatPence(num(t['transferFee']))],
+    ['Contract Length', `${num(t['contractLengthYears'])} years`],
+    ['Annual Wage', formatPence(num(t['annualWage']))],
+    ['Weekly Wage (approx)', formatPence(Math.round(num(t['annualWage']) / 52))],
+    ['Agent Fee', formatPence(num(t['agentFee']))],
+  ]
+}
+
 export function exportSimulationPDF(sim: SimulationResponse, result: SCRResult) {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  const transferInput = sim.transferInput as Record<string, number>
-  const snapshot = sim.clubFinancialsSnapshot as Record<string, unknown>
+  const transferInput = (sim.transferInput as Record<string, unknown> | null) ?? {}
+  const txType = (transferInput['transactionType'] as string | undefined) ?? 'buy'
 
   const pageW = doc.internal.pageSize.getWidth()
   const margin = 20
@@ -39,6 +88,7 @@ export function exportSimulationPDF(sim: SimulationResponse, result: SCRResult) 
   doc.text(
     [
       `Label: ${sim.label ?? 'Unlabelled'}`,
+      `Type: ${TX_TYPE_LABEL[txType] ?? 'Buy'}`,
       `Date: ${new Date(sim.createdAt).toLocaleString('en-GB')}`,
       `Season: ${sim.season}`,
     ],
@@ -46,26 +96,20 @@ export function exportSimulationPDF(sim: SimulationResponse, result: SCRResult) 
     48
   )
 
-  let y = 64
+  let y = 70
 
   // Transfer Inputs
   doc.setFontSize(10)
   doc.setFont('helvetica', 'bold')
   doc.setTextColor(30, 41, 59)
-  doc.text('Transfer Inputs', margin, y)
+  doc.text('Transaction Inputs', margin, y)
   y += 4
 
   autoTable(doc, {
     startY: y,
     margin: { left: margin, right: margin },
     head: [['Field', 'Value']],
-    body: [
-      ['Transfer Fee', formatPence(transferInput['transferFee'] ?? 0)],
-      ['Contract Length', `${transferInput['contractLengthYears']} years`],
-      ['Annual Wage', formatPence(transferInput['annualWage'] ?? 0)],
-      ['Weekly Wage (approx)', formatPence(Math.round((transferInput['annualWage'] ?? 0) / 52))],
-      ['Agent Fee', formatPence(transferInput['agentFee'] ?? 0)],
-    ],
+    body: buildInputRows(transferInput),
     styles: { fontSize: 9, cellPadding: 3 },
     headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: 'bold' },
     alternateRowStyles: { fillColor: [248, 250, 252] },

@@ -69,7 +69,8 @@ export function ClubSetupPage() {
     if (watchSquad != null && watchSquad >= 0) {
       const squadPence = watchSquad * 100
       currentPct = (squadPence / (adjustedRevenuePounds * 100)) * 100
-      scrStatus = currentPct > (watchAllowance + EFL_CHAMPIONSHIP_CONFIG.greenThresholdRatio) * 100
+      // EFL: red boundary = greenRatio × (1 + allowance), not greenRatio + allowance.
+      scrStatus = currentPct > EFL_CHAMPIONSHIP_CONFIG.greenThresholdRatio * (1 + watchAllowance) * 100
         ? 'red'
         : currentPct > EFL_CHAMPIONSHIP_CONFIG.greenThresholdRatio * 100
         ? 'amber'

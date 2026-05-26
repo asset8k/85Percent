@@ -21,7 +21,8 @@ async function start() {
   await app.register(rateLimit, {
     max: 100,
     timeWindow: '1 minute',
-    keyGenerator: (req) => req.headers.authorization ?? req.ip,
+    // Key by IP — JWT-based keying would reset on every token refresh, defeating the limit.
+    keyGenerator: (req) => req.ip,
   })
 
   await app.register(clubRoutes)

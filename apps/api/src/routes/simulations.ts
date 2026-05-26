@@ -11,7 +11,11 @@ const CreateSimulationBody = z.object({
   transactionType: z.enum(['buy', 'sell', 'loan_in', 'loan_out']).default('buy'),
   season: z.string().regex(/^\d{4}-\d{2}$/).default('2026-27'),
   label: z.string().max(100).optional(),
+  // Overrides for stacked-baseline simulations: when other sims are included in the
+  // active baseline, the simulator passes both adjusted squad costs and adjusted revenue
+  // (excluding owner equity — engine applies that separately).
   baselineSquadCostsPence: z.number().int().min(0).optional(),
+  baselineRevenuePence: z.number().int().min(0).optional(),
 
   // BUY & LOAN_IN
   transferFee: z.number().int().min(0).default(0),
@@ -35,7 +39,10 @@ const UpdateLabelBody = z.object({
   label: z.string().max(100),
 })
 
-// Map DB snake_case row → camelCase response expected by the frontend
+const UpdateInclusionBody = z.object({
+  isIncluded: z.boolean(),
+})
+
 function mapSim(row: Record<string, unknown>) {
   const user = row['user'] as { full_name: string; email: string } | null
   return {
@@ -45,8 +52,7 @@ function mapSim(row: Record<string, unknown>) {
     season: row['season'],
     label: row['label'],
     transferInput: row['transfer_input'],
-    clubFinancialsSnapshot: row['club_financials_snapshot'],
-    scrResult: row['scr_result'],
+    isIncluded: row['is_included'] as boolean,
     createdAt: row['created_at'],
     user: user ? { fullName: user.full_name, email: user.email } : undefined,
   }
@@ -62,7 +68,7 @@ export async function simulationRoutes(app: FastifyInstance) {
     }
 
     const {
-      transactionType, season, label, baselineSquadCostsPence,
+      transactionType, season, label, baselineSquadCostsPence, baselineRevenuePence,
       transferFee, contractLengthYears, annualWage, agentFee,
       saleProceeds, playerBookValue, annualWageRelief, annualAmortisationRelief,
       loanFeeReceived, loanLengthYears, annualWageCovered,
@@ -97,8 +103,9 @@ export async function simulationRoutes(app: FastifyInstance) {
         clubId: request.clubId,
         season,
         leagueConfig,
-        footballRelatedRevenue: Number(dbF.football_related_revenue),
-        // baselineSquadCostsPence overrides DB value when the caller is stacking history simulations
+        // baselineRevenuePence overrides the DB value when stacking sims with revenue-side
+        // impacts (sells, loan-outs) so the engine's "current" reflects the active baseline.
+        footballRelatedRevenue: baselineRevenuePence ?? Number(dbF.football_related_revenue),
         currentSquadCosts: baselineSquadCostsPence ?? Number(dbF.current_squad_costs),
         currentAllowanceRatio: Number(dbF.current_allowance_ratio),
         ownerEquityUsedThreeYear: dbF.owner_equity_used_3yr != null ? Number(dbF.owner_equity_used_3yr) : undefined,
@@ -111,6 +118,8 @@ export async function simulationRoutes(app: FastifyInstance) {
         saleProceeds, playerBookValue, annualWageRelief, annualAmortisationRelief,
         loanFeeReceived, loanLengthYears, annualWageCovered,
       }
+      // Engine runs once to return the live result to the simulator UI.
+      // The result is NOT persisted — the detail view recomputes on demand from transferInput.
       const scrResult = calculateSCR(clubFinancials, transferInput, season)
 
       let finalLabel = label ?? null
@@ -132,15 +141,14 @@ export async function simulationRoutes(app: FastifyInstance) {
           season,
           label: finalLabel,
           transfer_input: transferInput,
-          club_financials_snapshot: clubFinancials as object,
-          scr_result: scrResult as object,
+          is_included: false,
         })
         .select('id')
         .single()
 
       if (createErr) throw createErr
 
-      return reply.status(201).send({ id: sim.id, scrResult })
+      return reply.status(201).send({ id: sim.id, scrResult, label: finalLabel, isIncluded: false })
     } catch (err) {
       request.log.error({ err }, 'POST /simulations failed')
       return reply.status(500).send({ error: 'Failed to run simulation' })
@@ -149,14 +157,18 @@ export async function simulationRoutes(app: FastifyInstance) {
 
   app.get('/simulations', async (request, reply) => {
     const query = request.query as Record<string, string>
-    const page = parseInt(query['page'] ?? '1', 10)
-    const limit = Math.min(parseInt(query['limit'] ?? '20', 10), 100)
+    // Defensive parse — reject bogus input rather than silently returning an empty page
+    // (Math.min(NaN, 100) === NaN, range(NaN, NaN) yields no rows).
+    const rawPage = parseInt(query['page'] ?? '1', 10)
+    const rawLimit = parseInt(query['limit'] ?? '20', 10)
+    const page = Number.isFinite(rawPage) && rawPage > 0 ? rawPage : 1
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 100) : 20
     const skip = (page - 1) * limit
 
     try {
       const { data: simulations, error } = await supabase
         .from('simulations')
-        .select('*')
+        .select('id, club_id, created_by, season, label, transfer_input, is_included, created_at, user:users!created_by(full_name, email)')
         .eq('club_id', request.clubId)
         .order('created_at', { ascending: false })
         .range(skip, skip + limit - 1)
@@ -169,7 +181,7 @@ export async function simulationRoutes(app: FastifyInstance) {
         .eq('club_id', request.clubId)
 
       return reply.send({
-        simulations: (simulations ?? []).map(mapSim),
+        simulations: (simulations ?? []).map((s) => mapSim(s as Record<string, unknown>)),
         total: count ?? 0,
         page,
         limit,
@@ -186,7 +198,7 @@ export async function simulationRoutes(app: FastifyInstance) {
     try {
       const { data: sim, error } = await supabase
         .from('simulations')
-        .select('*, user:users!created_by(full_name, email)')
+        .select('id, club_id, created_by, season, label, transfer_input, is_included, created_at, user:users!created_by(full_name, email)')
         .eq('id', id)
         .eq('club_id', request.clubId)
         .maybeSingle()
@@ -223,6 +235,7 @@ export async function simulationRoutes(app: FastifyInstance) {
         .from('simulations')
         .update({ label: parsed.data.label })
         .eq('id', id)
+        .eq('club_id', request.clubId)
 
       if (updateErr) throw updateErr
 
@@ -230,6 +243,39 @@ export async function simulationRoutes(app: FastifyInstance) {
     } catch (err) {
       request.log.error({ err }, 'PATCH /simulations/:id/label failed')
       return reply.status(500).send({ error: 'Failed to update label' })
+    }
+  })
+
+  app.patch('/simulations/:id/inclusion', async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const parsed = UpdateInclusionBody.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const { data: existing, error: findErr } = await supabase
+        .from('simulations')
+        .select('id')
+        .eq('id', id)
+        .eq('club_id', request.clubId)
+        .maybeSingle()
+
+      if (findErr) throw findErr
+      if (!existing) return reply.status(404).send({ error: 'Simulation not found' })
+
+      const { error: updateErr } = await supabase
+        .from('simulations')
+        .update({ is_included: parsed.data.isIncluded })
+        .eq('id', id)
+        .eq('club_id', request.clubId)
+
+      if (updateErr) throw updateErr
+
+      return reply.send({ success: true, isIncluded: parsed.data.isIncluded })
+    } catch (err) {
+      request.log.error({ err }, 'PATCH /simulations/:id/inclusion failed')
+      return reply.status(500).send({ error: 'Failed to update inclusion' })
     }
   })
 
@@ -250,6 +296,7 @@ export async function simulationRoutes(app: FastifyInstance) {
         .from('simulations')
         .delete()
         .eq('id', id)
+        .eq('club_id', request.clubId)
 
       if (deleteErr) throw deleteErr
 
