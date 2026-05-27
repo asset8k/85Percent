@@ -580,7 +580,7 @@ This version transforms the product from a single-transfer tool into a full squa
 - CFO role: full access, can create/delete users, approve scenarios
 - Sporting Director role: can run simulations and scenarios, read-only on financials
 - Finance Analyst role: full access to data entry, cannot change club financial settings
-- Invite users by email. They receive a magic link to set up their account.
+- Invite users by email. They receive a magic link to set up their account (actually needs a fix here, users need to register when they receive invitation, full registration with OTP, just like it's done for owner)
 - All actions logged with user attribution (full audit trail)
 
 **5. Premier League Module**
@@ -592,20 +592,7 @@ This version transforms the product from a single-transfer tool into a full squa
 - SSR status displayed on dashboard with clear warnings when approaching thresholds
 - Promoted clubs: calculator for their adjusted revenue (PL revenue uplift estimates applied)
 
-**6. Compliance Calendar (interactive)**
-- Full interactive calendar view of all compliance dates
-- For each deadline, show the club's current projected status (will we be compliant by this date?)
-- Email notifications for upcoming deadlines (7 days before, 1 day before)
-- Allow users to add internal notes to calendar events
-
-**7. Benchmarking Layer (anonymised)**
-- Once 10+ clubs are on the platform, show anonymised benchmarks
-- "Championship clubs at your revenue level have a median SCR of X%"
-- "Your wage-to-revenue ratio vs Championship average"
-- All data anonymised — no club can identify another club's data
-- Opt-in per club. Clubs that contribute data see the benchmarks. Clubs that don't, don't.
-
-**8. PDF and Excel Export**
+**6. PDF and Excel Export**
 - Export full squad financial report as PDF (board-ready format)
 - Export amortisation schedules for all players as Excel spreadsheet
 - Export scenario comparisons as PDF
@@ -674,6 +661,19 @@ This is the enterprise-grade version. It is funded by the Seed round. Do not att
 - Large football law firms and sports agencies can license the platform under their own brand
 - Separate branding config per white-label client
 - Revenue share model: 70/30 (Headroom/partner)
+
+**9. Compliance Calendar (interactive)**
+- Full interactive calendar view of all compliance dates
+- For each deadline, show the club's current projected status (will we be compliant by this date?)
+- In-app notifications for upcoming deadlines (7 days before, 1 day before)
+- Allow users to add internal notes to calendar events
+
+**10. Benchmarking Layer (anonymised)**
+- Once 10+ clubs are on the platform, show anonymised benchmarks
+- "Championship clubs at your revenue level have a median SCR of X%"
+- "Your wage-to-revenue ratio vs Championship average"
+- All data anonymised — no club can identify another club's data
+- Opt-in per club. Clubs that contribute data see the benchmarks. Clubs that don't, don't.
 
 ---
 
