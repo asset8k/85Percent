@@ -1441,3 +1441,161 @@ New response types: `WorkingCapitalResponse`, `LiquidityResponse`, `EquityRespon
 - Engine: 95/95 tests passing (76 + 19 SSR)
 - API typecheck: 0 errors
 - Web typecheck: 0 errors
+
+---
+
+## Session 14 — Phase 5: Auth Invites + RBAC + Tamper-Evident Audit (2026-05-27)
+
+### What was accomplished
+
+Phase 5 of [mvp_2.0_plan.md](mvp_2.0_plan.md): full invite flow + role-based access control across both API and UI + Activity Log viewer. 15/15 E2E smoke tests pass.
+
+---
+
+### Database
+
+[apps/api/prisma/schema.prisma](apps/api/prisma/schema.prisma) — new `Invite` model:
+
+```prisma
+model Invite {
+  id, clubId, email, role, invitedBy, token (unique),
+  expiresAt, acceptedAt, createdAt
+  @@index([email, acceptedAt])
+}
+```
+
+Migration [apps/api/prisma/migrations/20260527000003_mvp2_invites/migration.sql](apps/api/prisma/migrations/20260527000003_mvp2_invites/migration.sql) — idempotent (FK add guarded by `DO $$ IF NOT EXISTS $$`). Applied to Supabase, RLS extended with one new policy (`invites: own club only`).
+
+---
+
+### API — three new files + RBAC refactor
+
+**[apps/api/src/lib/audit.ts](apps/api/src/lib/audit.ts)** — single `writeAuditLog(request, table, recordId, action, newValue?, previousValue?)` helper used by every mutating route. Failure is non-fatal (warn log). The duplicate copies that were in roster/scenarios/ssr have been removed.
+
+**[apps/api/src/middleware/roles.ts](apps/api/src/middleware/roles.ts)** — two exports:
+- `requireRole(...allowed)` — Fastify preHandler hook (admin implicit in every check)
+- `hasRole(role, ...allowed)` — inline predicate for mid-handler branches (e.g. PATCH /scenarios where rename is universal but isIncluded toggle is restricted)
+
+Returns 403 on mismatch — **not 404** (404 is reserved for "resource doesn't exist for this club" like SSR on Championship).
+
+**[apps/api/src/routes/invites.ts](apps/api/src/routes/invites.ts)** — 5 endpoints:
+
+| Endpoint | Auth | Role | Behaviour |
+|---|---|---|---|
+| `GET /invites/lookup?token=…` | **public** | n/a | returns email + role + clubName; 404 unknown/expired/accepted |
+| `POST /invites` | required | CFO | creates row with 32-byte URL-safe token + 7-day expiry. Rejects duplicate emails (409). Returns the token (CFO copies into invite link). |
+| `GET /invites` | required | CFO | lists with computed `status: 'pending' \| 'accepted' \| 'expired'`. Includes the token for pending invites so CFO can copy the link again. |
+| `DELETE /invites/:id` | required | CFO | revokes pending invite. 409 on accepted invites (immutable history). |
+| `GET /team` | required | CFO | lists current club members for the Settings → Team UI. |
+
+Token: `randomBytes(32).toString('base64url')` — 43-char URL-safe string, infeasible to brute-force in the 7-day window.
+
+**[apps/api/src/routes/audit.ts](apps/api/src/routes/audit.ts)** — read-only Activity Log:
+- `GET /audit?from=YYYY-MM-DD&to=YYYY-MM-DD&user=<id>&table=<name>&page=1&limit=50` (CFO only)
+- Joined `users` for the actor name; pagination + total count; max limit 200
+- Malformed date strings are silently ignored rather than 400ing (safe parse)
+
+**[apps/api/src/middleware/auth.ts](apps/api/src/middleware/auth.ts)** — invite-aware auto-provisioning:
+- When a brand-new auth user signs in (no `public.users` row), look up `invites` by email
+- If a non-expired, not-yet-accepted invite exists → attach the new user to that invite's `club_id` with the invite's `role`
+- Otherwise fall back to the existing "fresh isolated workspace as CFO" path (founder)
+- On success, mark `invites.accepted_at = now()` (non-fatal)
+
+**[apps/api/src/routes/club.ts](apps/api/src/routes/club.ts)** — additions + tightening:
+- New `GET /me` returns `{ id, role, fullName, email }` — used by the frontend `useRole()` hook to gate UI affordances
+- `PUT /club/financials` tightened from `cfo + admin + finance_analyst` → **CFO + Admin only** (per role matrix — Finance Analyst handles roster/SSR data entry, not season-level financial config)
+- `PATCH /club/league` now uses `requireRole('cfo')`
+- All audit writes routed through `writeAuditLog`
+
+**[apps/api/src/routes/scenarios.ts](apps/api/src/routes/scenarios.ts)** — `PATCH /scenarios/:id` now branches:
+- Rename (just `name` in body): allowed for all authenticated users
+- Toggle `isIncluded`: restricted to **CFO + Sporting Director** (per role matrix)
+
+[apps/api/src/routes/roster.ts](apps/api/src/routes/roster.ts) and [apps/api/src/routes/ssr.ts](apps/api/src/routes/ssr.ts) — refactored to import `hasRole` + `writeAuditLog` from the new central modules. No behavioural changes.
+
+---
+
+### Web — RBAC hook + Settings tabs
+
+**[apps/web/src/lib/role.ts](apps/web/src/lib/role.ts)** — new module:
+- `useRole()` calls `/me` once per session, caches in localStorage to prevent flicker on refresh
+- `useCan()` exposes predicates aligned with the API matrix: `editClubFinancials`, `switchLeague`, `mutateRoster`, `toggleActiveBaseline`, `mutateSsr`, `inviteMembers`, `viewAuditLog`, etc.
+
+**[apps/web/src/pages/ClubSetupPage.tsx](apps/web/src/pages/ClubSetupPage.tsx)** — restructured into tabs:
+- Renamed shell to "Settings" with tab nav: Financials / Team / Activity Log (last two CFO-only)
+- Tabs are URL-hash-routed (`#team`, `#activity`) for bookmarkable deep links
+- **TeamTab**: invite form (email + role dropdown), `justCreated` link card with copy-to-clipboard, members table, pending invites table with copy-link + revoke
+- **ActivityTab**: paginated audit log table (50 per page), action badge (`create`/`update`/`delete` with semantic colours), resource label map (`ssr_working_capital → "Working Capital"`)
+
+**[apps/web/src/pages/LoginPage.tsx](apps/web/src/pages/LoginPage.tsx)** — invite-aware:
+- Reads `?invite=<token>` from URL on mount
+- Calls public `GET /invites/lookup` to fetch email + club + role
+- Shows an invitation banner: "Invitation to {Club Name} — You've been invited to join as {Role}"
+- Default mode becomes signup; email field pre-filled and read-only (bound to the token)
+- All post-login redirects updated `/simulator` → `/dashboard` (MVP 2.0 home)
+
+**Frontend RBAC gating** (UI hides what the API would reject):
+- [apps/web/src/pages/RosterPage.tsx](apps/web/src/pages/RosterPage.tsx) — Upload CSV / Add Player buttons hidden for Sporting Director. Player edit drawer hides Save changes + Archive player buttons for read-only roles.
+- [apps/web/src/pages/ScenariosPage.tsx](apps/web/src/pages/ScenariosPage.tsx) — Active Baseline checkbox replaced with a read-only swatch for Finance Analyst (preserves the visual indicator without exposing the input).
+- ClubSetupPage tabs already gated by `can.inviteMembers` / `can.viewAuditLog`.
+
+**[apps/web/src/lib/api.ts](apps/web/src/lib/api.ts)** — new namespaces: `api.me.get`, `api.invites.{list, create, revoke, lookup}`, `api.team.list`, `api.audit.list`. All typed via new interfaces (`InviteRow`, `TeamMember`, `AuditEntry`).
+
+---
+
+### Role matrix (enforced both server + UI)
+
+| Capability | CFO | Sporting Director | Finance Analyst |
+|---|:-:|:-:|:-:|
+| View dashboard / scenarios / calendar / SSR (PL) | ✓ | ✓ | ✓ |
+| Edit club financial settings | ✓ | – | – |
+| Switch league (Championship / PL) | ✓ | – | – |
+| Manage roster (CSV / add / edit / archive) | ✓ | – | ✓ |
+| Create / save / delete scenarios | ✓ | ✓ | ✓ |
+| Toggle scenario `is_included` (Active Baseline) | ✓ | ✓ | – |
+| Invite + remove team members | ✓ | – | – |
+| View Activity Log | ✓ | – | – |
+| SSR data entry (PL only) | ✓ | – | ✓ |
+
+Admin role bypasses every restriction (reserved for internal Headroom staff).
+
+---
+
+### Invite flow (end-to-end)
+
+1. CFO opens Settings → Team, enters email + role → POST /invites
+2. Server stores row with 32-byte token + 7-day expiry, returns token
+3. UI displays `${origin}/login?invite=<token>` with copy-to-clipboard
+4. CFO sends link manually (MVP 2.0; SMTP/Resend wiring deferred to a later milestone — design supports either)
+5. Invitee opens link → LoginPage reads token, calls public `/invites/lookup`, shows "Invitation to {club}" banner
+6. Invitee enters password → standard 8-digit OTP signup → first authenticated request hits `authMiddleware`
+7. Middleware sees no `public.users` row + finds matching invite → creates user with invite's club_id + role, marks invite accepted
+8. Audit log captures the invite creation, accept, and any subsequent revoke
+
+---
+
+### E2E verification (15/15 passing, live DB)
+
+| # | Test | Result |
+|---|---|---|
+| 1  | `GET /me` returns role + name | ✓ cfo |
+| 2  | `POST /invites` creates pending invite | ✓ |
+| 3  | Public `GET /invites/lookup` works without auth | ✓ |
+| 4  | Lookup of unknown token → 404 | ✓ |
+| 5  | Duplicate invite for same email → 409 | ✓ |
+| 6  | `GET /invites` lists with copy-token | ✓ |
+| 7  | `GET /team` returns members | ✓ |
+| 8  | `DELETE /invites/:id` revokes + invalidates lookup | ✓ |
+| 9  | `PUT /club/financials` works for CFO | ✓ |
+| 10 | `GET /audit` returns entries | ✓ |
+| 11 | `GET /audit?table=invites` filters correctly | ✓ |
+| 12 | `GET /audit?from=&to=` date filter works | ✓ |
+| 13 | Audit safely ignores invalid date strings | ✓ |
+| 14 | `PATCH /scenarios/:id` rename allowed for all auth users | ✓ |
+| 15 | Cleanup `DELETE /scenarios/:id` | ✓ |
+
+### Engine / TypeScript
+
+- Engine: 95/95 tests passing (unchanged from Phase 4)
+- API typecheck: 0 errors
+- Web typecheck: 0 errors

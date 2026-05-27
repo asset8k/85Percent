@@ -147,6 +147,60 @@ export interface EquityResponse {
   evaluation: EquityEvaluation | null
 }
 
+// ---- Invites + Team (Phase 5) ---------------------------------------------
+
+export type InviteRole = 'cfo' | 'sporting_director' | 'finance_analyst'
+export type InviteStatus = 'pending' | 'accepted' | 'expired'
+
+export interface InviteRow {
+  id: string
+  clubId: string
+  email: string
+  role: InviteRole
+  invitedBy: string
+  expiresAt: string
+  acceptedAt: string | null
+  createdAt: string
+  status?: InviteStatus
+  token?: string  // present only on freshly-created or actively-pending rows
+}
+
+export interface InviteLookupResponse {
+  email: string
+  role: InviteRole
+  clubName: string
+  expiresAt: string
+}
+
+export interface TeamMember {
+  id: string
+  email: string
+  fullName: string
+  role: string
+  createdAt: string
+}
+
+// ---- Audit log -------------------------------------------------------------
+
+export interface AuditEntry {
+  id: string
+  userId: string
+  tableName: string
+  recordId: string
+  action: 'create' | 'update' | 'delete'
+  previousValue: unknown
+  newValue: unknown
+  createdAt: string
+  user: { fullName: string; email: string } | null
+}
+
+export interface AuditListResponse {
+  entries: AuditEntry[]
+  total: number
+  page: number
+  limit: number
+}
+
 export interface CreateScenarioPayload {
   name: string
   season?: string
@@ -160,6 +214,9 @@ export interface CreateScenarioPayload {
 
 // ---------------------------------------------------------------------------
 export const api = {
+  me: {
+    get: () => apiFetch<{ id: string; role: string; fullName: string; email: string }>('/me'),
+  },
   club: {
     get: () => apiFetch<{ id: string; name: string; shortName: string; leagueId: string }>('/club'),
     getFinancials: (season?: string) =>
@@ -271,5 +328,47 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(input),
       }),
+  },
+  invites: {
+    list: () => apiFetch<{ invites: InviteRow[] }>('/invites'),
+    create: (input: { email: string; role: InviteRole }) =>
+      apiFetch<{ id: string; email: string; role: InviteRole; token: string; expiresAt: string }>('/invites', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    revoke: (id: string) =>
+      apiFetch<{ success: boolean }>(`/invites/${id}`, { method: 'DELETE' }),
+    /** Public lookup — does NOT require auth. Used during signup. */
+    lookup: async (token: string): Promise<InviteLookupResponse> => {
+      const res = await fetch(`/api/invites/lookup?token=${encodeURIComponent(token)}`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: res.statusText }))
+        throw new Error((body as { error?: string }).error ?? `Invite lookup failed: ${res.status}`)
+      }
+      return res.json()
+    },
+  },
+  team: {
+    list: () => apiFetch<{ members: TeamMember[] }>('/team'),
+  },
+  audit: {
+    list: (params: {
+      page?: number
+      limit?: number
+      from?: string
+      to?: string
+      user?: string
+      table?: string
+    } = {}) => {
+      const q = new URLSearchParams()
+      if (params.page  != null) q.set('page',  String(params.page))
+      if (params.limit != null) q.set('limit', String(params.limit))
+      if (params.from)          q.set('from',  params.from)
+      if (params.to)            q.set('to',    params.to)
+      if (params.user)          q.set('user',  params.user)
+      if (params.table)         q.set('table', params.table)
+      const qs = q.toString()
+      return apiFetch<AuditListResponse>('/audit' + (qs ? '?' + qs : ''))
+    },
   },
 }

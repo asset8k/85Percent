@@ -27,6 +27,7 @@ model Club {
   ssrWorkingCapital SsrWorkingCapital[]
   ssrLiquidity      SsrLiquidity[]
   ssrEquity         SsrEquity[]
+  invites           Invite[]
 
   @@map("clubs")
 }
@@ -195,6 +196,26 @@ model SsrEquity {
 
   @@unique([clubId, season])
   @@map("ssr_equity")
+}
+
+// Pending invitations to join a club. Token expires after 7 days.
+// On accept (full OTP signup), the row is marked accepted and the
+// new public.users row inherits the invite's club_id + role.
+model Invite {
+  id         String    @id @default(uuid())
+  clubId     String    @map("club_id")
+  email      String
+  role       String    // 'cfo' | 'sporting_director' | 'finance_analyst'
+  invitedBy  String    @map("invited_by")
+  token      String    @unique
+  expiresAt  DateTime  @map("expires_at")
+  acceptedAt DateTime? @map("accepted_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  club Club @relation(fields: [clubId], references: [id])
+
+  @@index([email, acceptedAt])
+  @@map("invites")
 }
 
 // Append-only audit log — never delete rows

@@ -28,6 +28,7 @@ import type { PlayerWithContract } from '@headroom/shared'
 import { formatPence } from '@headroom/shared'
 import type { ScenarioDetail, ScenarioAction, ClubFinancialsResponse } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { useCan } from '@/lib/role'
 import {
   DndContext,
   closestCenter,
@@ -141,6 +142,7 @@ function actionToDraft(a: ScenarioAction): DraftAction {
 // Main page
 // ---------------------------------------------------------------------------
 export function ScenariosPage() {
+  const can = useCan()
   const { financials, scenarios, setScenarios, upsertScenario, removeScenario, setScenarioInclusion } = useClubStore()
   const [players, setPlayers] = useState<PlayerWithContract[]>([])
   const [loading, setLoading] = useState(true)
@@ -354,6 +356,7 @@ export function ScenariosPage() {
                     key={s.id}
                     scenario={s}
                     isEditing={editingScenarioId === s.id}
+                    canToggle={can.toggleActiveBaseline}
                     onLoad={() => handleLoadScenario(s)}
                     onDelete={() => handleDeleteScenario(s.id)}
                     onToggle={(v) => handleToggleInclude(s.id, v)}
@@ -503,10 +506,11 @@ function PageHeader({
 // Saved scenario list row
 // ---------------------------------------------------------------------------
 function ScenarioListItem({
-  scenario, isEditing, onLoad, onDelete, onToggle,
+  scenario, isEditing, canToggle, onLoad, onDelete, onToggle,
 }: {
   scenario: ScenarioDetail
   isEditing: boolean
+  canToggle: boolean
   onLoad: () => void
   onDelete: () => void
   onToggle: (v: boolean) => void
@@ -521,14 +525,29 @@ function ScenarioListItem({
       )}
     >
       <div className="flex items-start gap-2">
-        <label className="inline-flex items-center cursor-pointer pt-0.5" onClick={(e) => e.stopPropagation()}>
-          <input
-            type="checkbox"
-            checked={scenario.isIncluded}
-            onChange={(e) => onToggle(e.target.checked)}
-            className="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-2 focus:ring-violet-500 cursor-pointer accent-violet-600"
+        {canToggle ? (
+          <label
+            className="inline-flex items-center cursor-pointer pt-0.5"
+            onClick={(e) => e.stopPropagation()}
+            title="Include in Active Baseline"
+          >
+            <input
+              type="checkbox"
+              checked={scenario.isIncluded}
+              onChange={(e) => onToggle(e.target.checked)}
+              className="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-2 focus:ring-violet-500 cursor-pointer accent-violet-600"
+            />
+          </label>
+        ) : (
+          // Read-only display for Finance Analyst — show the included state but no toggle
+          <span
+            className={cn(
+              'inline-block w-4 h-4 mt-0.5 rounded border',
+              scenario.isIncluded ? 'bg-violet-600 border-violet-600' : 'bg-white border-slate-300'
+            )}
+            title="Active Baseline (read-only)"
           />
-        </label>
+        )}
         <button onClick={onLoad} className="flex-1 text-left min-w-0">
           <div className="text-[13px] font-medium text-slate-900 truncate">{scenario.name}</div>
           <div className="text-[11px] text-slate-500 mt-0.5">

@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { Spinner, PageLoader } from '@/components/ui/spinner'
 import { NumericInput } from '@/components/ui/numeric-input'
 import { cn } from '@/lib/utils'
+import { useCan } from '@/lib/role'
 import { formatPence } from '@headroom/shared'
 import type {
   PlayerWithContract,
@@ -32,6 +33,7 @@ const POSITIONS: PlayerPosition[] = ['GK', 'DEF', 'MID', 'FWD']
 // Top-level page
 // ---------------------------------------------------------------------------
 export function RosterPage() {
+  const can = useCan()
   const [tab, setTab] = useState<'squad' | 'archived'>('squad')
   const [active, setActive] = useState<PlayerWithContract[]>([])
   const [archived, setArchived] = useState<PlayerWithContract[]>([])
@@ -88,7 +90,7 @@ export function RosterPage() {
             Your 25-man squad. Squad costs are derived from these contracts.
           </p>
         </div>
-        {tab === 'squad' && (
+        {tab === 'squad' && can.mutateRoster && (
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={() => setCsvOpen(true)}>
               Upload CSV
@@ -779,6 +781,7 @@ function PlayerEditDrawer({
   onClose: () => void
   onSaved: () => void
 }) {
+  const can = useCan()
   const c = player.contract
   const [name, setName] = useState(player.name)
   const [position, setPosition] = useState<PlayerPosition>(player.position ?? 'MID')
@@ -913,30 +916,34 @@ function PlayerEditDrawer({
         )}
 
         <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-100">
-          {confirmArchive ? (
-            <div className="flex items-center gap-2">
-              <span className="text-[13px] text-slate-700">Archive {player.name}?</span>
-              <Button type="button" variant="destructive" onClick={archive} disabled={archiving}>
-                {archiving ? <Spinner size={14} /> : null}
-                {archiving ? 'Archiving…' : 'Confirm'}
+          {can.mutateRoster ? (
+            confirmArchive ? (
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] text-slate-700">Archive {player.name}?</span>
+                <Button type="button" variant="destructive" onClick={archive} disabled={archiving}>
+                  {archiving ? <Spinner size={14} /> : null}
+                  {archiving ? 'Archiving…' : 'Confirm'}
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => setConfirmArchive(false)} disabled={archiving}>
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <Button type="button" variant="ghost" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => setConfirmArchive(true)}>
+                Archive player
               </Button>
-              <Button type="button" variant="ghost" onClick={() => setConfirmArchive(false)} disabled={archiving}>
-                Cancel
-              </Button>
-            </div>
-          ) : (
-            <Button type="button" variant="ghost" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => setConfirmArchive(true)}>
-              Archive player
-            </Button>
-          )}
+            )
+          ) : <div />}
           <div className="flex items-center gap-3">
             <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
               Close
             </Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? <Spinner size={14} /> : null}
-              {saving ? 'Saving…' : 'Save changes'}
-            </Button>
+            {can.mutateRoster && (
+              <Button type="submit" disabled={saving}>
+                {saving ? <Spinner size={14} /> : null}
+                {saving ? 'Saving…' : 'Save changes'}
+              </Button>
+            )}
           </div>
         </div>
       </form>

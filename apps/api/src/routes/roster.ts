@@ -16,11 +16,13 @@
  */
 
 import { randomUUID } from 'crypto'
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 import Papa from 'papaparse'
 import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
+import { hasRole } from '../middleware/roles.js'
+import { writeAuditLog } from '../lib/audit.js'
 import {
   RosterRowSchema,
   ManualPlayerSchema,
@@ -30,11 +32,9 @@ import {
 } from '@headroom/shared'
 import { currentBookValuePence } from '@headroom/engine'
 
-// Roles permitted to mutate the roster. Sporting Director is intentionally
-// excluded — see Phase 5 role matrix.
-const ROSTER_MUTATION_ROLES = ['cfo', 'admin', 'finance_analyst'] as const
+// Roles permitted to mutate the roster (Phase 5 §5.2 role matrix).
 function canMutateRoster(role: string): boolean {
-  return (ROSTER_MUTATION_ROLES as readonly string[]).includes(role)
+  return hasRole(role, 'cfo', 'finance_analyst')
 }
 
 // ---------------------------------------------------------------------------
@@ -199,28 +199,6 @@ function buildPlayerResponse(
     contract: contractOut,
     monthsToExpiry,
   }
-}
-
-// Insert an audit row. Failure is non-fatal — log a warning and continue.
-async function writeAudit(
-  request: FastifyRequest,
-  tableName: string,
-  recordId: string,
-  action: 'create' | 'update' | 'delete',
-  newValue?: unknown,
-  previousValue?: unknown
-) {
-  const { error } = await supabase.from('audit_logs').insert({
-    id: randomUUID(),
-    user_id: request.userId,
-    club_id: request.clubId,
-    table_name: tableName,
-    record_id: recordId,
-    action,
-    ...(previousValue !== undefined ? { previous_value: previousValue } : {}),
-    ...(newValue      !== undefined ? { new_value:      newValue }      : {}),
-  })
-  if (error) request.log.warn({ err: error }, `audit_logs insert for ${tableName}/${action} failed (non-fatal)`)
 }
 
 // ---------------------------------------------------------------------------
@@ -492,7 +470,7 @@ export async function rosterRoutes(app: FastifyInstance) {
 
       // Audit log — one entry per player created
       for (const p of playersToInsert) {
-        await writeAudit(request, 'players', p['id'] as string, 'create', { name: p['name'], position: p['position'] })
+        await writeAuditLog(request, 'players', p['id'] as string, 'create', { name: p['name'], position: p['position'] })
       }
 
       return reply.status(201).send({
@@ -559,7 +537,7 @@ export async function rosterRoutes(app: FastifyInstance) {
         throw cErr
       }
 
-      await writeAudit(request, 'players', playerId, 'create', { name: r.name, position: r.position })
+      await writeAuditLog(request, 'players', playerId, 'create', { name: r.name, position: r.position })
 
       return reply.status(201).send({ playerId, contractId })
     } catch (err) {
@@ -603,7 +581,7 @@ export async function rosterRoutes(app: FastifyInstance) {
 
       if (updateErr) throw updateErr
 
-      await writeAudit(request, 'players', id, 'update', parsed.data, existing)
+      await writeAuditLog(request, 'players', id, 'update', parsed.data, existing)
 
       return reply.send({ success: true })
     } catch (err) {
@@ -675,7 +653,7 @@ export async function rosterRoutes(app: FastifyInstance) {
 
       if (updateErr) throw updateErr
 
-      await writeAudit(request, 'contracts', id, 'update', parsed.data, existing)
+      await writeAuditLog(request, 'contracts', id, 'update', parsed.data, existing)
 
       return reply.send({ success: true, bookValuePence: bookVal })
     } catch (err) {
@@ -731,7 +709,7 @@ export async function rosterRoutes(app: FastifyInstance) {
         throw cErr
       }
 
-      await writeAudit(request, 'players', id, 'delete', { archivedAt: nowISO, name: existing.name })
+      await writeAuditLog(request, 'players', id, 'delete', { archivedAt: nowISO, name: existing.name })
 
       return reply.send({ success: true, archivedAt: nowISO })
     } catch (err) {

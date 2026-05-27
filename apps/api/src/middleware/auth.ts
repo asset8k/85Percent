@@ -77,27 +77,52 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
       }
     }
 
-    const newClubId = randomUUID()
-    const now = new Date().toISOString()
-    const { data: createdClub, error: clubCreateErr } = await supabase
-      .from('clubs')
-      .insert({
-        id: newClubId,
-        name: 'Headroom FC',
-        short_name: 'HFC',
-        league_id: 'efl-championship',
-        created_at: now,
-        updated_at: now,
-      })
-      .select('id')
-      .single()
-
-    if (clubCreateErr || !createdClub) {
-      request.log.error({ err: clubCreateErr }, 'authMiddleware: club auto-create failed')
-      return reply.status(503).send({ error: 'Failed to provision workspace' })
+    // ── Phase 5: honour a pending invite by email before creating a new club ──
+    // If this email was invited, join the invite's club with the invited role
+    // instead of provisioning a fresh isolated workspace.
+    let inviteMatch: { id: string; club_id: string; role: string } | null = null
+    if (authUser.email) {
+      const { data: invite } = await supabase
+        .from('invites')
+        .select('id, club_id, role, expires_at')
+        .eq('email', authUser.email)
+        .is('accepted_at', null)
+        .gt('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (invite) {
+        inviteMatch = { id: invite.id, club_id: invite.club_id, role: invite.role }
+      }
     }
 
-    const club = createdClub
+    const now = new Date().toISOString()
+    let targetClubId: string
+
+    if (inviteMatch) {
+      targetClubId = inviteMatch.club_id
+    } else {
+      // Founder path — fresh isolated workspace
+      const newClubId = randomUUID()
+      const { data: createdClub, error: clubCreateErr } = await supabase
+        .from('clubs')
+        .insert({
+          id: newClubId,
+          name: 'Headroom FC',
+          short_name: 'HFC',
+          league_id: 'efl-championship',
+          created_at: now,
+          updated_at: now,
+        })
+        .select('id')
+        .single()
+
+      if (clubCreateErr || !createdClub) {
+        request.log.error({ err: clubCreateErr }, 'authMiddleware: club auto-create failed')
+        return reply.status(503).send({ error: 'Failed to provision workspace' })
+      }
+      targetClubId = createdClub.id
+    }
 
     const fullName =
       (authUser.user_metadata?.['full_name'] as string | undefined) ??
@@ -108,8 +133,8 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
       .from('users')
       .insert({
         id: authUser.id,
-        club_id: club.id,
-        role: 'cfo',
+        club_id: targetClubId,
+        role: inviteMatch ? inviteMatch.role : 'cfo',
         full_name: fullName,
         email: authUser.email,
       })
@@ -121,6 +146,18 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
       return reply.status(503).send({ error: 'Failed to provision user' })
     }
     user = created
+
+    // Mark the invite as accepted on the same request that created the user.
+    // Non-fatal: if this fails the invite remains usable, which is harmless
+    // (the user record already exists; the duplicate-email check in /invites
+    // would block a second use).
+    if (inviteMatch) {
+      const { error: acceptErr } = await supabase
+        .from('invites')
+        .update({ accepted_at: now })
+        .eq('id', inviteMatch.id)
+      if (acceptErr) request.log.warn({ err: acceptErr }, 'authMiddleware: invite accept update failed')
+    }
   }
 
   request.userId = user.id

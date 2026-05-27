@@ -38,6 +38,7 @@ ALTER TABLE public.scenario_actions   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ssr_working_capital ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ssr_liquidity      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.ssr_equity         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.invites            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_logs         ENABLE ROW LEVEL SECURITY;
 
 -- ---------------------------------------------------------------------------
@@ -53,6 +54,7 @@ DROP POLICY IF EXISTS "scenario_actions: via scenario"  ON public.scenario_actio
 DROP POLICY IF EXISTS "ssr_working_capital: own club only" ON public.ssr_working_capital;
 DROP POLICY IF EXISTS "ssr_liquidity: own club only"       ON public.ssr_liquidity;
 DROP POLICY IF EXISTS "ssr_equity: own club only"          ON public.ssr_equity;
+DROP POLICY IF EXISTS "invites: own club only"             ON public.invites;
 DROP POLICY IF EXISTS "audit_logs: own club only"          ON public.audit_logs;
 
 -- (simulations table dropped in MVP 2.0 migration; no need to drop its policy)
@@ -155,6 +157,18 @@ CREATE POLICY "ssr_liquidity: own club only"
 -- ---------------------------------------------------------------------------
 CREATE POLICY "ssr_equity: own club only"
   ON public.ssr_equity
+  FOR ALL
+  USING  (club_id = public.current_club_id())
+  WITH CHECK (club_id = public.current_club_id());
+
+-- ---------------------------------------------------------------------------
+-- invites
+-- Note: the lookup-by-token endpoint runs as the service role (bypasses RLS)
+-- because the invitee isn't authenticated yet. RLS still guards every other
+-- entry path.
+-- ---------------------------------------------------------------------------
+CREATE POLICY "invites: own club only"
+  ON public.invites
   FOR ALL
   USING  (club_id = public.current_club_id())
   WITH CHECK (club_id = public.current_club_id());

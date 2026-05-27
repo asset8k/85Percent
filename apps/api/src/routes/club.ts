@@ -3,6 +3,8 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
+import { requireRole } from '../middleware/roles.js'
+import { writeAuditLog } from '../lib/audit.js'
 import { LEAGUE_CONFIGS } from '@headroom/shared'
 import { calculateSquadCosts, type ContractInput } from '@headroom/engine'
 
@@ -42,6 +44,29 @@ async function deriveSquadCostsForClub(clubId: string): Promise<{
 
 export async function clubRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware)
+
+  // GET /me — minimal "who am I" used by the frontend to drive RBAC affordances.
+  // Returns the role + name pulled from public.users for the authenticated user.
+  app.get('/me', async (request, reply) => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('id, role, full_name, email')
+        .eq('id', request.userId)
+        .maybeSingle()
+      if (error) throw error
+      if (!data) return reply.status(404).send({ error: 'User record not found' })
+      return reply.send({
+        id: data.id,
+        role: data.role,
+        fullName: data.full_name,
+        email: data.email,
+      })
+    } catch (err) {
+      request.log.error({ err }, 'GET /me failed')
+      return reply.status(500).send({ error: 'Failed to load user' })
+    }
+  })
 
   app.get('/club', async (request, reply) => {
     try {
@@ -100,11 +125,10 @@ export async function clubRoutes(app: FastifyInstance) {
     }
   })
 
-  app.put('/club/financials', async (request, reply) => {
-    if (!['cfo', 'admin', 'finance_analyst'].includes(request.userRole)) {
-      return reply.status(403).send({ error: 'Insufficient permissions' })
-    }
-
+  // CFO + Admin only — per Phase 5 role matrix, club financial settings are
+  // CFO-controlled. Finance Analyst handles data entry for roster + SSR but
+  // not the season-level financial config.
+  app.put('/club/financials', { preHandler: requireRole('cfo') }, async (request, reply) => {
     const parsed = UpdateFinancialsBody.safeParse(request.body)
     if (!parsed.success) {
       return reply.status(400).send({ error: parsed.error.flatten() })
@@ -160,16 +184,7 @@ export async function clubRoutes(app: FastifyInstance) {
         recordId = newId
       }
 
-      const { error: auditErr } = await supabase.from('audit_logs').insert({
-        id: randomUUID(),
-        user_id: request.userId,
-        club_id: request.clubId,
-        table_name: 'club_financials',
-        record_id: recordId,
-        action: 'update',
-        new_value: parsed.data,
-      })
-      if (auditErr) request.log.warn({ err: auditErr }, 'audit_logs insert failed (non-fatal)')
+      await writeAuditLog(request, 'club_financials', recordId, 'update', parsed.data)
 
       return reply.send({ success: true, id: recordId })
     } catch (err) {
@@ -178,11 +193,9 @@ export async function clubRoutes(app: FastifyInstance) {
     }
   })
 
-  // PATCH /club/league — switch the club between supported leagues. CFO-only.
-  app.patch('/club/league', async (request, reply) => {
-    if (!['cfo', 'admin'].includes(request.userRole)) {
-      return reply.status(403).send({ error: 'Only the CFO can change the league' })
-    }
+  // CFO + Admin only — switching the league changes the regulatory framework
+  // and triggers SSR availability. Reserved for the CFO.
+  app.patch('/club/league', { preHandler: requireRole('cfo') }, async (request, reply) => {
     const Body = z.object({
       leagueId: z.enum(['efl-championship', 'premier-league']),
     })
@@ -208,17 +221,14 @@ export async function clubRoutes(app: FastifyInstance) {
         .eq('id', request.clubId)
       if (updateErr) throw updateErr
 
-      const { error: auditErr } = await supabase.from('audit_logs').insert({
-        id: randomUUID(),
-        user_id: request.userId,
-        club_id: request.clubId,
-        table_name: 'clubs',
-        record_id: request.clubId,
-        action: 'update',
-        previous_value: { leagueId: existing.league_id },
-        new_value: { leagueId: parsed.data.leagueId },
-      })
-      if (auditErr) request.log.warn({ err: auditErr }, 'audit_logs insert failed (non-fatal)')
+      await writeAuditLog(
+        request,
+        'clubs',
+        request.clubId,
+        'update',
+        { leagueId: parsed.data.leagueId },
+        { leagueId: existing.league_id },
+      )
 
       return reply.send({ success: true, leagueId: parsed.data.leagueId })
     } catch (err) {

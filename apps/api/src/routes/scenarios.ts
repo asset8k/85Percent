@@ -16,10 +16,12 @@
  */
 
 import { randomUUID } from 'crypto'
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
+import { hasRole } from '../middleware/roles.js'
+import { writeAuditLog } from '../lib/audit.js'
 
 // ---------------------------------------------------------------------------
 // Zod schemas
@@ -47,30 +49,6 @@ const UpdateScenarioBody = z.object({
 }).refine((v) => v.name !== undefined || v.isIncluded !== undefined, {
   message: 'At least one field must be provided',
 })
-
-// ---------------------------------------------------------------------------
-// Audit helper (non-fatal; matches roster.ts pattern)
-// ---------------------------------------------------------------------------
-async function writeAudit(
-  request: FastifyRequest,
-  tableName: string,
-  recordId: string,
-  action: 'create' | 'update' | 'delete',
-  newValue?: unknown,
-  previousValue?: unknown
-) {
-  const { error } = await supabase.from('audit_logs').insert({
-    id: randomUUID(),
-    user_id: request.userId,
-    club_id: request.clubId,
-    table_name: tableName,
-    record_id: recordId,
-    action,
-    ...(previousValue !== undefined ? { previous_value: previousValue } : {}),
-    ...(newValue      !== undefined ? { new_value:      newValue }      : {}),
-  })
-  if (error) request.log.warn({ err: error }, `audit_logs insert for ${tableName}/${action} failed (non-fatal)`)
-}
 
 // ---------------------------------------------------------------------------
 // Response shaping
@@ -175,7 +153,7 @@ export async function scenarioRoutes(app: FastifyInstance) {
         }
       }
 
-      await writeAudit(request, 'scenarios', scenarioId, 'create', { name, actions: actions.length })
+      await writeAuditLog(request, 'scenarios', scenarioId, 'create', { name, actions: actions.length })
 
       return reply.status(201).send({ id: scenarioId, name, isIncluded, actionCount: actions.length })
     } catch (err) {
@@ -267,11 +245,19 @@ export async function scenarioRoutes(app: FastifyInstance) {
   })
 
   // -------------------------------------------------------------------- PATCH /scenarios/:id
+  // Rename is allowed for all authenticated roles. Toggling is_included
+  // affects the Active Baseline visible across the whole club — restricted
+  // to CFO + Sporting Director per Phase 5 role matrix.
   app.patch('/scenarios/:id', async (request, reply) => {
     const { id } = request.params as { id: string }
     const parsed = UpdateScenarioBody.safeParse(request.body)
     if (!parsed.success) {
       return reply.status(400).send({ error: parsed.error.flatten() })
+    }
+
+    if (parsed.data.isIncluded !== undefined &&
+        !hasRole(request.userRole, 'cfo', 'sporting_director')) {
+      return reply.status(403).send({ error: 'Only CFO or Sporting Director can toggle Active Baseline' })
     }
 
     try {
@@ -295,7 +281,7 @@ export async function scenarioRoutes(app: FastifyInstance) {
         .eq('club_id', request.clubId)
       if (updateErr) throw updateErr
 
-      await writeAudit(request, 'scenarios', id, 'update', parsed.data, existing)
+      await writeAuditLog(request, 'scenarios', id, 'update', parsed.data, existing)
 
       return reply.send({
         success: true,
@@ -330,7 +316,7 @@ export async function scenarioRoutes(app: FastifyInstance) {
         .eq('club_id', request.clubId)
       if (delErr) throw delErr
 
-      await writeAudit(request, 'scenarios', id, 'delete', undefined, existing)
+      await writeAuditLog(request, 'scenarios', id, 'delete', undefined, existing)
 
       return reply.send({ success: true })
     } catch (err) {

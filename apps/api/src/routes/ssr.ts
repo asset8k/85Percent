@@ -18,6 +18,8 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
+import { hasRole } from '../middleware/roles.js'
+import { writeAuditLog } from '../lib/audit.js'
 import {
   evaluateWorkingCapital,
   evaluateLiquidity,
@@ -25,10 +27,9 @@ import {
   type WorkingCapitalMonthInput,
 } from '@headroom/engine'
 
-// Roles permitted to mutate SSR data
-const SSR_MUTATION_ROLES = ['cfo', 'admin', 'finance_analyst'] as const
+// Roles permitted to mutate SSR data (Phase 5 §5.2 role matrix).
 function canMutateSsr(role: string): boolean {
-  return (SSR_MUTATION_ROLES as readonly string[]).includes(role)
+  return hasRole(role, 'cfo', 'finance_analyst')
 }
 
 // PL-only guard. Returns true if the club is on the premier-league config.
@@ -51,28 +52,6 @@ async function ensurePremierLeague(request: FastifyRequest, reply: FastifyReply)
     return false
   }
   return true
-}
-
-// Non-fatal audit helper (matches scenarios.ts / roster.ts)
-async function writeAudit(
-  request: FastifyRequest,
-  tableName: string,
-  recordId: string,
-  action: 'create' | 'update' | 'delete',
-  newValue?: unknown,
-  previousValue?: unknown,
-) {
-  const { error } = await supabase.from('audit_logs').insert({
-    id: randomUUID(),
-    user_id: request.userId,
-    club_id: request.clubId,
-    table_name: tableName,
-    record_id: recordId,
-    action,
-    ...(previousValue !== undefined ? { previous_value: previousValue } : {}),
-    ...(newValue      !== undefined ? { new_value:      newValue }      : {}),
-  })
-  if (error) request.log.warn({ err: error }, `audit_logs insert for ${tableName}/${action} failed (non-fatal)`)
 }
 
 // ---------------------------------------------------------------------------
@@ -199,7 +178,7 @@ export async function ssrRoutes(app: FastifyInstance) {
         if (insErr) throw insErr
       }
 
-      await writeAudit(request, 'ssr_working_capital', recordId, existing ? 'update' : 'create', parsed.data)
+      await writeAuditLog(request, 'ssr_working_capital', recordId, existing ? 'update' : 'create', parsed.data)
 
       return reply.send({ success: true, id: recordId })
     } catch (err) {
@@ -299,7 +278,7 @@ export async function ssrRoutes(app: FastifyInstance) {
         if (insErr) throw insErr
       }
 
-      await writeAudit(request, 'ssr_liquidity', recordId, existing ? 'update' : 'create', parsed.data)
+      await writeAuditLog(request, 'ssr_liquidity', recordId, existing ? 'update' : 'create', parsed.data)
       return reply.send({ success: true, id: recordId })
     } catch (err) {
       request.log.error({ err }, 'PUT /ssr/liquidity failed')
@@ -394,7 +373,7 @@ export async function ssrRoutes(app: FastifyInstance) {
         if (insErr) throw insErr
       }
 
-      await writeAudit(request, 'ssr_equity', recordId, existing ? 'update' : 'create', parsed.data)
+      await writeAuditLog(request, 'ssr_equity', recordId, existing ? 'update' : 'create', parsed.data)
       return reply.send({ success: true, id: recordId })
     } catch (err) {
       request.log.error({ err }, 'PUT /ssr/equity failed')

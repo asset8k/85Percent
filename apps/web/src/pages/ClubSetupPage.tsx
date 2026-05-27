@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { api } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
 import { Button } from '@/components/ui/button'
-import { Spinner } from '@/components/ui/spinner'
+import { Spinner, PageLoader } from '@/components/ui/spinner'
 import { NumericInput } from '@/components/ui/numeric-input'
 import { Card } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/badge'
@@ -13,7 +13,9 @@ import { formatPence } from '@headroom/shared'
 import { EFL_CHAMPIONSHIP_CONFIG } from '@headroom/shared'
 import { calculatePromotedClubRevenueUplift, PROMOTED_CLUB_DEFAULT_UPLIFT_FACTOR } from '@headroom/engine'
 import { cn } from '@/lib/utils'
+import { useCan } from '@/lib/role'
 import type { ComplianceStatus } from '@headroom/shared'
+import type { InviteRow, TeamMember, AuditEntry, InviteRole } from '@/lib/api'
 
 const SetupSchema = z.object({
   footballRelatedRevenuePounds: z
@@ -129,15 +131,7 @@ export function ClubSetupPage() {
   const redPctVal = ((EFL_CHAMPIONSHIP_CONFIG.greenThresholdRatio + watchAllowance) * 100).toFixed(0)
 
   return (
-    <div>
-      <div className="mb-6 flex items-center gap-3">
-        <span className="inline-block w-1.5 h-7 rounded-full bg-violet-600" />
-        <div>
-          <h1 className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">Club Financial Settings</h1>
-          <p className="text-[13px] text-slate-400 mt-1.5">2026/27 Season</p>
-        </div>
-      </div>
-
+    <SettingsShell>
       {/* League switch (single card spanning the page width) */}
       <Card className="p-6 mb-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -403,7 +397,452 @@ export function ClubSetupPage() {
           </div>
         </Card>
       </div>
+    </SettingsShell>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// SettingsShell — page header + tab nav. Hosts Financials (this page) +
+// Team + Activity tab content based on the `tab` URL hash.
+// ---------------------------------------------------------------------------
+
+function SettingsShell({ children }: { children: React.ReactNode }) {
+  const [tab, setTab] = useState<'financials' | 'team' | 'activity'>(() => {
+    const h = window.location.hash.replace('#', '')
+    return h === 'team' || h === 'activity' ? h : 'financials'
+  })
+  const can = useCan()
+
+  useEffect(() => {
+    window.location.hash = tab === 'financials' ? '' : tab
+  }, [tab])
+
+  return (
+    <div>
+      <div className="mb-6 flex items-center gap-3">
+        <span className="inline-block w-1.5 h-7 rounded-full bg-violet-600" />
+        <div>
+          <h1 className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">Settings</h1>
+          <p className="text-[13px] text-slate-400 mt-1.5">Club configuration, team members, and activity log</p>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-6 border-b border-slate-200 mb-5">
+        <TabButton active={tab === 'financials'} onClick={() => setTab('financials')}>Financials</TabButton>
+        {can.inviteMembers && (
+          <TabButton active={tab === 'team'} onClick={() => setTab('team')}>Team</TabButton>
+        )}
+        {can.viewAuditLog && (
+          <TabButton active={tab === 'activity'} onClick={() => setTab('activity')}>Activity Log</TabButton>
+        )}
+      </div>
+
+      {tab === 'financials' && children}
+      {tab === 'team'       && can.inviteMembers && <TeamTab />}
+      {tab === 'activity'   && can.viewAuditLog   && <ActivityTab />}
     </div>
+  )
+}
+
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'relative pb-3 text-[14px] font-medium transition-colors',
+        active ? 'text-violet-700' : 'text-slate-500 hover:text-slate-900',
+      )}
+    >
+      {children}
+      {active && <span className="absolute left-0 right-0 bottom-[-1px] h-0.5 bg-violet-600 rounded-full" />}
+    </button>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// TeamTab — invite + member list
+// ---------------------------------------------------------------------------
+
+const INVITE_LINK_BASE = () =>
+  typeof window !== 'undefined' ? `${window.location.origin}/login?invite=` : '/login?invite='
+
+const ROLE_LABEL: Record<string, string> = {
+  cfo: 'CFO',
+  sporting_director: 'Sporting Director',
+  finance_analyst: 'Finance Analyst',
+  admin: 'Admin',
+}
+
+function TeamTab() {
+  const [members, setMembers] = useState<TeamMember[]>([])
+  const [invites, setInvites] = useState<InviteRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  // Invite form state
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteRole, setInviteRole] = useState<InviteRole>('finance_analyst')
+  const [creating, setCreating] = useState(false)
+  const [justCreated, setJustCreated] = useState<{ token: string; email: string } | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const refresh = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const [m, i] = await Promise.all([api.team.list(), api.invites.list()])
+      setMembers(m.members)
+      setInvites(i.invites)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load team')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { refresh() }, [])
+
+  const handleInvite = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setCreating(true)
+    setError('')
+    setJustCreated(null)
+    try {
+      const result = await api.invites.create({ email: inviteEmail.trim(), role: inviteRole })
+      setJustCreated({ token: result.token, email: result.email })
+      setInviteEmail('')
+      await refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to send invite')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const handleRevoke = async (id: string) => {
+    try {
+      await api.invites.revoke(id)
+      await refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to revoke invite')
+    }
+  }
+
+  const copyLink = async (token: string) => {
+    try {
+      await navigator.clipboard.writeText(INVITE_LINK_BASE() + token)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch { /* ignore */ }
+  }
+
+  if (loading) return <PageLoader />
+
+  return (
+    <div className="space-y-5">
+      {/* Invite form */}
+      <Card className="p-6">
+        <div className="flex items-center gap-3 mb-1">
+          <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
+          <h2 className="text-[15px] font-semibold text-slate-900">Invite a team member</h2>
+        </div>
+        <p className="text-[13px] text-slate-500 mb-5 pl-4">
+          Invitees complete the same 8-digit OTP signup as the CFO. The invite link expires in 7 days.
+        </p>
+
+        <form onSubmit={handleInvite} className="grid grid-cols-[1fr_220px_auto] gap-3 items-end">
+          <label className="block">
+            <span className="meta-label block mb-1.5">Email</span>
+            <input
+              type="email"
+              required
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              placeholder="colleague@yourclub.com"
+              className="w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+            />
+          </label>
+          <label className="block">
+            <span className="meta-label block mb-1.5">Role</span>
+            <select
+              value={inviteRole}
+              onChange={(e) => setInviteRole(e.target.value as InviteRole)}
+              className="w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+            >
+              <option value="finance_analyst">Finance Analyst</option>
+              <option value="sporting_director">Sporting Director</option>
+              <option value="cfo">CFO</option>
+            </select>
+          </label>
+          <Button type="submit" disabled={creating || !inviteEmail.trim()}>
+            {creating && <Spinner size={14} />}
+            {creating ? 'Sending…' : 'Send invite'}
+          </Button>
+        </form>
+
+        {error && (
+          <div className="mt-4 border border-red-200 bg-red-50 rounded-lg px-4 py-3 text-[13px] text-red-700">
+            {error}
+          </div>
+        )}
+
+        {justCreated && (
+          <div className="mt-4 border border-violet-100 bg-violet-50/60 rounded-lg p-4">
+            <div className="meta-label text-violet-700 mb-2">Invite created for {justCreated.email}</div>
+            <p className="text-[12px] text-slate-600 mb-3">
+              Share this link directly with them. The CFO is responsible for verifying the recipient's identity.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                readOnly
+                value={INVITE_LINK_BASE() + justCreated.token}
+                className="flex-1 num text-[12px] px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700"
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <Button variant="outline" type="button" onClick={() => copyLink(justCreated.token)}>
+                {copied ? 'Copied' : 'Copy link'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* Members table */}
+      <Card className="overflow-hidden">
+        <div className="px-6 py-5 border-b border-slate-100 flex items-center gap-3">
+          <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
+          <h2 className="text-[15px] font-semibold text-slate-900">Members ({members.length})</h2>
+        </div>
+        <table className="w-full">
+          <thead className="bg-slate-50/40 border-b border-slate-100">
+            <tr>
+              <Th>Name</Th>
+              <Th>Email</Th>
+              <Th>Role</Th>
+              <Th align="right">Joined</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {members.map((m) => (
+              <tr key={m.id} className="border-b border-slate-100 last:border-0">
+                <td className="px-6 py-3.5 text-[14px] text-slate-900 font-medium">{m.fullName}</td>
+                <td className="px-6 py-3.5 text-[13px] text-slate-500 num">{m.email}</td>
+                <td className="px-6 py-3.5">
+                  <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
+                    {ROLE_LABEL[m.role] ?? m.role}
+                  </span>
+                </td>
+                <td className="px-6 py-3.5 text-right text-[12px] text-slate-500 num">
+                  {new Date(m.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+
+      {/* Pending invites */}
+      {invites.filter((i) => i.status === 'pending').length > 0 && (
+        <Card className="overflow-hidden">
+          <div className="px-6 py-5 border-b border-slate-100 flex items-center gap-3">
+            <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
+            <h2 className="text-[15px] font-semibold text-slate-900">Pending invitations</h2>
+          </div>
+          <table className="w-full">
+            <thead className="bg-slate-50/40 border-b border-slate-100">
+              <tr>
+                <Th>Email</Th>
+                <Th>Role</Th>
+                <Th>Expires</Th>
+                <Th align="right">{''}</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {invites.filter((i) => i.status === 'pending').map((inv) => (
+                <tr key={inv.id} className="border-b border-slate-100 last:border-0">
+                  <td className="px-6 py-3.5 text-[13px] text-slate-700 num">{inv.email}</td>
+                  <td className="px-6 py-3.5">
+                    <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
+                      {ROLE_LABEL[inv.role] ?? inv.role}
+                    </span>
+                  </td>
+                  <td className="px-6 py-3.5 text-[12px] text-slate-500 num">
+                    {new Date(inv.expiresAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </td>
+                  <td className="px-6 py-3.5 text-right flex items-center justify-end gap-3">
+                    {inv.token && (
+                      <button
+                        onClick={() => copyLink(inv.token!)}
+                        className="text-[12px] font-medium text-violet-600 hover:text-violet-700"
+                      >
+                        Copy link
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleRevoke(inv.id)}
+                      className="text-[12px] font-medium text-red-600 hover:text-red-700"
+                    >
+                      Revoke
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ActivityTab — paginated audit log viewer
+// ---------------------------------------------------------------------------
+
+const ACTION_COLOR: Record<string, string> = {
+  create: 'bg-green-100 text-green-700',
+  update: 'bg-violet-100 text-violet-700',
+  delete: 'bg-red-100 text-red-700',
+}
+
+const TABLE_LABEL: Record<string, string> = {
+  clubs:               'Club',
+  club_financials:     'Financials',
+  players:             'Player',
+  contracts:           'Contract',
+  scenarios:           'Scenario',
+  scenario_actions:    'Scenario action',
+  ssr_working_capital: 'Working Capital',
+  ssr_liquidity:       'Liquidity',
+  ssr_equity:          'Equity',
+  invites:             'Invite',
+}
+
+function ActivityTab() {
+  const [entries, setEntries] = useState<AuditEntry[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const limit = 50
+
+  const totalPages = Math.max(1, Math.ceil(total / limit))
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    api.audit.list({ page, limit })
+      .then((data) => {
+        if (cancelled) return
+        setEntries(data.entries)
+        setTotal(data.total)
+      })
+      .catch((e: Error) => { if (!cancelled) setError(e.message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [page])
+
+  if (loading) return <PageLoader />
+
+  return (
+    <div className="space-y-4">
+      {error && (
+        <Card className="p-4 border-red-200 bg-red-50">
+          <p className="text-[13px] text-red-700">{error}</p>
+        </Card>
+      )}
+
+      <Card className="overflow-hidden">
+        <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
+            <div>
+              <h2 className="text-[15px] font-semibold text-slate-900">Activity Log</h2>
+              <p className="text-[12px] text-slate-500 mt-0.5">
+                Every mutation is captured here. Append-only — entries cannot be deleted.
+              </p>
+            </div>
+          </div>
+          <span className="text-[12px] text-slate-400 num">{total} entries</span>
+        </div>
+
+        {entries.length === 0 ? (
+          <div className="p-12 text-center">
+            <p className="text-[14px] text-slate-500">No activity recorded yet.</p>
+          </div>
+        ) : (
+          <table className="w-full">
+            <thead className="bg-slate-50/40 border-b border-slate-100">
+              <tr>
+                <Th>When</Th>
+                <Th>User</Th>
+                <Th>Action</Th>
+                <Th>Resource</Th>
+                <Th>Record ID</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((entry) => (
+                <tr key={entry.id} className="border-b border-slate-100 last:border-0 hover:bg-violet-50/40">
+                  <td className="px-6 py-3 text-[12px] text-slate-500 num whitespace-nowrap">
+                    {new Date(entry.createdAt).toLocaleString('en-GB', {
+                      day: '2-digit', month: 'short', year: 'numeric',
+                      hour: '2-digit', minute: '2-digit',
+                    })}
+                  </td>
+                  <td className="px-6 py-3 text-[13px] text-slate-700">
+                    {entry.user?.fullName ?? <span className="text-slate-400">—</span>}
+                  </td>
+                  <td className="px-6 py-3">
+                    <span className={cn('inline-block text-[11px] font-medium px-2 py-0.5 rounded-md uppercase tracking-wider', ACTION_COLOR[entry.action] ?? 'bg-slate-100 text-slate-700')}>
+                      {entry.action}
+                    </span>
+                  </td>
+                  <td className="px-6 py-3 text-[13px] text-slate-700">
+                    {TABLE_LABEL[entry.tableName] ?? entry.tableName}
+                  </td>
+                  <td className="px-6 py-3 text-[11px] text-slate-400 num truncate max-w-[180px]">
+                    {entry.recordId.slice(0, 8)}…
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="px-6 py-3 border-t border-slate-100 flex items-center justify-between text-[12px]">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="text-violet-600 hover:text-violet-700 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+            >
+              ← Previous
+            </button>
+            <span className="text-slate-500 num">Page {page} of {totalPages}</span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+              className="text-violet-600 hover:text-violet-700 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+            >
+              Next →
+            </button>
+          </div>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+function Th({ children, align = 'left' }: { children: React.ReactNode; align?: 'left' | 'right' | 'center' }) {
+  return (
+    <th className={cn(
+      'meta-label px-6 py-3 whitespace-nowrap',
+      align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'
+    )}>
+      {children}
+    </th>
   )
 }
 

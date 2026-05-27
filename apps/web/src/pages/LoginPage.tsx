@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
+import type { InviteLookupResponse } from '@/lib/api'
 
 // ── Schemas ────────────────────────────────────────────────────────────────
 
@@ -34,14 +36,35 @@ type SignUpData = z.infer<typeof SignUpSchema>
 
 const INPUT = 'w-full px-3 py-2.5 text-sm text-slate-900 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent'
 
+const ROLE_LABEL: Record<string, string> = {
+  cfo:               'CFO',
+  sporting_director: 'Sporting Director',
+  finance_analyst:   'Finance Analyst',
+  admin:             'Admin',
+}
+
 // ── Root ────────────────────────────────────────────────────────────────────
 
 export function LoginPage() {
   const navigate = useNavigate()
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin')
+  const [search] = useSearchParams()
+  const inviteToken = search.get('invite')
+
+  // Default mode is signup when an invite token is present (the invitee
+  // doesn't have an account yet); otherwise signin (the default landing page).
+  const [mode, setMode] = useState<'signin' | 'signup'>(inviteToken ? 'signup' : 'signin')
   const [serverError, setServerError] = useState('')
-  // pendingOTP holds the email after sign-up so the OTP form knows where to verify
   const [pendingOTP, setPendingOTP] = useState<string | null>(null)
+  const [invite, setInvite] = useState<InviteLookupResponse | null>(null)
+  const [inviteError, setInviteError] = useState('')
+
+  // Look up the invite once on mount if a token is present
+  useEffect(() => {
+    if (!inviteToken) return
+    api.invites.lookup(inviteToken)
+      .then(setInvite)
+      .catch((e: Error) => setInviteError(e.message))
+  }, [inviteToken])
 
   const switchMode = (m: 'signin' | 'signup') => {
     setMode(m)
@@ -71,6 +94,22 @@ export function LoginPage() {
           <p className="mt-3 text-sm text-slate-500 text-center">Financial compliance for professional football.</p>
         </div>
 
+        {/* Invitation context banner — shown when ?invite=<token> resolves */}
+        {invite && (
+          <div className="mb-5 rounded-xl border border-violet-100 bg-violet-50/60 px-5 py-4">
+            <div className="meta-label text-violet-700">Invitation to {invite.clubName}</div>
+            <p className="text-[13px] text-slate-700 mt-1.5">
+              You've been invited to join as <span className="font-medium">{ROLE_LABEL[invite.role] ?? invite.role}</span>. Create your account using the email <span className="num">{invite.email}</span>.
+            </p>
+          </div>
+        )}
+        {inviteError && (
+          <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-5 py-4">
+            <div className="meta-label text-red-700">Invitation problem</div>
+            <p className="text-[13px] text-red-700 mt-1.5">{inviteError}</p>
+          </div>
+        )}
+
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-7">
           {serverError && (
             <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2">
@@ -81,20 +120,22 @@ export function LoginPage() {
           {pendingOTP ? (
             <OTPForm
               email={pendingOTP}
-              onSuccess={() => navigate('/simulator')}
+              onSuccess={() => navigate('/dashboard')}
               onError={setServerError}
               onBack={() => switchMode('signup')}
             />
           ) : mode === 'signin' ? (
             <SignInForm
-              onSuccess={() => navigate('/simulator')}
+              onSuccess={() => navigate('/dashboard')}
               onError={setServerError}
               onSwitchToSignUp={() => switchMode('signup')}
             />
           ) : (
             <SignUpForm
+              prefillEmail={invite?.email}
+              emailLocked={!!invite}
               onSuccess={(email, hasSession) => {
-                if (hasSession) navigate('/simulator')
+                if (hasSession) navigate('/dashboard')
                 else setPendingOTP(email)
               }}
               onError={setServerError}
@@ -159,12 +200,21 @@ function SignUpForm({
   onSuccess,
   onError,
   onSwitchToSignIn,
+  prefillEmail,
+  emailLocked,
 }: {
   onSuccess: (email: string, hasSession: boolean) => void
   onError: (msg: string) => void
   onSwitchToSignIn: () => void
+  /** When set (invite flow), prefills the email field. */
+  prefillEmail?: string
+  /** When true, the email input becomes read-only — invite emails are bound to the token. */
+  emailLocked?: boolean
 }) {
-  const form = useForm<SignUpData>({ resolver: zodResolver(SignUpSchema) })
+  const form = useForm<SignUpData>({
+    resolver: zodResolver(SignUpSchema),
+    ...(prefillEmail ? { defaultValues: { email: prefillEmail } } : {}),
+  })
 
   const onSubmit = async (data: SignUpData) => {
     onError('')
@@ -179,7 +229,13 @@ function SignUpForm({
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
       <Field label="Work Email" error={form.formState.errors.email?.message}>
-        <input type="email" placeholder="you@club.com" {...form.register('email')} className={INPUT} />
+        <input
+          type="email"
+          placeholder="you@club.com"
+          {...form.register('email')}
+          readOnly={emailLocked}
+          className={INPUT + (emailLocked ? ' bg-slate-50 text-slate-500 cursor-not-allowed' : '')}
+        />
       </Field>
       <Field
         label="Password"
