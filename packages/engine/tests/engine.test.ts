@@ -11,6 +11,14 @@ import {
   currentBookValuePence,
   calculateSquadCosts,
   applyScenarioActions,
+  evaluateWorkingCapital,
+  evaluateWorkingCapitalMonth,
+  evaluateLiquidity,
+  evaluateEquity,
+  seasonEquityThreshold,
+  calculatePromotedClubRevenueUplift,
+  WORKING_CAPITAL_MINIMUM_PENCE,
+  LIQUIDITY_STRESS_TEST_PENCE,
 } from '../src/index.js'
 import type { ClubFinancials, TransferInput } from '@headroom/shared'
 
@@ -765,5 +773,176 @@ describe('applyScenarioActions', () => {
     ])
     expect(a.costDeltaPence).toBe(b.costDeltaPence)
     expect(a.revenueDeltaPence).toBe(b.revenueDeltaPence)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// SSR — Premier League Sustainability & Systemic Resilience tests
+// ---------------------------------------------------------------------------
+
+describe('evaluateWorkingCapitalMonth', () => {
+  it('passes when cashflow + qualifying funds clear the £12.5M floor', () => {
+    const r = evaluateWorkingCapitalMonth({
+      yearMonth: '2026-08',
+      adjustedCashflowPence: 5_000_000_00,
+      qualifyingFundsPence:  10_000_000_00,
+    })
+    // 5M + 10M − 12.5M = +2.5M headroom
+    expect(r.passing).toBe(true)
+    expect(r.monthlyHeadroomPence).toBe(2_500_000_00)
+    expect(r.yearMonth).toBe('2026-08')
+  })
+
+  it('fails when total is below the floor', () => {
+    const r = evaluateWorkingCapitalMonth({
+      adjustedCashflowPence: 3_000_000_00,
+      qualifyingFundsPence:  4_000_000_00, // 7M total
+    })
+    expect(r.passing).toBe(false)
+    expect(r.monthlyHeadroomPence).toBe(-5_500_000_00) // 7M − 12.5M
+  })
+
+  it('passes at the exact floor (≥ 0)', () => {
+    const r = evaluateWorkingCapitalMonth({
+      adjustedCashflowPence: WORKING_CAPITAL_MINIMUM_PENCE,
+      qualifyingFundsPence:  0,
+    })
+    expect(r.passing).toBe(true)
+    expect(r.monthlyHeadroomPence).toBe(0)
+  })
+})
+
+describe('evaluateWorkingCapital (season aggregate)', () => {
+  it('aggregates a full 12-month season and reports failing months', () => {
+    const months = Array.from({ length: 12 }, (_, i) => ({
+      yearMonth: `2026-${String(i + 7).padStart(2, '0')}`,
+      // Two months underwater (Jan + Feb), rest fine
+      adjustedCashflowPence: (i === 6 || i === 7) ? 2_000_000_00 : 10_000_000_00,
+      qualifyingFundsPence:  5_000_000_00,
+    }))
+    const agg = evaluateWorkingCapital(months)
+    expect(agg.months).toHaveLength(12)
+    expect(agg.failingMonthCount).toBe(2)
+    expect(agg.passing).toBe(false)
+    // Worst headroom = 2M + 5M − 12.5M = −5.5M
+    expect(agg.worstHeadroomPence).toBe(-5_500_000_00)
+  })
+
+  it('reports passing=true and worst=0 for an empty submission (no data yet)', () => {
+    const agg = evaluateWorkingCapital([])
+    expect(agg.passing).toBe(true)
+    expect(agg.failingMonthCount).toBe(0)
+    expect(agg.worstHeadroomPence).toBe(0)
+  })
+})
+
+describe('evaluateLiquidity', () => {
+  it('applies the 40% squad market value uplift to liquid assets', () => {
+    const r = evaluateLiquidity({
+      liquidAssetsPence:      50_000_000_00,
+      liquidLiabilitiesPence:  0,
+      squadMarketValuePence: 100_000_000_00, // 40% = 40M extra
+    })
+    expect(r.effectiveLiquidAssetsPence).toBe(90_000_000_00)
+    // 90M − 0 − 85M = +5M headroom
+    expect(r.liquidityHeadroomPence).toBe(5_000_000_00)
+    expect(r.passing).toBe(true)
+  })
+
+  it('fails when net of liabilities + £85M stress test goes negative', () => {
+    const r = evaluateLiquidity({
+      liquidAssetsPence:      50_000_000_00,
+      liquidLiabilitiesPence: 30_000_000_00,
+      squadMarketValuePence:  50_000_000_00, // 40% = 20M
+    })
+    // 70M − 30M − 85M = −45M
+    expect(r.liquidityHeadroomPence).toBe(-45_000_000_00)
+    expect(r.passing).toBe(false)
+  })
+
+  it('treats 0 squad market value as no uplift (defensive)', () => {
+    const r = evaluateLiquidity({
+      liquidAssetsPence:      100_000_000_00,
+      liquidLiabilitiesPence: 0,
+      squadMarketValuePence:  0,
+    })
+    expect(r.effectiveLiquidAssetsPence).toBe(100_000_000_00)
+    expect(r.liquidityHeadroomPence).toBe(LIQUIDITY_STRESS_TEST_PENCE * -1 + 100_000_000_00)
+  })
+})
+
+describe('seasonEquityThreshold', () => {
+  it('returns 90% for 2026-27', () => { expect(seasonEquityThreshold('2026-27')).toBe(0.90) })
+  it('returns 85% for 2027-28', () => { expect(seasonEquityThreshold('2027-28')).toBe(0.85) })
+  it('returns 80% for 2028-29 onwards', () => {
+    expect(seasonEquityThreshold('2028-29')).toBe(0.80)
+    expect(seasonEquityThreshold('2030-31')).toBe(0.80)
+  })
+})
+
+describe('evaluateEquity', () => {
+  it('passes when liabilities/assets is below the season cap', () => {
+    const r = evaluateEquity({
+      totalLiabilitiesPence: 100_000_000_00,
+      adjustedAssetsPence:   200_000_000_00,
+      season: '2026-27', // 90% cap
+    })
+    expect(r.ratio).toBe(0.5)
+    expect(r.threshold).toBe(0.90)
+    expect(r.passing).toBe(true)
+    expect(r.marginPp).toBeCloseTo(40, 5) // 40 percentage points under
+  })
+
+  it('passes at exactly the threshold (≤)', () => {
+    const r = evaluateEquity({
+      totalLiabilitiesPence: 90_000_000_00,
+      adjustedAssetsPence:   100_000_000_00,
+      season: '2026-27',
+    })
+    expect(r.passing).toBe(true)
+    expect(r.marginPp).toBeCloseTo(0, 5)
+  })
+
+  it('fails when ratio exceeds the season cap', () => {
+    const r = evaluateEquity({
+      totalLiabilitiesPence: 95_000_000_00,
+      adjustedAssetsPence:   100_000_000_00,
+      season: '2026-27',
+    })
+    expect(r.ratio).toBe(0.95)
+    expect(r.passing).toBe(false)
+    expect(r.marginPp).toBeCloseTo(-5, 5)
+  })
+
+  it('tightens with the season — 2027-28 fails what 2026-27 passes', () => {
+    const args = { totalLiabilitiesPence: 88_000_000_00, adjustedAssetsPence: 100_000_000_00 }
+    expect(evaluateEquity({ ...args, season: '2026-27' }).passing).toBe(true)  // 0.88 ≤ 0.90
+    expect(evaluateEquity({ ...args, season: '2027-28' }).passing).toBe(false) // 0.88 > 0.85
+  })
+
+  it('defends against zero / negative adjusted assets', () => {
+    const r = evaluateEquity({
+      totalLiabilitiesPence: 50_000_000_00,
+      adjustedAssetsPence: 0,
+      season: '2026-27',
+    })
+    expect(r.passing).toBe(false)
+    expect(r.ratio).toBe(Infinity)
+  })
+})
+
+describe('calculatePromotedClubRevenueUplift', () => {
+  it('multiplies championship revenue by the default factor (4.5×)', () => {
+    expect(calculatePromotedClubRevenueUplift(20_000_000_00)).toBe(90_000_000_00)
+  })
+
+  it('accepts a custom factor', () => {
+    expect(calculatePromotedClubRevenueUplift(20_000_000_00, 5.0)).toBe(100_000_000_00)
+  })
+
+  it('returns 0 for non-positive inputs (defensive)', () => {
+    expect(calculatePromotedClubRevenueUplift(0)).toBe(0)
+    expect(calculatePromotedClubRevenueUplift(-1_000_000_00)).toBe(0)
+    expect(calculatePromotedClubRevenueUplift(10_000_000_00, 0)).toBe(0)
   })
 })

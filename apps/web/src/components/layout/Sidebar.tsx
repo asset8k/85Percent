@@ -35,6 +35,17 @@ const navItems = [
     ),
   },
   {
+    to: '/ssr',
+    label: 'SSR Tests',
+    plOnly: true,
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 2l9 4v6c0 5-3.5 9-9 10-5.5-1-9-5-9-10V6l9-4z" />
+        <path d="M9 12l2 2 4-4" />
+      </svg>
+    ),
+  },
+  {
     to: '/calendar',
     label: 'Calendar',
     icon: (
@@ -62,8 +73,16 @@ const LogoutIcon = (
 )
 
 export function Sidebar() {
-  const { clubName } = useClubStore()
+  const { clubName, leagueId } = useClubStore()
   const { signOut } = useAuthStore()
+
+  const visibleNavItems = navItems.filter((item) => {
+    // PL-only items are hidden for non-PL clubs (the API also enforces this)
+    if ((item as { plOnly?: boolean }).plOnly && leagueId !== 'premier-league') return false
+    return true
+  })
+
+  const leagueLabel = leagueId === 'premier-league' ? 'Premier League' : 'EFL Championship'
 
   return (
     <aside className="w-[240px] flex-shrink-0 h-screen border-r border-slate-200 bg-white flex flex-col sticky top-0">
@@ -92,7 +111,7 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 py-4 flex flex-col gap-0.5 overflow-y-auto">
-        {navItems.map(({ to, label, icon }) => (
+        {visibleNavItems.map(({ to, label, icon }) => (
           <NavLink
             key={to}
             to={to}
@@ -129,7 +148,7 @@ export function Sidebar() {
           </span>
           <div className="min-w-0">
             <div className="text-[13px] font-medium text-slate-900 truncate">{clubName ?? 'Your Club'}</div>
-            <div className="text-[11px] text-slate-400">EFL Championship</div>
+            <div className="text-[11px] text-slate-400">{leagueLabel}</div>
           </div>
         </div>
         <button

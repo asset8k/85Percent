@@ -1315,3 +1315,129 @@ All math is **client-side** via `@headroom/engine` (`applyScenarioActions`). The
 - Engine: 76/76 tests passing (59 + 7 squadCosts + 10 applyScenarioActions)
 - API typecheck: 0 errors
 - Web typecheck: 0 errors
+
+---
+
+## Session 13 — Phase 4: Premier League Module + SSR Tests (2026-05-27)
+
+### What was accomplished
+
+Phase 4 of [mvp_2.0_plan.md](mvp_2.0_plan.md): full PL solvency-test suite (Working Capital / Liquidity / Positive Equity) + league switch + promoted-club revenue uplift estimator. 13/13 E2E smoke tests pass.
+
+---
+
+### Engine — [packages/engine/src/ssr.ts](packages/engine/src/ssr.ts) (new module)
+
+Three pure evaluator functions, plus the promoted-club uplift helper:
+
+| Function | Returns |
+|---|---|
+| `evaluateWorkingCapitalMonth(input)` | per-month headroom + pass/fail against the £12.5M floor |
+| `evaluateWorkingCapital(months[])` | season aggregate: months[], failingMonthCount, passing, worstHeadroomPence |
+| `evaluateLiquidity(input)` | liquid assets + **40% × squad market value** − liabilities − £85M stress test |
+| `evaluateEquity(input)` | liabilities / adjusted assets vs `seasonEquityThreshold(season)` (90% for 2026-27 → 85% for 2027-28 → 80% from 2028-29) |
+| `seasonEquityThreshold(season)` | the tiered cap |
+| `calculatePromotedClubRevenueUplift(championshipRevenuePence, factor?)` | Championship revenue × default 4.5× (overridable) |
+
+Constants exported: `WORKING_CAPITAL_MINIMUM_PENCE = £12.5M`, `LIQUIDITY_STRESS_TEST_PENCE = £85M`, `LIQUID_ASSET_SQUAD_FRACTION = 0.40`, `PROMOTED_CLUB_DEFAULT_UPLIFT_FACTOR = 4.5`.
+
+**19 new tests added** to `engine.test.ts` covering: monthly + aggregate working capital (including the empty-submission edge case where `passing=true` + `worstHeadroomPence=0`), liquidity with/without squad uplift, equity at exact threshold + tightening across seasons, defensive zero/negative assets (returns Infinity ratio), uplift with custom factor + non-positive inputs.
+
+**Engine test count: 95/95 passing** (was 76 at end of Phase 3).
+
+---
+
+### Database — three new tables
+
+[apps/api/prisma/schema.prisma](apps/api/prisma/schema.prisma):
+
+```prisma
+model SsrWorkingCapital { id, clubId, season, yearMonth, adjustedCashflow, qualifyingFunds, ... @@unique([clubId, season, yearMonth]) }
+model SsrLiquidity       { id, clubId, season, liquidAssets, liquidLiabilities, squadMarketValue, ... @@unique([clubId, season]) }
+model SsrEquity          { id, clubId, season, totalLiabilities, adjustedAssets, ... @@unique([clubId, season]) }
+```
+
+Migration: [apps/api/prisma/migrations/20260527000002_mvp2_ssr_tables/migration.sql](apps/api/prisma/migrations/20260527000002_mvp2_ssr_tables/migration.sql). Idempotent — wraps FK constraint adds in `DO $$ IF NOT EXISTS … $$` blocks because we ran the migration twice during development (first run failed mid-way and left tables present but constraints missing).
+
+**RLS**: extended [apps/api/prisma/rls.sql](apps/api/prisma/rls.sql) with three new `FOR ALL` policies (one per table, all using `current_club_id()`). Also dropped the redundant `DROP FUNCTION IF EXISTS public.current_club_id()` line from the top of rls.sql — `CREATE OR REPLACE` handles updates cleanly and the DROP failed in PG because dependent policies exist.
+
+Applied to Supabase via the same `aws-1-ap-southeast-1.pooler.supabase.com` host from Phase 1. Verified all 3 tables exist and all 3 canonical policies are in pg_policies.
+
+---
+
+### API — [apps/api/src/routes/ssr.ts](apps/api/src/routes/ssr.ts) (new)
+
+6 endpoints. Every one runs the engine after the DB read so callers get the live pass/fail result inline with the stored inputs.
+
+| Endpoint | Behaviour |
+|---|---|
+| `GET /ssr/working-capital?season=…` | All months for season + `evaluateWorkingCapital(months)` aggregate |
+| `PUT /ssr/working-capital` | Upsert one month (select-then-update-or-insert) |
+| `GET /ssr/liquidity?season=…` | Single row + `evaluateLiquidity(input)` result |
+| `PUT /ssr/liquidity` | Upsert single row |
+| `GET /ssr/equity?season=…` | Single row + `evaluateEquity(input)` result |
+| `PUT /ssr/equity` | Upsert single row |
+
+**PL-only guard**: every endpoint runs `ensurePremierLeague(request, reply)` first, which looks up `clubs.league_id`. Championship clubs get a flat **404 Not Found** — no information leak about the existence of SSR routes. Defence-in-depth on top of RLS.
+
+**Role guard**: CFO + Admin + Finance Analyst can mutate; all roles can read. Audit log row written on every mutation (non-fatal).
+
+[apps/api/src/routes/club.ts](apps/api/src/routes/club.ts) — also added `PATCH /club/league` (CFO + Admin only) so the UI can flip between Championship and PL. Records before/after in audit_logs.
+
+---
+
+### Web — [apps/web/src/pages/SSRPage.tsx](apps/web/src/pages/SSRPage.tsx) (new)
+
+Three tabs (Working Capital / Liquidity / Positive Equity) following the [design/src/uikit.jsx](design/src/uikit.jsx) tab pattern (border-bottom underline indicator, violet-700 active text).
+
+- **Working Capital tab**: 12-row table (Jul 2026 → Jun 2027). Per-row `PoundCell` inputs for adjusted cashflow + qualifying funds. Dirty-tracking — Save button per row appears only when the row has unsaved changes. Headline card with green/red left border showing `worstHeadroomPence` + failing-month count.
+- **Liquidity tab**: 3 input fields + live preview computation matching the engine (assets + 40%×squad market value − liabilities − £85M). 3-column stat block grid showing effective liquid assets, stress threshold, and resulting headroom.
+- **Equity tab**: 2 input fields + threshold-tier readout. Shows ratio + margin in percentage points + the season's tier (90% for 2026-27, 85% for 2027-28, 80% onwards).
+
+**Visibility gating**: client-side guard in `SSRPage` ("Premier League only" empty state with a link to Settings) PLUS sidebar filtering. SSR nav item carries `plOnly: true`; the Sidebar's filter only renders nav items where `plOnly` is unset or matches `leagueId === 'premier-league'`. Workspace block subtitle now reads "Premier League" or "EFL Championship" instead of always being Championship.
+
+---
+
+### Web — [apps/web/src/pages/ClubSetupPage.tsx](apps/web/src/pages/ClubSetupPage.tsx) (extended)
+
+New top card: **League selector** with segmented "EFL Championship / Premier League" toggle. Hits `PATCH /club/league` and updates the local store on success so the SSR sidebar link appears immediately. The owner-equity input is now conditionally hidden when on PL (since PL clubs have no owner-equity allowance).
+
+**Promoted-club uplift estimator** (PL only): collapsible panel under the League card with 3 inputs (last Championship revenue, uplift factor, default 4.5×) and an "Apply to revenue field →" action that writes the estimate into the form's `footballRelatedRevenuePounds`. Uses `calculatePromotedClubRevenueUplift` from the engine.
+
+---
+
+### Web — [apps/web/src/lib/api.ts](apps/web/src/lib/api.ts) — new `api.ssr.*` + `api.club.setLeague`
+
+New typed methods:
+- `api.ssr.getWorkingCapital(season)` / `putWorkingCapital(input)`
+- `api.ssr.getLiquidity(season)` / `putLiquidity(input)`
+- `api.ssr.getEquity(season)` / `putEquity(input)`
+- `api.club.setLeague(leagueId)`
+
+New response types: `WorkingCapitalResponse`, `LiquidityResponse`, `EquityResponse` (each containing the stored row(s) + the server-evaluated result).
+
+---
+
+### E2E verification (13/13 passing, live DB)
+
+| # | Test | Result |
+|---|---|---|
+| 1 | Initial club is on Championship | ✓ |
+| 2 | SSR routes return 404 for Championship clubs | ✓ |
+| 3 | `PATCH /club/league` switches to PL | ✓ |
+| 4 | SSR routes now accessible after switch | ✓ |
+| 5 | `PUT /ssr/working-capital` writes a month | ✓ |
+| 6 | `GET /ssr/working-capital` returns correct +£2.5M headroom for the seeded month | ✓ |
+| 7 | `PUT /ssr/working-capital` is idempotent (same row id reused) | ✓ |
+| 8 | Liquidity round-trip: 50M + 40M − 0 − 85M = +£5M | ✓ |
+| 9 | Equity round-trip: 0.5 ratio, 0.90 cap, pass | ✓ |
+| 10 | Equity correctly fails at 0.95 (> 0.90 cap) | ✓ |
+| 11 | Invalid season format → 400 | ✓ |
+| 12 | Switch back to Championship → SSR 404 again | ✓ |
+| 13 | Initial league restored at end (clean dev env) | ✓ |
+
+### Engine / TypeScript
+
+- Engine: 95/95 tests passing (76 + 19 SSR)
+- API typecheck: 0 errors
+- Web typecheck: 0 errors

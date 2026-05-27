@@ -13,8 +13,8 @@
 -- Returns TEXT because the Prisma schema uses TEXT primary keys (not UUID).
 -- SECURITY DEFINER so it can read across RLS without recursion.
 -- ---------------------------------------------------------------------------
-DROP FUNCTION IF EXISTS public.current_club_id();
-
+-- Idempotent: CREATE OR REPLACE works because the signature hasn't changed
+-- since Phase 1 (RETURNS text). Don't DROP — policies depend on this function.
 CREATE OR REPLACE FUNCTION public.current_club_id()
 RETURNS text
 LANGUAGE sql
@@ -28,14 +28,17 @@ $$;
 -- ---------------------------------------------------------------------------
 -- Enable RLS on every table (idempotent — safe to re-run)
 -- ---------------------------------------------------------------------------
-ALTER TABLE public.clubs             ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.users             ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.club_financials   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.players           ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.contracts         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.scenarios         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.scenario_actions  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.audit_logs        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.clubs              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.users              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.club_financials    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.players            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.contracts          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.scenarios          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.scenario_actions   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ssr_working_capital ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ssr_liquidity      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ssr_equity         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.audit_logs         ENABLE ROW LEVEL SECURITY;
 
 -- ---------------------------------------------------------------------------
 -- Drop existing policies before recreating (idempotent)
@@ -47,7 +50,10 @@ DROP POLICY IF EXISTS "players: own club only"          ON public.players;
 DROP POLICY IF EXISTS "contracts: own club only"        ON public.contracts;
 DROP POLICY IF EXISTS "scenarios: own club only"        ON public.scenarios;
 DROP POLICY IF EXISTS "scenario_actions: via scenario"  ON public.scenario_actions;
-DROP POLICY IF EXISTS "audit_logs: own club only"       ON public.audit_logs;
+DROP POLICY IF EXISTS "ssr_working_capital: own club only" ON public.ssr_working_capital;
+DROP POLICY IF EXISTS "ssr_liquidity: own club only"       ON public.ssr_liquidity;
+DROP POLICY IF EXISTS "ssr_equity: own club only"          ON public.ssr_equity;
+DROP POLICY IF EXISTS "audit_logs: own club only"          ON public.audit_logs;
 
 -- (simulations table dropped in MVP 2.0 migration; no need to drop its policy)
 
@@ -125,6 +131,33 @@ CREATE POLICY "scenario_actions: via scenario"
         AND s.club_id = public.current_club_id()
     )
   );
+
+-- ---------------------------------------------------------------------------
+-- ssr_working_capital
+-- ---------------------------------------------------------------------------
+CREATE POLICY "ssr_working_capital: own club only"
+  ON public.ssr_working_capital
+  FOR ALL
+  USING  (club_id = public.current_club_id())
+  WITH CHECK (club_id = public.current_club_id());
+
+-- ---------------------------------------------------------------------------
+-- ssr_liquidity
+-- ---------------------------------------------------------------------------
+CREATE POLICY "ssr_liquidity: own club only"
+  ON public.ssr_liquidity
+  FOR ALL
+  USING  (club_id = public.current_club_id())
+  WITH CHECK (club_id = public.current_club_id());
+
+-- ---------------------------------------------------------------------------
+-- ssr_equity
+-- ---------------------------------------------------------------------------
+CREATE POLICY "ssr_equity: own club only"
+  ON public.ssr_equity
+  FOR ALL
+  USING  (club_id = public.current_club_id())
+  WITH CHECK (club_id = public.current_club_id());
 
 -- ---------------------------------------------------------------------------
 -- audit_logs (append-only in practice, but scoped by club for reads)

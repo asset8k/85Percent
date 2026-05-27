@@ -24,6 +24,9 @@ model Club {
   contracts  Contract[]
   scenarios  Scenario[]
   auditLogs  AuditLog[]
+  ssrWorkingCapital SsrWorkingCapital[]
+  ssrLiquidity      SsrLiquidity[]
+  ssrEquity         SsrEquity[]
 
   @@map("clubs")
 }
@@ -142,6 +145,56 @@ model ScenarioAction {
 
   @@index([scenarioId, orderIndex])
   @@map("scenario_actions")
+}
+
+// Premier League SSR — Working Capital (one row per club/season/month)
+model SsrWorkingCapital {
+  id                  String   @id @default(uuid())
+  clubId              String   @map("club_id")
+  season              String
+  yearMonth           String   @map("year_month") // '2026-07' through '2027-06'
+  adjustedCashflow    BigInt   @map("adjusted_cashflow") // pence
+  qualifyingFunds     BigInt   @map("qualifying_funds")  // pence
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  club Club @relation(fields: [clubId], references: [id])
+
+  @@unique([clubId, season, yearMonth])
+  @@map("ssr_working_capital")
+}
+
+// Premier League SSR — Liquidity (one row per club/season)
+model SsrLiquidity {
+  id                   String   @id @default(uuid())
+  clubId               String   @map("club_id")
+  season               String
+  liquidAssets         BigInt   @map("liquid_assets")        // pence
+  liquidLiabilities    BigInt   @map("liquid_liabilities")   // pence
+  squadMarketValue     BigInt   @map("squad_market_value")   // pence
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  club Club @relation(fields: [clubId], references: [id])
+
+  @@unique([clubId, season])
+  @@map("ssr_liquidity")
+}
+
+// Premier League SSR — Positive Equity (one row per club/season)
+model SsrEquity {
+  id                  String   @id @default(uuid())
+  clubId              String   @map("club_id")
+  season              String
+  totalLiabilities    BigInt   @map("total_liabilities") // pence
+  adjustedAssets      BigInt   @map("adjusted_assets")   // pence
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  club Club @relation(fields: [clubId], references: [id])
+
+  @@unique([clubId, season])
+  @@map("ssr_equity")
 }
 
 // Append-only audit log — never delete rows

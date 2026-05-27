@@ -85,6 +85,68 @@ export interface ScenarioListResponse {
   limit: number
 }
 
+// ---- SSR (Premier League only) -------------------------------------------
+
+export interface WorkingCapitalRow {
+  id: string
+  yearMonth: string
+  adjustedCashflowPence: number
+  qualifyingFundsPence: number
+  updatedAt: string
+}
+export interface WorkingCapitalMonthEval {
+  yearMonth?: string
+  monthlyHeadroomPence: number
+  passing: boolean
+}
+export interface WorkingCapitalEvaluation {
+  months: WorkingCapitalMonthEval[]
+  failingMonthCount: number
+  passing: boolean
+  worstHeadroomPence: number
+}
+export interface WorkingCapitalResponse {
+  season: string
+  rows: WorkingCapitalRow[]
+  evaluation: WorkingCapitalEvaluation
+}
+
+export interface LiquidityRow {
+  id: string
+  liquidAssetsPence: number
+  liquidLiabilitiesPence: number
+  squadMarketValuePence: number
+  updatedAt: string
+}
+export interface LiquidityEvaluation {
+  liquidityHeadroomPence: number
+  passing: boolean
+  effectiveLiquidAssetsPence: number
+}
+export interface LiquidityResponse {
+  season: string
+  row: LiquidityRow | null
+  evaluation: LiquidityEvaluation | null
+}
+
+export interface EquityRow {
+  id: string
+  totalLiabilitiesPence: number
+  adjustedAssetsPence: number
+  updatedAt: string
+}
+export interface EquityEvaluation {
+  ratio: number
+  threshold: number
+  passing: boolean
+  marginPp: number
+}
+export interface EquityResponse {
+  season: string
+  row: EquityRow | null
+  evaluation: EquityEvaluation | null
+}
+
 export interface CreateScenarioPayload {
   name: string
   season?: string
@@ -114,6 +176,11 @@ export const api = {
         body: JSON.stringify(data),
       }),
     getLeagueConfig: () => apiFetch<Record<string, unknown>>('/club/league-config'),
+    setLeague: (leagueId: 'efl-championship' | 'premier-league') =>
+      apiFetch<{ success: boolean; leagueId: string }>('/club/league', {
+        method: 'PATCH',
+        body: JSON.stringify({ leagueId }),
+      }),
   },
   roster: {
     list: () => apiFetch<{ players: PlayerWithContract[] }>('/roster'),
@@ -167,5 +234,42 @@ export const api = {
       }),
     delete: (id: string) =>
       apiFetch<{ success: boolean }>(`/scenarios/${id}`, { method: 'DELETE' }),
+  },
+  ssr: {
+    getWorkingCapital: (season = '2026-27') =>
+      apiFetch<WorkingCapitalResponse>(`/ssr/working-capital?season=${season}`),
+    putWorkingCapital: (input: {
+      season: string
+      yearMonth: string
+      adjustedCashflowPence: number
+      qualifyingFundsPence: number
+    }) =>
+      apiFetch<{ success: boolean; id: string }>('/ssr/working-capital', {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      }),
+    getLiquidity: (season = '2026-27') =>
+      apiFetch<LiquidityResponse>(`/ssr/liquidity?season=${season}`),
+    putLiquidity: (input: {
+      season: string
+      liquidAssetsPence: number
+      liquidLiabilitiesPence: number
+      squadMarketValuePence: number
+    }) =>
+      apiFetch<{ success: boolean; id: string }>('/ssr/liquidity', {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      }),
+    getEquity: (season = '2026-27') =>
+      apiFetch<EquityResponse>(`/ssr/equity?season=${season}`),
+    putEquity: (input: {
+      season: string
+      totalLiabilitiesPence: number
+      adjustedAssetsPence: number
+    }) =>
+      apiFetch<{ success: boolean; id: string }>('/ssr/equity', {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      }),
   },
 }

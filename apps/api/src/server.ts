@@ -5,6 +5,7 @@ import rateLimit from '@fastify/rate-limit'
 import { clubRoutes } from './routes/club.js'
 import { rosterRoutes } from './routes/roster.js'
 import { scenarioRoutes } from './routes/scenarios.js'
+import { ssrRoutes } from './routes/ssr.js'
 
 const app = Fastify({
   logger: {
@@ -29,6 +30,7 @@ async function start() {
   await app.register(clubRoutes)
   await app.register(rosterRoutes)
   await app.register(scenarioRoutes)
+  await app.register(ssrRoutes)
 
   app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
     request.log.error({ err: error, url: request.url }, 'Unhandled error')

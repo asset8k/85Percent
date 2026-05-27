@@ -178,6 +178,55 @@ export async function clubRoutes(app: FastifyInstance) {
     }
   })
 
+  // PATCH /club/league — switch the club between supported leagues. CFO-only.
+  app.patch('/club/league', async (request, reply) => {
+    if (!['cfo', 'admin'].includes(request.userRole)) {
+      return reply.status(403).send({ error: 'Only the CFO can change the league' })
+    }
+    const Body = z.object({
+      leagueId: z.enum(['efl-championship', 'premier-league']),
+    })
+    const parsed = Body.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+
+    try {
+      const { data: existing, error: findErr } = await supabase
+        .from('clubs')
+        .select('id, league_id')
+        .eq('id', request.clubId)
+        .maybeSingle()
+      if (findErr) throw findErr
+      if (!existing) return reply.status(404).send({ error: 'Club not found' })
+
+      if (existing.league_id === parsed.data.leagueId) {
+        return reply.send({ success: true, leagueId: existing.league_id })
+      }
+
+      const { error: updateErr } = await supabase
+        .from('clubs')
+        .update({ league_id: parsed.data.leagueId, updated_at: new Date().toISOString() })
+        .eq('id', request.clubId)
+      if (updateErr) throw updateErr
+
+      const { error: auditErr } = await supabase.from('audit_logs').insert({
+        id: randomUUID(),
+        user_id: request.userId,
+        club_id: request.clubId,
+        table_name: 'clubs',
+        record_id: request.clubId,
+        action: 'update',
+        previous_value: { leagueId: existing.league_id },
+        new_value: { leagueId: parsed.data.leagueId },
+      })
+      if (auditErr) request.log.warn({ err: auditErr }, 'audit_logs insert failed (non-fatal)')
+
+      return reply.send({ success: true, leagueId: parsed.data.leagueId })
+    } catch (err) {
+      request.log.error({ err }, 'PATCH /club/league failed')
+      return reply.status(500).send({ error: 'Failed to switch league' })
+    }
+  })
+
   app.get('/club/league-config', async (request, reply) => {
     try {
       const { data: club, error } = await supabase

@@ -5,6 +5,7 @@ import { LoginPage } from '@/pages/LoginPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { RosterPage } from '@/pages/RosterPage'
 import { ScenariosPage } from '@/pages/ScenariosPage'
+import { SSRPage } from '@/pages/SSRPage'
 import { CalendarPage } from '@/pages/CalendarPage'
 import { ClubSetupPage } from '@/pages/ClubSetupPage'
 
@@ -25,6 +26,7 @@ export function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/roster" element={<RosterPage />} />
           <Route path="/scenarios" element={<ScenariosPage />} />
+          <Route path="/ssr" element={<SSRPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/setup" element={<ClubSetupPage />} />
 

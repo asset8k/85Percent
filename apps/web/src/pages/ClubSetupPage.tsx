@@ -11,6 +11,8 @@ import { Card } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/badge'
 import { formatPence } from '@headroom/shared'
 import { EFL_CHAMPIONSHIP_CONFIG } from '@headroom/shared'
+import { calculatePromotedClubRevenueUplift, PROMOTED_CLUB_DEFAULT_UPLIFT_FACTOR } from '@headroom/engine'
+import { cn } from '@/lib/utils'
 import type { ComplianceStatus } from '@headroom/shared'
 
 const SetupSchema = z.object({
@@ -25,9 +27,17 @@ const SetupSchema = z.object({
 type SetupData = z.infer<typeof SetupSchema>
 
 export function ClubSetupPage() {
-  const { financials, setFinancials } = useClubStore()
+  const { financials, setFinancials, leagueId, setClub, clubId, clubName } = useClubStore()
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+
+  // League switch state
+  const [leagueSaving, setLeagueSaving] = useState(false)
+
+  // Promoted-club uplift state (only relevant when on Premier League)
+  const [showUplift, setShowUplift] = useState(false)
+  const [championshipRevenuePounds, setChampionshipRevenuePounds] = useState(NaN)
+  const [upliftFactor, setUpliftFactor] = useState(PROMOTED_CLUB_DEFAULT_UPLIFT_FACTOR)
 
   const form = useForm<SetupData>({
     resolver: zodResolver(SetupSchema),
@@ -88,6 +98,32 @@ export function ClubSetupPage() {
     }
   }
 
+  const switchLeague = async (next: 'efl-championship' | 'premier-league') => {
+    if (leagueId === next || leagueSaving) return
+    setLeagueSaving(true)
+    setError('')
+    try {
+      await api.club.setLeague(next)
+      // Update local store so the SSR sidebar item appears/disappears immediately
+      if (clubId) setClub(clubId, clubName ?? 'Your Club', next)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to change league')
+    } finally {
+      setLeagueSaving(false)
+    }
+  }
+
+  const upliftPence = calculatePromotedClubRevenueUplift(
+    Number.isFinite(championshipRevenuePounds) ? championshipRevenuePounds * 100 : 0,
+    upliftFactor,
+  )
+
+  const applyUplift = () => {
+    if (upliftPence <= 0) return
+    form.setValue('footballRelatedRevenuePounds', Math.round(upliftPence / 100), { shouldDirty: true })
+    setShowUplift(false)
+  }
+
   const errs = form.formState.errors
   const greenPct = (EFL_CHAMPIONSHIP_CONFIG.greenThresholdRatio * 100).toFixed(0)
   const redPctVal = ((EFL_CHAMPIONSHIP_CONFIG.greenThresholdRatio + watchAllowance) * 100).toFixed(0)
@@ -101,6 +137,109 @@ export function ClubSetupPage() {
           <p className="text-[13px] text-slate-400 mt-1.5">2026/27 Season</p>
         </div>
       </div>
+
+      {/* League switch (single card spanning the page width) */}
+      <Card className="p-6 mb-6">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
+              <h2 className="text-[15px] font-semibold text-slate-900">League</h2>
+            </div>
+            <p className="text-[13px] text-slate-500 pl-4 max-w-xl">
+              Switches the regulatory framework. Premier League adds the three SSR solvency tests; Championship adds the £33M owner-equity top-up allowance.
+            </p>
+          </div>
+          <div className="inline-flex bg-slate-100 rounded-lg p-1">
+            <button
+              onClick={() => switchLeague('efl-championship')}
+              disabled={leagueSaving}
+              className={cn(
+                'px-4 py-1.5 text-[13px] font-medium rounded-md transition-colors',
+                leagueId === 'efl-championship'
+                  ? 'bg-white text-violet-700 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900',
+              )}
+            >
+              EFL Championship
+            </button>
+            <button
+              onClick={() => switchLeague('premier-league')}
+              disabled={leagueSaving}
+              className={cn(
+                'px-4 py-1.5 text-[13px] font-medium rounded-md transition-colors',
+                leagueId === 'premier-league'
+                  ? 'bg-white text-violet-700 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900',
+              )}
+            >
+              Premier League
+              {leagueSaving && leagueId !== 'premier-league' && <Spinner size={11} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Promoted-club uplift — only when on PL */}
+        {leagueId === 'premier-league' && (
+          <div className="mt-5 pt-5 border-t border-slate-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="meta-label">Just promoted from the Championship?</div>
+                <p className="text-[12px] text-slate-500 mt-1 max-w-md">
+                  Estimate Year-1 PL revenue from your last Championship season. Editable assumption.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowUplift((v) => !v)}
+                className="text-[12px] font-medium text-violet-600 hover:text-violet-700"
+              >
+                {showUplift ? 'Hide' : 'Use uplift estimator'}
+              </button>
+            </div>
+
+            {showUplift && (
+              <div className="mt-4 rounded-lg border border-violet-100 bg-violet-50/40 p-4 grid grid-cols-3 gap-4 items-end">
+                <label className="block">
+                  <span className="meta-label block mb-1.5">Last Championship revenue (£)</span>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[14px]">£</span>
+                    <NumericInput
+                      value={championshipRevenuePounds}
+                      onChange={setChampionshipRevenuePounds}
+                      className="w-full pl-7 pr-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white num focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+                    />
+                  </div>
+                </label>
+                <label className="block">
+                  <span className="meta-label block mb-1.5">Uplift factor (×)</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="1"
+                    max="10"
+                    value={upliftFactor}
+                    onChange={(e) => setUpliftFactor(parseFloat(e.target.value) || PROMOTED_CLUB_DEFAULT_UPLIFT_FACTOR)}
+                    className="w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white num focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+                  />
+                </label>
+                <div>
+                  <div className="meta-label mb-1.5">Estimated PL revenue</div>
+                  <div className="num text-[20px] font-medium text-slate-900 leading-none mb-2">
+                    {upliftPence > 0 ? formatPence(upliftPence) : '—'}
+                  </div>
+                  <button
+                    onClick={applyUplift}
+                    disabled={upliftPence <= 0}
+                    className="text-[12px] font-medium text-violet-600 hover:text-violet-700 disabled:opacity-50"
+                  >
+                    Apply to revenue field →
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Card>
 
       <div className="grid gap-6" style={{ gridTemplateColumns: '1fr 360px' }}>
         {/* Main form */}
@@ -175,29 +314,32 @@ export function ClubSetupPage() {
                 />
               </FieldWrapper>
 
-              <FieldWrapper
-                label="Owner Equity Top-Up (£)"
-                helper="Counts as revenue under EFL SCR rules — increases your Green Threshold. Max £15M/season."
-                error={errs.ownerEquityUsedCurrentSeasonPounds?.message}
-              >
-                <div className="relative">
-                  <span className="num absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">£</span>
-                  <Controller
-                    control={form.control}
-                    name="ownerEquityUsedCurrentSeasonPounds"
-                    render={({ field }) => (
-                      <NumericInput
-                        value={field.value ?? NaN}
-                        onChange={(n) => field.onChange(isNaN(n) ? undefined : n)}
-                        onBlur={field.onBlur}
-                        ref={field.ref}
-                        max={15_000_000}
-                        className={inputCls(!!errs.ownerEquityUsedCurrentSeasonPounds, 'pl-7')}
-                      />
-                    )}
-                  />
-                </div>
-              </FieldWrapper>
+              {/* Owner equity top-up — Championship only. PL clubs do not have this allowance. */}
+              {leagueId !== 'premier-league' && (
+                <FieldWrapper
+                  label="Owner Equity Top-Up (£)"
+                  helper="Counts as revenue under EFL SCR rules — increases your Green Threshold. Max £15M/season."
+                  error={errs.ownerEquityUsedCurrentSeasonPounds?.message}
+                >
+                  <div className="relative">
+                    <span className="num absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">£</span>
+                    <Controller
+                      control={form.control}
+                      name="ownerEquityUsedCurrentSeasonPounds"
+                      render={({ field }) => (
+                        <NumericInput
+                          value={field.value ?? NaN}
+                          onChange={(n) => field.onChange(isNaN(n) ? undefined : n)}
+                          onBlur={field.onBlur}
+                          ref={field.ref}
+                          max={15_000_000}
+                          className={inputCls(!!errs.ownerEquityUsedCurrentSeasonPounds, 'pl-7')}
+                        />
+                      )}
+                    />
+                  </div>
+                </FieldWrapper>
+              )}
             </div>
 
             <div className="mt-7 pt-6 border-t border-slate-100 flex items-center justify-between">
