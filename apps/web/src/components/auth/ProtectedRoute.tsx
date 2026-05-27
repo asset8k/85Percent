@@ -33,7 +33,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
           clubName: null,
           leagueId: null,
           financials: null,
-          simulations: [],
+          scenarios: [],
         })
       }
     })

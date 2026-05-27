@@ -9,6 +9,8 @@ import {
   calculateAllowanceUpdate,
   generateAmortisationSchedule,
   currentBookValuePence,
+  calculateSquadCosts,
+  applyScenarioActions,
 } from '../src/index.js'
 import type { ClubFinancials, TransferInput } from '@headroom/shared'
 
@@ -557,5 +559,211 @@ describe('currentBookValuePence', () => {
   it('returns 0 for zero-length contracts (defensive)', () => {
     const date = utc(2026, 1, 1)
     expect(currentBookValuePence(FEE, date, date, date)).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// calculateSquadCosts — aggregate active contracts into the squad-cost total
+// that drives the dashboard SCR.
+// ---------------------------------------------------------------------------
+describe('calculateSquadCosts', () => {
+  it('sums wage + amortisation + annualised agent fee for one contract', () => {
+    const result = calculateSquadCosts([
+      {
+        playerId: 'p1',
+        transferFeePence: 4_000_000_00,   // £4M
+        annualWagePence: 1_456_000_00,    // £1.456M
+        agentFeePence: 400_000_00,        // £400k
+        contractLengthYears: 4,
+      },
+    ])
+    // amort = 4M/4 = 1M, agent = 400k/4 = 100k, wage = 1.456M → total 2.556M
+    expect(result.breakdown[0]!.amortisationPence).toBe(1_000_000_00)
+    expect(result.breakdown[0]!.annualisedAgentFeePence).toBe(100_000_00)
+    expect(result.breakdown[0]!.wagePence).toBe(1_456_000_00)
+    expect(result.breakdown[0]!.totalAnnualCostPence).toBe(2_556_000_00)
+    expect(result.totalSquadCostsPence).toBe(2_556_000_00)
+  })
+
+  it('sums across multiple contracts', () => {
+    const result = calculateSquadCosts([
+      { playerId: 'p1', transferFeePence: 0, annualWagePence: 1_000_000_00, agentFeePence: 0, contractLengthYears: 3 },
+      { playerId: 'p2', transferFeePence: 0, annualWagePence: 2_000_000_00, agentFeePence: 0, contractLengthYears: 3 },
+    ])
+    expect(result.totalSquadCostsPence).toBe(3_000_000_00)
+    expect(result.breakdown).toHaveLength(2)
+  })
+
+  it('handles free transfers (no amortisation, no agent fee)', () => {
+    const result = calculateSquadCosts([
+      { playerId: 'p1', transferFeePence: 0, annualWagePence: 500_000_00, agentFeePence: 0, contractLengthYears: 2 },
+    ])
+    expect(result.breakdown[0]!.amortisationPence).toBe(0)
+    expect(result.breakdown[0]!.annualisedAgentFeePence).toBe(0)
+    expect(result.totalSquadCostsPence).toBe(500_000_00)
+  })
+
+  it('preserves input order in breakdown', () => {
+    const result = calculateSquadCosts([
+      { playerId: 'b', transferFeePence: 0, annualWagePence: 100, agentFeePence: 0, contractLengthYears: 1 },
+      { playerId: 'a', transferFeePence: 0, annualWagePence: 100, agentFeePence: 0, contractLengthYears: 1 },
+      { playerId: 'c', transferFeePence: 0, annualWagePence: 100, agentFeePence: 0, contractLengthYears: 1 },
+    ])
+    expect(result.breakdown.map((r) => r.playerId)).toEqual(['b', 'a', 'c'])
+  })
+
+  it('handles fractional contract lengths (3.5 years)', () => {
+    const result = calculateSquadCosts([
+      { playerId: 'p1', transferFeePence: 3_500_000_00, annualWagePence: 0, agentFeePence: 0, contractLengthYears: 3.5 },
+    ])
+    // 3.5M / 3.5 = 1M annual amortisation
+    expect(result.breakdown[0]!.amortisationPence).toBe(1_000_000_00)
+  })
+
+  it('defends against zero contract length without dividing by zero', () => {
+    const result = calculateSquadCosts([
+      { playerId: 'p1', transferFeePence: 1_000_000_00, annualWagePence: 0, agentFeePence: 0, contractLengthYears: 0 },
+    ])
+    // falls back to 1-year amortisation, full fee in one year
+    expect(result.breakdown[0]!.amortisationPence).toBe(1_000_000_00)
+    expect(Number.isFinite(result.totalSquadCostsPence)).toBe(true)
+  })
+
+  it('returns 0 for an empty roster', () => {
+    const result = calculateSquadCosts([])
+    expect(result.totalSquadCostsPence).toBe(0)
+    expect(result.breakdown).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// applyScenarioActions — multi-action projection
+// ---------------------------------------------------------------------------
+describe('applyScenarioActions', () => {
+  const BASELINE = { squadCostsPence: 20_000_000_00, revenuePence: 25_000_000_00 }
+
+  it('buy: adds wage + amortisation + annualised agent fee', () => {
+    const r = applyScenarioActions(BASELINE, [
+      {
+        actionType: 'buy',
+        transferFeePence: 4_000_000_00,
+        contractLengthYears: 4,
+        annualWagePence:    1_456_000_00,
+        agentFeePence:      400_000_00,
+      },
+    ])
+    expect(r.costDeltaPence).toBe(1_000_000_00 + 1_456_000_00 + 100_000_00)  // 2,556,000_00
+    expect(r.revenueDeltaPence).toBe(0)
+    expect(r.projectedSquadCostsPence).toBe(BASELINE.squadCostsPence + r.costDeltaPence)
+  })
+
+  it('sell: subtracts relief, adds net profit to revenue', () => {
+    const r = applyScenarioActions(BASELINE, [
+      {
+        actionType: 'sell',
+        saleProceedsPence: 5_000_000_00,
+        playerBookValuePence: 2_000_000_00,        // £3M profit
+        annualWageReliefPence: 1_200_000_00,
+        annualAmortisationReliefPence: 500_000_00,
+      },
+    ])
+    expect(r.costDeltaPence).toBe(-(1_200_000_00 + 500_000_00))
+    expect(r.revenueDeltaPence).toBe(3_000_000_00)
+  })
+
+  it('sell: loss on sale does NOT reduce revenue (EFL: only positive profit counts)', () => {
+    const r = applyScenarioActions(BASELINE, [
+      {
+        actionType: 'sell',
+        saleProceedsPence: 1_000_000_00,
+        playerBookValuePence: 5_000_000_00,        // £4M loss
+        annualWageReliefPence: 0,
+        annualAmortisationReliefPence: 0,
+      },
+    ])
+    expect(r.revenueDeltaPence).toBe(0)
+  })
+
+  it('loan_in: adds annualised loan fee + wage', () => {
+    const r = applyScenarioActions(BASELINE, [
+      {
+        actionType: 'loan_in',
+        transferFeePence: 2_000_000_00,            // loan fee paid
+        loanLengthYears: 1,
+        annualWagePence: 1_000_000_00,
+      },
+    ])
+    expect(r.costDeltaPence).toBe(2_000_000_00 + 1_000_000_00)
+  })
+
+  it('loan_out: subtracts wage covered, adds loan fee income to revenue', () => {
+    const r = applyScenarioActions(BASELINE, [
+      {
+        actionType: 'loan_out',
+        annualWageCoveredPence: 800_000_00,
+        loanFeeReceivedPence: 600_000_00,
+        loanLengthYears: 1,
+      },
+    ])
+    expect(r.costDeltaPence).toBe(-800_000_00)
+    expect(r.revenueDeltaPence).toBe(600_000_00)
+  })
+
+  it('release: subtracts wage + amortisation relief, no revenue change', () => {
+    const r = applyScenarioActions(BASELINE, [
+      {
+        actionType: 'release',
+        annualWageReliefPence: 700_000_00,
+        annualAmortisationReliefPence: 300_000_00,
+      },
+    ])
+    expect(r.costDeltaPence).toBe(-1_000_000_00)
+    expect(r.revenueDeltaPence).toBe(0)
+  })
+
+  it('combines multiple actions in one pass (sell + buy + release)', () => {
+    const r = applyScenarioActions(BASELINE, [
+      { actionType: 'sell', saleProceedsPence: 5_000_000_00, playerBookValuePence: 2_000_000_00,
+        annualWageReliefPence: 1_200_000_00, annualAmortisationReliefPence: 500_000_00 },
+      { actionType: 'buy', transferFeePence: 8_000_000_00, contractLengthYears: 4,
+        annualWagePence: 2_000_000_00, agentFeePence: 0 },
+      { actionType: 'release', annualWageReliefPence: 600_000_00, annualAmortisationReliefPence: 0 },
+    ])
+    const sellCost  = -(1_200_000_00 + 500_000_00)
+    const buyCost   = 2_000_000_00 + 2_000_000_00 // amort 2M + wage 2M
+    const releaseCost = -600_000_00
+    expect(r.costDeltaPence).toBe(sellCost + buyCost + releaseCost)
+    expect(r.revenueDeltaPence).toBe(3_000_000_00) // only the sell contributes
+  })
+
+  it('skips actions where isIncluded === false', () => {
+    const r = applyScenarioActions(BASELINE, [
+      { actionType: 'buy', transferFeePence: 10_000_000_00, contractLengthYears: 1,
+        annualWagePence: 1_000_000_00, agentFeePence: 0, isIncluded: false },
+      { actionType: 'buy', transferFeePence: 0, contractLengthYears: 1,
+        annualWagePence: 500_000_00, agentFeePence: 0, isIncluded: true },
+    ])
+    expect(r.costDeltaPence).toBe(500_000_00)
+  })
+
+  it('empty action list returns baseline unchanged', () => {
+    const r = applyScenarioActions(BASELINE, [])
+    expect(r.projectedSquadCostsPence).toBe(BASELINE.squadCostsPence)
+    expect(r.projectedRevenuePence).toBe(BASELINE.revenuePence)
+    expect(r.costDeltaPence).toBe(0)
+    expect(r.revenueDeltaPence).toBe(0)
+  })
+
+  it('is order-independent (commutative on cost + revenue deltas)', () => {
+    const a = applyScenarioActions(BASELINE, [
+      { actionType: 'buy', transferFeePence: 4_000_000_00, contractLengthYears: 4, annualWagePence: 1_000_000_00, agentFeePence: 0 },
+      { actionType: 'sell', saleProceedsPence: 3_000_000_00, playerBookValuePence: 1_000_000_00, annualWageReliefPence: 500_000_00, annualAmortisationReliefPence: 0 },
+    ])
+    const b = applyScenarioActions(BASELINE, [
+      { actionType: 'sell', saleProceedsPence: 3_000_000_00, playerBookValuePence: 1_000_000_00, annualWageReliefPence: 500_000_00, annualAmortisationReliefPence: 0 },
+      { actionType: 'buy', transferFeePence: 4_000_000_00, contractLengthYears: 4, annualWagePence: 1_000_000_00, agentFeePence: 0 },
+    ])
+    expect(a.costDeltaPence).toBe(b.costDeltaPence)
+    expect(a.revenueDeltaPence).toBe(b.revenueDeltaPence)
   })
 })

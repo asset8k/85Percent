@@ -19,11 +19,6 @@ const SetupSchema = z.object({
     .int()
     .positive('Revenue must be positive')
     .max(500_000_000, 'Revenue cannot exceed £500M'),
-  currentSquadCostsPounds: z
-    .number({ invalid_type_error: 'Squad costs must be a number' })
-    .int()
-    .min(0, 'Squad costs cannot be negative')
-    .max(500_000_000, 'Squad costs cannot exceed £500M'),
   currentAllowanceRatio: z.number({ invalid_type_error: 'Allowance must be a number' }).min(0).max(1),
   ownerEquityUsedCurrentSeasonPounds: z.number({ invalid_type_error: 'Must be a number' }).int().min(0).max(15_000_000, 'EFL limit is £15M per season').optional(),
 })
@@ -40,9 +35,6 @@ export function ClubSetupPage() {
       footballRelatedRevenuePounds: financials
         ? Math.round(financials.footballRelatedRevenue / 100)
         : undefined,
-      currentSquadCostsPounds: financials
-        ? Math.round(financials.currentSquadCosts / 100)
-        : undefined,
       currentAllowanceRatio: financials?.currentAllowanceRatio ?? 0.3,
       ownerEquityUsedCurrentSeasonPounds: financials?.ownerEquityUsed1yr
         ? Math.round(financials.ownerEquityUsed1yr / 100)
@@ -51,9 +43,14 @@ export function ClubSetupPage() {
   })
 
   const watchRevenue = form.watch('footballRelatedRevenuePounds')
-  const watchSquad = form.watch('currentSquadCostsPounds')
   const watchAllowance = form.watch('currentAllowanceRatio')
   const watchEquity = form.watch('ownerEquityUsedCurrentSeasonPounds')
+
+  // Squad costs are now DERIVED from contracts — read from the live financials,
+  // not the form. The user no longer types this in.
+  const derivedSquadCostsPounds = financials
+    ? Math.round(financials.currentSquadCosts / 100)
+    : null
 
   // Live threshold preview
   let greenThreshold: number | null = null
@@ -66,10 +63,9 @@ export function ClubSetupPage() {
     const adjustedRevenuePounds = watchRevenue + (watchEquity ?? 0)
     greenThreshold = Math.floor(adjustedRevenuePounds * 100 * EFL_CHAMPIONSHIP_CONFIG.greenThresholdRatio)
     redThreshold = Math.floor(greenThreshold * (1 + watchAllowance))
-    if (watchSquad != null && watchSquad >= 0) {
-      const squadPence = watchSquad * 100
+    if (derivedSquadCostsPounds != null && derivedSquadCostsPounds >= 0) {
+      const squadPence = derivedSquadCostsPounds * 100
       currentPct = (squadPence / (adjustedRevenuePounds * 100)) * 100
-      // EFL: red boundary = greenRatio × (1 + allowance), not greenRatio + allowance.
       scrStatus = currentPct > EFL_CHAMPIONSHIP_CONFIG.greenThresholdRatio * (1 + watchAllowance) * 100
         ? 'red'
         : currentPct > EFL_CHAMPIONSHIP_CONFIG.greenThresholdRatio * 100
@@ -145,25 +141,16 @@ export function ClubSetupPage() {
               </FieldWrapper>
 
               <FieldWrapper
-                label="Current Squad Costs (£)"
-                helper="Wages + amortisation + agent fees for the current squad."
-                error={errs.currentSquadCostsPounds?.message}
+                label="Squad Costs (derived)"
+                helper="Computed live from your active roster — manage players in the Roster tab."
               >
                 <div className="relative">
                   <span className="num absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">£</span>
-                  <Controller
-                    control={form.control}
-                    name="currentSquadCostsPounds"
-                    render={({ field }) => (
-                      <NumericInput
-                        value={field.value ?? NaN}
-                        onChange={field.onChange}
-                        onBlur={field.onBlur}
-                        ref={field.ref}
-                        max={500_000_000}
-                        className={inputCls(!!errs.currentSquadCostsPounds, 'pl-7')}
-                      />
-                    )}
+                  <input
+                    type="text"
+                    value={derivedSquadCostsPounds != null ? derivedSquadCostsPounds.toLocaleString('en-GB') : '—'}
+                    disabled
+                    className={inputCls(false, 'pl-7') + ' text-slate-500 bg-slate-50 cursor-not-allowed'}
                   />
                 </div>
               </FieldWrapper>

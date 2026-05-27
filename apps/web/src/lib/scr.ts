@@ -1,120 +1,200 @@
-import { calculateSCR } from '@headroom/engine'
-import { LEAGUE_CONFIGS } from '@headroom/shared'
-import type { ClubFinancials, ComplianceStatus, TransferInput, SCRResult } from '@headroom/shared'
-import type { ClubFinancialsResponse } from '@/lib/api'
-import type { StoredSimulation } from '@/stores/club'
+/**
+ * Client-side SCR utilities (MVP 2.0).
+ *
+ * Drives the Dashboard SCR card and the TopBar pill. Composes engine pure
+ * functions — no I/O, no API calls. Inputs are: financials response + included
+ * scenarios (each containing an ordered list of actions).
+ *
+ * Replaces the MVP 1.0 simulation-delta model.
+ */
 
-const SEASON = '2026-27'
+import type { ComplianceStatus } from '@headroom/shared'
+import type { ScenarioActionInput, ScenarioActionType } from '@headroom/engine'
+import { applyScenarioActions } from '@headroom/engine'
+import type { ClubFinancialsResponse, ScenarioDetail, ScenarioAction } from '@/lib/api'
 
-// Build the engine-shaped financials from the API response.
-// Caller decides what squadCosts to inject — usually the active baseline.
-export function toEngineFinancials(
-  f: ClubFinancialsResponse,
-  leagueId: string,
-  squadCostsOverride?: number
-): ClubFinancials {
-  const leagueConfig = LEAGUE_CONFIGS[leagueId]
-  if (!leagueConfig) throw new Error(`Unknown league: ${leagueId}`)
+// ---------------------------------------------------------------------------
+// Action payload normalisation
+// ---------------------------------------------------------------------------
+// API stores payloads as free JSON. We narrow into the engine's typed input here.
+
+function asNumber(v: unknown): number | undefined {
+  if (typeof v === 'number' && Number.isFinite(v)) return v
+  return undefined
+}
+
+export function actionToEngineInput(action: ScenarioAction): ScenarioActionInput {
+  const p = (action.payload ?? {}) as Record<string, unknown>
   return {
-    clubId: f.clubId,
-    season: f.season,
-    leagueConfig,
-    footballRelatedRevenue: f.footballRelatedRevenue,
-    currentSquadCosts: squadCostsOverride ?? f.currentSquadCosts,
-    currentAllowanceRatio: f.currentAllowanceRatio,
-    ownerEquityUsedCurrentSeason: f.ownerEquityUsed1yr ?? undefined,
-    ownerEquityUsedThreeYear: f.ownerEquityUsed3yr ?? undefined,
+    actionType: action.actionType as ScenarioActionType,
+    transferFeePence:                asNumber(p['transferFeePence']),
+    contractLengthYears:             asNumber(p['contractLengthYears']),
+    annualWagePence:                 asNumber(p['annualWagePence']),
+    agentFeePence:                   asNumber(p['agentFeePence']),
+    saleProceedsPence:               asNumber(p['saleProceedsPence']),
+    playerBookValuePence:            asNumber(p['playerBookValuePence']),
+    annualWageReliefPence:           asNumber(p['annualWageReliefPence']),
+    annualAmortisationReliefPence:   asNumber(p['annualAmortisationReliefPence']),
+    loanFeeReceivedPence:            asNumber(p['loanFeeReceivedPence']),
+    loanLengthYears:                 asNumber(p['loanLengthYears']),
+    annualWageCoveredPence:          asNumber(p['annualWageCoveredPence']),
+    isIncluded: true,
   }
 }
 
-// Annual squad-cost delta from a single transaction.
-export function costDeltaForSim(sim: StoredSimulation, financials: ClubFinancialsResponse, leagueId: string): number {
-  const engineFin = toEngineFinancials(financials, leagueId, financials.currentSquadCosts)
-  const result = calculateSCR(engineFin, sim.transferInput as TransferInput, sim.season || SEASON)
-  return result.totalAnnualCostImpact
+// ---------------------------------------------------------------------------
+// SCR status from a ratio + allowance
+// ---------------------------------------------------------------------------
+// EFL: Red Threshold = Green Threshold × (1 + allowance) — multiplicative.
+// For 30% allowance: red = 0.85 × 1.30 = 1.105 (110.5%), not 1.15.
+
+export function statusFromRatio(ratio: number, allowanceRatio: number): ComplianceStatus {
+  const greenRatio = 0.85
+  const redRatio = greenRatio * (1 + allowanceRatio)
+  if (ratio > redRatio) return 'red'
+  if (ratio > greenRatio) return 'amber'
+  return 'green'
 }
 
-// Annual revenue delta from a single transaction (counts toward Green Threshold).
-// Sell:    profit on sale (proceeds − book value, floored at 0) booked in year 1
-// LoanOut: loan fee received, pro-rated across loan length
-// Otherwise: 0
-function revenueDeltaForSim(sim: StoredSimulation): number {
-  const t = sim.transferInput as Record<string, unknown> | null
-  if (!t) return 0
-  const txType = t['transactionType'] as string | undefined
-  if (txType === 'sell') {
-    const proceeds = (t['saleProceeds'] as number) ?? 0
-    const bookValue = (t['playerBookValue'] as number) ?? 0
-    return Math.max(0, proceeds - bookValue)
-  }
-  if (txType === 'loan_out') {
-    const fee = (t['loanFeeReceived'] as number) ?? 0
-    const years = (t['loanLengthYears'] as number) ?? 1
-    return years > 0 ? Math.round(fee / years) : 0
-  }
-  return 0
-}
+// ---------------------------------------------------------------------------
+// Active Baseline
+// ---------------------------------------------------------------------------
 
 export interface ActiveBaseline {
   includedCount: number
-  baselineSquadCosts: number     // = financials.currentSquadCosts + Σ included cost deltas
-  adjustedRevenue: number        // = revenue + ownerEquity1yr + Σ included revenue deltas
-  ratio: number                  // baselineSquadCosts / adjustedRevenue
+  /** Baseline squad costs in pence: derived from contracts + included scenario deltas. */
+  baselineSquadCosts: number
+  /** Revenue used as the SCR denominator: footballRelatedRevenue + ownerEquity1yr + included revenue deltas. */
+  adjustedRevenue: number
+  ratio: number
   status: ComplianceStatus
 }
 
+/**
+ * Compute the Active Baseline — the SCR position the user is treating as
+ * "their current reality" given which scenarios are toggled on.
+ *
+ * @param financials       — club financials (from the API, with derived squadCosts)
+ * @param scenarios        — full list of saved scenarios with their actions loaded
+ * @param excludeScenarioId — optional: skip this scenario when computing (used by
+ *   the detail view's "before this scenario" gauge)
+ */
 export function computeActiveBaseline(
   financials: ClubFinancialsResponse,
-  leagueId: string,
-  simulations: StoredSimulation[],
-  excludeSimId?: string
+  scenarios: ScenarioDetail[],
+  excludeScenarioId?: string
 ): ActiveBaseline {
-  const included = simulations.filter((s) => s.isIncluded && s.id !== excludeSimId)
-  const costDeltasSum = included
-    .map((s) => costDeltaForSim(s, financials, leagueId))
-    .reduce((a, b) => a + b, 0)
-  const revenueDeltasSum = included.map(revenueDeltaForSim).reduce((a, b) => a + b, 0)
-  const baselineSquadCosts = financials.currentSquadCosts + costDeltasSum
-  const adjustedRevenue =
-    financials.footballRelatedRevenue + (financials.ownerEquityUsed1yr ?? 0) + revenueDeltasSum
-  const ratio = adjustedRevenue === 0 ? 0 : baselineSquadCosts / adjustedRevenue
-  // EFL: Red Threshold = Green Threshold × (1 + allowance) — multiplicative, not additive.
-  // For 30% allowance, red boundary is 0.85 × 1.30 = 1.105 (110.5%), not 1.15 (115%).
-  const allowance = financials.currentAllowanceRatio
-  const greenRatio = 0.85
-  const redRatio = greenRatio * (1 + allowance)
-  const status: ComplianceStatus =
-    ratio > redRatio ? 'red' : ratio > greenRatio ? 'amber' : 'green'
+  const included = scenarios.filter((s) => s.isIncluded && s.id !== excludeScenarioId)
+
+  // Flatten all actions across all included scenarios — the engine handles them
+  // in one pass. Order across scenarios is meaningless (commutative).
+  const actions: ScenarioActionInput[] = included.flatMap((s) =>
+    s.actions.map(actionToEngineInput)
+  )
+
+  const ownerEquity = financials.ownerEquityUsed1yr ?? 0
+  const baseline = {
+    squadCostsPence: financials.currentSquadCosts,
+    revenuePence: financials.footballRelatedRevenue + ownerEquity,
+  }
+
+  const projection = applyScenarioActions(baseline, actions)
+  const ratio = projection.projectedRevenuePence === 0
+    ? 0
+    : projection.projectedSquadCostsPence / projection.projectedRevenuePence
 
   return {
     includedCount: included.length,
-    baselineSquadCosts,
-    adjustedRevenue,
+    baselineSquadCosts: projection.projectedSquadCostsPence,
+    adjustedRevenue: projection.projectedRevenuePence,
     ratio,
-    status,
+    status: statusFromRatio(ratio, financials.currentAllowanceRatio),
   }
 }
 
-// Detail-view BEFORE/AFTER recompute (per the literal spec).
-//
-// BEFORE = baseline excluding this sim   (= Active Baseline − X when checked, = Active Baseline when unchecked)
-// AFTER  = baseline excluding this sim + this sim's deltas
-//        (= Active Baseline when checked, = Active Baseline + X when unchecked)
-//
-// Numerically these collapse to the same gauges in both states — by design, per the spec.
-export function computeBeforeAfter(
-  sim: StoredSimulation,
+/**
+ * Project the SCR if the user toggled this single scenario on (with all
+ * already-included scenarios still on). Used on the ScenariosPage to show
+ * "what does THIS scenario do" in a comparison card.
+ *
+ * Returns the baseline excluding this scenario AND the baseline including it,
+ * so the UI can show before / after.
+ */
+export interface ScenarioImpact {
+  before: ActiveBaseline
+  after: ActiveBaseline
+}
+
+export function computeScenarioImpact(
   financials: ClubFinancialsResponse,
-  leagueId: string,
-  allSimulations: StoredSimulation[]
-): SCRResult {
-  const baselineWithoutThisSim = computeActiveBaseline(financials, leagueId, allSimulations, sim.id)
+  allScenarios: ScenarioDetail[],
+  scenario: ScenarioDetail
+): ScenarioImpact {
+  // BEFORE = baseline as if this scenario were excluded
+  const before = computeActiveBaseline(financials, allScenarios, scenario.id)
+
+  // AFTER = baseline + this scenario's actions (regardless of its is_included flag)
   const ownerEquity = financials.ownerEquityUsed1yr ?? 0
-  const adjustedFinancials: ClubFinancialsResponse = {
-    ...financials,
-    footballRelatedRevenue: baselineWithoutThisSim.adjustedRevenue - ownerEquity,
-    currentSquadCosts: baselineWithoutThisSim.baselineSquadCosts,
+  const actions: ScenarioActionInput[] = scenario.actions.map(actionToEngineInput)
+  const projection = applyScenarioActions(
+    { squadCostsPence: before.baselineSquadCosts, revenuePence: before.adjustedRevenue },
+    actions
+  )
+
+  const ratio = projection.projectedRevenuePence === 0
+    ? 0
+    : projection.projectedSquadCostsPence / projection.projectedRevenuePence
+
+  // Show one more in the "after" count when this scenario isn't already on
+  const after: ActiveBaseline = {
+    includedCount: scenario.isIncluded ? before.includedCount : before.includedCount + 1,
+    baselineSquadCosts: projection.projectedSquadCostsPence,
+    adjustedRevenue: projection.projectedRevenuePence,
+    ratio,
+    status: statusFromRatio(ratio, financials.currentAllowanceRatio),
   }
-  const engineFin = toEngineFinancials(adjustedFinancials, leagueId)
-  return calculateSCR(engineFin, sim.transferInput as TransferInput, sim.season || SEASON)
+
+  return { before, after }
+}
+
+/**
+ * Helper: dry-run a *prospective* set of actions against the baseline (without
+ * needing to save the scenario). Used by the Scenario Builder while the user
+ * is editing.
+ */
+export function computeDryRun(
+  financials: ClubFinancialsResponse,
+  alreadyIncludedScenarios: ScenarioDetail[],
+  draftActions: ScenarioActionInput[]
+): ScenarioImpact {
+  const before = computeActiveBaseline(financials, alreadyIncludedScenarios)
+
+  const projection = applyScenarioActions(
+    { squadCostsPence: before.baselineSquadCosts, revenuePence: before.adjustedRevenue },
+    draftActions
+  )
+  const ratio = projection.projectedRevenuePence === 0
+    ? 0
+    : projection.projectedSquadCostsPence / projection.projectedRevenuePence
+
+  return {
+    before,
+    after: {
+      includedCount: before.includedCount + 1,
+      baselineSquadCosts: projection.projectedSquadCostsPence,
+      adjustedRevenue: projection.projectedRevenuePence,
+      ratio,
+      status: statusFromRatio(ratio, financials.currentAllowanceRatio),
+    },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Thresholds (in pence) given a financials snapshot.
+// Replaces inline math in pages so the gauge always renders consistently.
+// ---------------------------------------------------------------------------
+export function computeThresholds(adjustedRevenue: number, allowanceRatio: number) {
+  const green = Math.floor(adjustedRevenue * 0.85)
+  const red   = Math.floor(green * (1 + allowanceRatio))
+  return { greenPence: green, redPence: red }
 }

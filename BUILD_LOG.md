@@ -1162,3 +1162,156 @@ Strictly follows the [design/UI Kit.html](design/UI%20Kit.html) system: violet a
 - Engine: 59/59 tests passing (39 base + 10 transaction types + 10 leap-year/book-value)
 - API typecheck: 0 errors
 - Web typecheck: 0 errors
+
+---
+
+## Session 12 — Phase 3: Dashboard + Multi-Action Scenario Builder (2026-05-27)
+
+### What was accomplished
+
+Phase 3 of [mvp_2.0_plan.md](mvp_2.0_plan.md): full replacement of the MVP 1.0 single-transfer Simulator + History flow with a derived-from-contracts Dashboard + a drag-and-drop multi-action Scenario Builder.
+
+This phase is large in scope — engine, API, and frontend all changed substantially. 11/11 E2E smoke tests pass against the live DB.
+
+---
+
+### Engine (@headroom/engine)
+
+New module: [packages/engine/src/squadCosts.ts](packages/engine/src/squadCosts.ts).
+
+```typescript
+calculateSquadCosts(contracts) → { totalSquadCostsPence, breakdown }
+applyScenarioActions(baseline, actions[]) → { projectedSquadCostsPence, projectedRevenuePence, costDeltaPence, revenueDeltaPence }
+```
+
+- `calculateSquadCosts` sums wage + amortisation (transferFee/years) + annualisedAgentFee (agentFee/years). The breakdown row exposes `annualisedAgentFeePence` explicitly — the UI MUST label this as "Annualised Agent Fee" with a tooltip explaining that SCR amortises agent fees even when the user's own books expense them upfront.
+- `applyScenarioActions` is the multi-action projection — branches by `actionType` (buy / sell / loan_in / loan_out / release) and returns deltas plus the projected baseline. Order-independent (commutative). Skips actions where `isIncluded === false`.
+- 17 new tests added: 7 for calculateSquadCosts (including fractional years, defensive zero-length, ordering), 10 for applyScenarioActions (one per action type, multi-action combinations, isIncluded skip, commutativity).
+- **Engine test count: 76/76 passing** (was 59 at end of Phase 2).
+
+---
+
+### API (apps/api)
+
+**[apps/api/src/routes/scenarios.ts](apps/api/src/routes/scenarios.ts)** — new (replaces routes/simulations.ts entirely):
+
+| Endpoint | Behaviour |
+|---|---|
+| `POST /scenarios` | Validates player FKs belong to this club (defence in depth — early 400 beats opaque FK error). Creates scenario + ordered actions in best-effort transaction (rollback parent on actions insert failure). |
+| `GET /scenarios` | Paginated list with `actionCount` joined per scenario via a single batch query (no N+1). |
+| `GET /scenarios/:id` | Full scenario with actions ordered by `order_index`. |
+| `PATCH /scenarios/:id` | Rename or toggle `is_included`. Audit-logged. |
+| `DELETE /scenarios/:id` | Hard delete — FK `ON DELETE CASCADE` removes actions. Audit-logged. |
+
+Rate limit override moved from `POST /simulations` to `POST /scenarios` (30/min).
+
+**[apps/api/src/routes/club.ts](apps/api/src/routes/club.ts)** — `GET /club/financials` now computes `currentSquadCosts` live by:
+1. Loading active contracts for the club
+2. Feeding them to `calculateSquadCosts` from the engine
+3. Returning `currentSquadCosts` + `contractCount` in the response
+
+`PUT /club/financials` no longer accepts `currentSquadCostsPounds` in the body — squad costs are roster-derived, not user-input.
+
+**[apps/api/src/routes/simulations.ts](apps/api/src/routes/simulations.ts)** — **DELETED**. `POST /simulations` now returns 404 (verified in smoke test).
+
+---
+
+### Frontend (apps/web)
+
+**Routing overhaul** ([apps/web/src/App.tsx](apps/web/src/App.tsx)):
+- `/` → redirects to `/dashboard` (was `/simulator`)
+- `/dashboard` → NEW DashboardPage
+- `/scenarios` → NEW ScenariosPage
+- `/roster` (Phase 2)
+- `/calendar`, `/setup`, `/login` unchanged
+- Legacy `/simulator`, `/history`, `/history/:id` all redirect to `/scenarios` (so old bookmarks don't 404)
+
+**[apps/web/src/pages/DashboardPage.tsx](apps/web/src/pages/DashboardPage.tsx)** — new home view:
+- Hero card: live SCR % (large, status-coloured), revenue / headroom block, "with N included scenarios" pill when Active Baseline differs from roster-only baseline
+- Reuses existing `ComplianceGauge` component (takes 4 percentages, fully reusable)
+- Per-player breakdown table with sortable columns: Name, Position, Wage, Amortisation, **Annualised Agent Fee**, Total/yr, To Expiry
+- Filter chips: All / Expiring ≤ 6 mo / GK / DEF / MID / FWD
+- Empty states for: no club setup, no roster, no players match filter
+
+**[apps/web/src/pages/ScenariosPage.tsx](apps/web/src/pages/ScenariosPage.tsx)** — new Scenario Builder (~970 LOC):
+- Two-column layout: 320px left rail (saved scenarios + Active Baseline summary card) + right pane (builder)
+- Saved scenario row: checkbox to toggle `isIncluded`, click name to load into builder, trash to delete
+- **Builder workspace**:
+  - Name input + Save button (when editing, Save delete+recreate via API)
+  - **Live projection card**: before/after SCR with status badge + ComplianceGauge
+  - **Drag-and-drop action list** via `@dnd-kit/sortable` + `@dnd-kit/core` (new deps). Drag handle on each row, reordering recomputes the projection instantly.
+  - "Add action" dropdown: Buy / Sell / Loan In / Loan Out / Release
+  - Per-type forms with sensible auto-fill: selecting an existing player on sell/release/loan_out auto-populates wage relief + book value + amortisation relief from their contract
+- **Compare A vs B modal**: two scenario dropdowns + projected SCR per scenario + ΔSCR, ΔCosts, ΔRevenue delta card
+
+All math is **client-side** via `@headroom/engine` (`applyScenarioActions`). The API is just storage + audit.
+
+**Store + client overhaul**:
+- [apps/web/src/stores/club.ts](apps/web/src/stores/club.ts) — removed `simulations` state, added `scenarios: ScenarioDetail[]` with upsert/remove/setInclusion/setName actions
+- [apps/web/src/lib/api.ts](apps/web/src/lib/api.ts) — removed `api.simulations.*`, added `api.scenarios.*` (create/list/get/update/delete). New types: `ScenarioSummary`, `ScenarioDetail`, `ScenarioAction`, `ScenarioActionPayload`
+- [apps/web/src/lib/scr.ts](apps/web/src/lib/scr.ts) — rewritten on top of `applyScenarioActions`. New exports: `actionToEngineInput`, `statusFromRatio`, `computeActiveBaseline`, `computeScenarioImpact`, `computeDryRun`, `computeThresholds`
+- [apps/web/src/components/layout/AppLayout.tsx](apps/web/src/components/layout/AppLayout.tsx) — TopBar pill now shows "Projected SCR" when any scenarios are included (vs "Current SCR" when only roster baseline)
+- [apps/web/src/pages/ClubSetupPage.tsx](apps/web/src/pages/ClubSetupPage.tsx) — manual "Current Squad Costs" input replaced with a read-only derived value with the hint "Computed live from your active roster — manage players in the Roster tab"
+- [apps/web/src/components/layout/Sidebar.tsx](apps/web/src/components/layout/Sidebar.tsx) — "Simulator" → "Dashboard", "History" → "Scenarios" (with new arrows-up-down icon for scenarios)
+
+**Files deleted:**
+- `apps/web/src/pages/SimulatorPage.tsx`
+- `apps/web/src/pages/HistoryPage.tsx`
+- `apps/web/src/lib/pdf.ts` (referenced legacy SimulationResponse; will be rebuilt in Phase 6)
+
+**Auth store cleanup:**
+- `apps/web/src/stores/auth.ts` and `apps/web/src/components/auth/ProtectedRoute.tsx` now reset `scenarios` instead of `simulations` on sign-out
+
+---
+
+### Shared (@headroom/shared)
+
+[packages/shared/src/types.ts](packages/shared/src/types.ts) — exported `ScenarioActionType` alongside the existing `TransactionType` (so the web's api client can reference it without depending on the engine).
+
+---
+
+### New dependency
+
+- `@dnd-kit/core`, `@dnd-kit/sortable`, `@dnd-kit/utilities` — for the Scenario Builder drag-to-reorder
+
+---
+
+### E2E verification (11/11 passing, live DB)
+
+| # | Test | Result |
+|---|---|---|
+| 1 | `GET /club/financials` derives squadCosts from contracts | ✓ £45M from 6 contracts |
+| 2 | `POST /scenarios` creates with ordered actions (buy + sell) | ✓ |
+| 3 | `GET /scenarios` lists with actionCount joined | ✓ |
+| 4 | `GET /scenarios/:id` returns actions in order_index order | ✓ buy@0, sell@1 |
+| 5 | `PATCH /scenarios/:id` toggles isIncluded | ✓ |
+| 6 | `PATCH /scenarios/:id` renames | ✓ |
+| 7 | `POST /scenarios` rejects unknown playerId (FK defence) | ✓ 400 |
+| 8 | `POST /scenarios` rejects empty name | ✓ 400 |
+| 9 | `DELETE /scenarios/:id` cascades to actions | ✓ post-delete GET → 404 |
+| 10 | `GET /scenarios/:id` of unknown id → 404 | ✓ |
+| 11 | `POST /simulations` is gone (route removed) | ✓ 404 |
+
+---
+
+### Documented deviations from plan
+
+| Plan said | Implemented | Reason |
+|---|---|---|
+| In-place edit via PATCH actions list | Editing an existing scenario does delete + recreate via DELETE + POST | Simpler API surface; FK CASCADE handles cleanup. Phase 4+ can add a PATCH action list endpoint if needed. |
+
+---
+
+### What's now correct vs Phase 2
+
+- **Dashboard**: shows the live SCR derived from real contracts — no more `currentSquadCosts: 0` placeholder
+- **TopBar SCR pill**: live; switches label to "Projected SCR" when scenarios are included
+- **ClubSetupPage**: read-only squad costs field, no longer accepts manual input
+- **No orphan routes**: legacy `/simulator`, `/history` redirect cleanly
+- **No dead code**: SimulatorPage, HistoryPage, pdf.ts (legacy) all removed
+
+### Engine / TypeScript
+
+- Engine: 76/76 tests passing (59 + 7 squadCosts + 10 applyScenarioActions)
+- API typecheck: 0 errors
+- Web typecheck: 0 errors

@@ -83,6 +83,10 @@ export interface SCRResult {
 export type UserRole = 'cfo' | 'sporting_director' | 'finance_analyst' | 'admin'
 export type ComplianceStatus = 'green' | 'amber' | 'red'
 
+/** Mirrors the engine's ScenarioActionType — duplicated here so frontend types
+ *  don't need to depend on @headroom/engine directly. */
+export type ScenarioActionType = 'buy' | 'sell' | 'loan_in' | 'loan_out' | 'release'
+
 // ---------------------------------------------------------------------------
 // Roster (MVP 2.0) — wire-format response types
 // All monetary values are integers in pence. ISO date strings on the wire,

@@ -5,8 +5,8 @@ import { useAuthStore } from '@/stores/auth'
 
 const navItems = [
   {
-    to: '/simulator',
-    label: 'Simulator',
+    to: '/dashboard',
+    label: 'Dashboard',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
         <path d="M4 18V8" /><path d="M10 18V4" /><path d="M16 18V11" /><path d="M3 21h18" />
@@ -26,11 +26,11 @@ const navItems = [
     ),
   },
   {
-    to: '/history',
-    label: 'History',
+    to: '/scenarios',
+    label: 'Scenarios',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l3 2" />
+        <path d="M12 2v20" /><path d="M5 9l7-7 7 7" /><path d="M19 15l-7 7-7-7" />
       </svg>
     ),
   },

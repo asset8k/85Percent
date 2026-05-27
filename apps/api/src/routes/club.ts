@@ -4,15 +4,41 @@ import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { LEAGUE_CONFIGS } from '@headroom/shared'
+import { calculateSquadCosts, type ContractInput } from '@headroom/engine'
 
 const UpdateFinancialsBody = z.object({
   season: z.string().regex(/^\d{4}-\d{2}$/),
   footballRelatedRevenuePounds: z.number().int().positive(),
-  currentSquadCostsPounds: z.number().int().min(0),
   currentAllowanceRatio: z.number().min(0).max(1),
   ownerEquityUsedCurrentSeasonPounds: z.number().int().min(0).optional(),
   ownerEquityUsedThreeYearPounds: z.number().int().min(0).optional(),
 })
+
+// Sum active contracts for a club into a single squad-cost pence total.
+// Pure engine call — DB I/O is here, not in @headroom/engine.
+async function deriveSquadCostsForClub(clubId: string): Promise<{
+  totalPence: number
+  contractCount: number
+}> {
+  const { data: contracts, error } = await supabase
+    .from('contracts')
+    .select('player_id, transfer_fee, annual_wage, agent_fee, contract_length_years')
+    .eq('club_id', clubId)
+    .eq('is_active', true)
+
+  if (error) throw error
+
+  const inputs: ContractInput[] = (contracts ?? []).map((c) => ({
+    playerId: String(c.player_id),
+    transferFeePence: Number(c.transfer_fee),
+    annualWagePence:  Number(c.annual_wage),
+    agentFeePence:    Number(c.agent_fee),
+    contractLengthYears: Number(c.contract_length_years),
+  }))
+
+  const { totalSquadCostsPence } = calculateSquadCosts(inputs)
+  return { totalPence: totalSquadCostsPence, contractCount: inputs.length }
+}
 
 export async function clubRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware)
@@ -53,15 +79,17 @@ export async function clubRoutes(app: FastifyInstance) {
       if (error) throw error
       if (!f) return reply.status(404).send({ error: 'No financials found for this season' })
 
+      // MVP 2.0: squad costs are derived from the active roster, NOT stored in
+      // club_financials anymore. Compute live from contracts.
+      const derived = await deriveSquadCostsForClub(String(request.clubId))
+
       return reply.send({
         id: f.id,
         clubId: f.club_id,
         season: f.season,
         footballRelatedRevenue: Number(f.football_related_revenue),
-        // MVP 2.0: column dropped — squad costs derive from contracts (Phase 3 Dashboard).
-        // Returning 0 is a transitional stub for MVP 1.0 UI; will be removed when
-        // the Dashboard replaces SimulatorPage's manual baseline.
-        currentSquadCosts: 0,
+        currentSquadCosts: derived.totalPence,
+        contractCount: derived.contractCount,
         currentAllowanceRatio: Number(f.current_allowance_ratio),
         ownerEquityUsed1yr: f.owner_equity_used_1yr != null ? Number(f.owner_equity_used_1yr) : null,
         ownerEquityUsed3yr: f.owner_equity_used_3yr != null ? Number(f.owner_equity_used_3yr) : null,
@@ -85,15 +113,10 @@ export async function clubRoutes(app: FastifyInstance) {
     const {
       season,
       footballRelatedRevenuePounds,
-      currentSquadCostsPounds,
       currentAllowanceRatio,
       ownerEquityUsedCurrentSeasonPounds,
       ownerEquityUsedThreeYearPounds,
     } = parsed.data
-
-    // currentSquadCostsPounds is accepted from the form for backward compat but
-    // not persisted — MVP 2.0 derives squad costs from contracts (Phase 3 Dashboard).
-    void currentSquadCostsPounds
 
     try {
       const financialsData = {

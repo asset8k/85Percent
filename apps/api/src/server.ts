@@ -3,8 +3,8 @@ import cors from '@fastify/cors'
 import helmet from '@fastify/helmet'
 import rateLimit from '@fastify/rate-limit'
 import { clubRoutes } from './routes/club.js'
-import { simulationRoutes } from './routes/simulations.js'
 import { rosterRoutes } from './routes/roster.js'
+import { scenarioRoutes } from './routes/scenarios.js'
 
 const app = Fastify({
   logger: {
@@ -27,8 +27,8 @@ async function start() {
   })
 
   await app.register(clubRoutes)
-  await app.register(simulationRoutes)
   await app.register(rosterRoutes)
+  await app.register(scenarioRoutes)
 
   app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
     request.log.error({ err: error, url: request.url }, 'Unhandled error')
@@ -40,7 +40,7 @@ async function start() {
 
   // Override rate limit for calculation endpoint
   app.addHook('onRoute', (routeOptions) => {
-    if (routeOptions.url === '/simulations' && routeOptions.method === 'POST') {
+    if (routeOptions.url === '/scenarios' && routeOptions.method === 'POST') {
       routeOptions.config = { rateLimit: { max: 30, timeWindow: '1 minute' } }
     }
   })

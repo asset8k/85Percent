@@ -29,7 +29,7 @@ export const useAuthStore = create<AuthState>()(
           clubName: null,
           leagueId: null,
           financials: null,
-          simulations: [],
+          scenarios: [],
         })
       },
     }),
