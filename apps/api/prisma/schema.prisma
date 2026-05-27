@@ -22,7 +22,7 @@ model Club {
   financials ClubFinancials[]
   players    Player[]
   contracts  Contract[]
-  simulations Simulation[]
+  scenarios  Scenario[]
   auditLogs  AuditLog[]
 
   @@map("clubs")
@@ -36,25 +36,27 @@ model User {
   email     String   @unique
   createdAt DateTime @default(now()) @map("created_at")
 
-  club        Club         @relation(fields: [clubId], references: [id])
-  simulations Simulation[]
-  auditLogs   AuditLog[]
+  club      Club       @relation(fields: [clubId], references: [id])
+  scenarios Scenario[]
+  auditLogs AuditLog[]
 
   @@map("users")
 }
 
 model ClubFinancials {
-  id                        String   @id @default(uuid())
-  clubId                    String   @map("club_id")
-  season                    String   // '2026-27'
+  id                     String    @id @default(uuid())
+  clubId                 String    @map("club_id")
+  season                 String    // '2026-27'
   // All monetary values stored as BigInt in pence — NEVER float
-  footballRelatedRevenue    BigInt   @map("football_related_revenue")
-  currentSquadCosts         BigInt   @map("current_squad_costs")
-  currentAllowanceRatio     Decimal  @map("current_allowance_ratio")
-  ownerEquityUsed1yr        BigInt?  @map("owner_equity_used_1yr") // Championship only
-  ownerEquityUsed3yr        BigInt?  @map("owner_equity_used_3yr") // Championship only
-  createdAt                 DateTime @default(now()) @map("created_at")
-  updatedAt                 DateTime @updatedAt @map("updated_at")
+  // current_squad_costs REMOVED — now derived from contracts (Phase 2 sum)
+  footballRelatedRevenue BigInt    @map("football_related_revenue")
+  currentAllowanceRatio  Decimal   @map("current_allowance_ratio")
+  ownerEquityUsed1yr     BigInt?   @map("owner_equity_used_1yr")  // Championship only
+  ownerEquityUsed3yr     BigInt?   @map("owner_equity_used_3yr")  // Championship only
+  seasonStartDate        DateTime? @map("season_start_date")      // drives book-value amortisation
+  seasonEndDate          DateTime? @map("season_end_date")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
 
   club Club @relation(fields: [clubId], references: [id])
 
@@ -63,17 +65,22 @@ model ClubFinancials {
 }
 
 model Player {
-  id          String   @id @default(uuid())
-  clubId      String   @map("club_id")
+  id          String    @id @default(uuid())
+  clubId      String    @map("club_id")
   name        String
-  position    String?
+  position    String?   // 'GK' | 'DEF' | 'MID' | 'FWD'
   nationality String?
   dateOfBirth DateTime? @map("date_of_birth")
-  createdAt   DateTime @default(now()) @map("created_at")
+  isActive    Boolean   @default(true) @map("is_active")   // false = archived (departed)
+  archivedAt  DateTime? @map("archived_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  club      Club       @relation(fields: [clubId], references: [id])
-  contracts Contract[]
+  club            Club             @relation(fields: [clubId], references: [id])
+  contracts       Contract[]
+  scenarioActions ScenarioAction[]
 
+  @@index([clubId, isActive])
   @@map("players")
 }
 
@@ -84,34 +91,57 @@ model Contract {
   // All monetary values in pence
   transferFee         BigInt   @map("transfer_fee")
   annualWage          BigInt   @map("annual_wage")
-  contractStart       DateTime @map("contract_start")
-  contractEnd         DateTime @map("contract_end")
-  contractLengthYears Decimal  @map("contract_length_years")
   agentFee            BigInt   @map("agent_fee")
-  bookValue           BigInt   @map("book_value")
+  startDate           DateTime @map("start_date")
+  endDate             DateTime @map("end_date")
+  contractLengthYears Decimal  @map("contract_length_years") // computed at insert from dates
+  bookValue           BigInt   @map("book_value")            // amortised remaining value, pence
   isActive            Boolean  @default(true) @map("is_active")
   createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
 
   player Player @relation(fields: [playerId], references: [id])
   club   Club   @relation(fields: [clubId], references: [id])
 
+  @@index([clubId, isActive])
+  @@index([playerId, isActive])
   @@map("contracts")
 }
 
-model Simulation {
-  id            String   @id @default(uuid())
-  clubId        String   @map("club_id")
-  createdBy     String   @map("created_by")
-  season        String
-  label         String?
-  transferInput Json     @map("transfer_input")
-  isIncluded    Boolean  @default(false) @map("is_included")
-  createdAt     DateTime @default(now()) @map("created_at")
+// Named multi-action scenario — replaces flat simulations table
+model Scenario {
+  id         String   @id @default(uuid())
+  clubId     String   @map("club_id")
+  createdBy  String   @map("created_by")
+  season     String
+  name       String   // "January Plan A"
+  isIncluded Boolean  @default(false) @map("is_included") // part of Active Baseline
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
-  club Club @relation(fields: [clubId], references: [id])
-  user User @relation(fields: [createdBy], references: [id])
+  club    Club             @relation(fields: [clubId], references: [id])
+  user    User             @relation(fields: [createdBy], references: [id])
+  actions ScenarioAction[]
 
-  @@map("simulations")
+  @@index([clubId, season])
+  @@map("scenarios")
+}
+
+// One row per action within a scenario (buy / sell / loan_in / loan_out / release)
+model ScenarioAction {
+  id         String   @id @default(uuid())
+  scenarioId String   @map("scenario_id")
+  actionType String   @map("action_type") // 'buy' | 'sell' | 'loan_in' | 'loan_out' | 'release'
+  payload    Json     // delta input (same shape as TransferInput)
+  playerId   String?  @map("player_id")   // FK for sell / release / loan_out of existing player
+  orderIndex Int      @default(0) @map("order_index")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  scenario Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  player   Player?  @relation(fields: [playerId], references: [id])
+
+  @@index([scenarioId, orderIndex])
+  @@map("scenario_actions")
 }
 
 // Append-only audit log — never delete rows

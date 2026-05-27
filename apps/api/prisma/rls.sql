@@ -25,28 +25,32 @@ $$;
 -- ---------------------------------------------------------------------------
 -- Enable RLS on every table (idempotent — safe to re-run)
 -- ---------------------------------------------------------------------------
-ALTER TABLE public.clubs           ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.users           ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.club_financials ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.simulations     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.audit_logs      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.players         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.contracts       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.clubs             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.users             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.club_financials   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.players           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.contracts         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.scenarios         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.scenario_actions  ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.audit_logs        ENABLE ROW LEVEL SECURITY;
 
 -- ---------------------------------------------------------------------------
 -- Drop existing policies before recreating (idempotent)
 -- ---------------------------------------------------------------------------
-DROP POLICY IF EXISTS "clubs: own club only"           ON public.clubs;
-DROP POLICY IF EXISTS "users: own club only"           ON public.users;
-DROP POLICY IF EXISTS "financials: own club only"      ON public.club_financials;
-DROP POLICY IF EXISTS "simulations: own club only"     ON public.simulations;
-DROP POLICY IF EXISTS "audit_logs: own club only"      ON public.audit_logs;
-DROP POLICY IF EXISTS "players: own club only"         ON public.players;
-DROP POLICY IF EXISTS "contracts: own club only"       ON public.contracts;
+DROP POLICY IF EXISTS "clubs: own club only"            ON public.clubs;
+DROP POLICY IF EXISTS "users: own club only"            ON public.users;
+DROP POLICY IF EXISTS "financials: own club only"       ON public.club_financials;
+DROP POLICY IF EXISTS "players: own club only"          ON public.players;
+DROP POLICY IF EXISTS "contracts: own club only"        ON public.contracts;
+DROP POLICY IF EXISTS "scenarios: own club only"        ON public.scenarios;
+DROP POLICY IF EXISTS "scenario_actions: via scenario"  ON public.scenario_actions;
+DROP POLICY IF EXISTS "audit_logs: own club only"       ON public.audit_logs;
+
+-- (also drop old simulations policy if it still exists after the table is gone)
+DROP POLICY IF EXISTS "simulations: own club only"      ON public.simulations;
 
 -- ---------------------------------------------------------------------------
 -- clubs
--- A user may only see/modify their own club row.
 -- ---------------------------------------------------------------------------
 CREATE POLICY "clubs: own club only"
   ON public.clubs
@@ -56,8 +60,6 @@ CREATE POLICY "clubs: own club only"
 
 -- ---------------------------------------------------------------------------
 -- users
--- A user may only see/modify rows belonging to their own club.
--- (They can see team-mates in the same club, but not other clubs' users.)
 -- ---------------------------------------------------------------------------
 CREATE POLICY "users: own club only"
   ON public.users
@@ -70,24 +72,6 @@ CREATE POLICY "users: own club only"
 -- ---------------------------------------------------------------------------
 CREATE POLICY "financials: own club only"
   ON public.club_financials
-  FOR ALL
-  USING  (club_id = public.current_club_id())
-  WITH CHECK (club_id = public.current_club_id());
-
--- ---------------------------------------------------------------------------
--- simulations
--- ---------------------------------------------------------------------------
-CREATE POLICY "simulations: own club only"
-  ON public.simulations
-  FOR ALL
-  USING  (club_id = public.current_club_id())
-  WITH CHECK (club_id = public.current_club_id());
-
--- ---------------------------------------------------------------------------
--- audit_logs (append-only in practice, but scoped by club for reads)
--- ---------------------------------------------------------------------------
-CREATE POLICY "audit_logs: own club only"
-  ON public.audit_logs
   FOR ALL
   USING  (club_id = public.current_club_id())
   WITH CHECK (club_id = public.current_club_id());
@@ -106,6 +90,45 @@ CREATE POLICY "players: own club only"
 -- ---------------------------------------------------------------------------
 CREATE POLICY "contracts: own club only"
   ON public.contracts
+  FOR ALL
+  USING  (club_id = public.current_club_id())
+  WITH CHECK (club_id = public.current_club_id());
+
+-- ---------------------------------------------------------------------------
+-- scenarios
+-- ---------------------------------------------------------------------------
+CREATE POLICY "scenarios: own club only"
+  ON public.scenarios
+  FOR ALL
+  USING  (club_id = public.current_club_id())
+  WITH CHECK (club_id = public.current_club_id());
+
+-- ---------------------------------------------------------------------------
+-- scenario_actions — no direct club_id; inherit isolation via scenarios FK
+-- ---------------------------------------------------------------------------
+CREATE POLICY "scenario_actions: via scenario"
+  ON public.scenario_actions
+  FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.scenarios s
+      WHERE s.id = scenario_actions.scenario_id
+        AND s.club_id = public.current_club_id()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.scenarios s
+      WHERE s.id = scenario_actions.scenario_id
+        AND s.club_id = public.current_club_id()
+    )
+  );
+
+-- ---------------------------------------------------------------------------
+-- audit_logs (append-only in practice, but scoped by club for reads)
+-- ---------------------------------------------------------------------------
+CREATE POLICY "audit_logs: own club only"
+  ON public.audit_logs
   FOR ALL
   USING  (club_id = public.current_club_id())
   WITH CHECK (club_id = public.current_club_id());
