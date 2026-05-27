@@ -811,3 +811,102 @@ All packages typecheck clean (zero errors)
 
 ### TypeScript
 All packages typecheck clean (zero errors)
+
+---
+
+## Session 9 — MVP 1.0 Finalization: OTP Auth, Multi-Tenancy Fixes, UI Polish (2026-05-27)
+
+### What was accomplished
+
+**MVP 1.0 is now complete.** This session fixed critical security/auth bugs, polished UX, completed integration steps 6.1–6.4, and finalized documentation.
+
+---
+
+### Auth Rewrite — OTP Signup, No Magic Links
+
+**`apps/web/src/pages/LoginPage.tsx`** — major rewrite:
+- Removed: magic link tab, `MagicLinkForm`, `MagicLinkSchema`, `magicSent` state, tab bar
+- Added: 8-digit OTP verification screen (shown after `signUp()` if no session returned)
+- OTP UI: 8 individual digit `<input>` boxes, auto-advance on digit entry, paste support (pastes across all boxes), 60s resend cooldown with countdown timer
+- Password complexity validation (Zod): must contain uppercase, lowercase, number, and special character
+- Mode toggle via bottom links only (Stripe/Vercel pattern). No tabs. No card heading.
+- `OTP_LENGTH = 8` (Supabase project configured for 8 digits)
+- Flow: `signUp()` → if `session === null` → OTP screen → `verifyOtp({ type: 'signup' })` → navigate to /simulator
+
+---
+
+### Critical Multi-Tenancy Bug Fixes
+
+All three bugs were in `apps/api/src/middleware/auth.ts`. New accounts were getting the same club data as existing accounts.
+
+**Bug A — Wrong club assigned to new users:**
+- Cause: `clubs.select('id').limit(1)` grabbed the first club in the DB for every new user
+- Fix: Removed entirely — every new user always gets a freshly created club
+
+**Bug B — Same email inherits old workspace:**
+- Cause: Self-heal block found old `users` row by email and re-linked the new auth ID to the old club_id
+- Fix: Removed self-heal block entirely — deleted accounts do not survive re-registration
+
+**Bug C — UNIQUE constraint on `users.email`:**
+- Cause: FK constraints from `simulations.created_by` and `audit_logs.user_id` caused the old users row DELETE to fail silently, leaving a stale row that blocked the INSERT
+- Fix: Cascade cleanup in FK order before insert: `simulations` → `audit_logs` → `users`
+
+**Bug D — NOT NULL constraint on `clubs.updated_at`:**
+- Cause: Prisma's `@updatedAt` is application-layer only; Supabase REST client doesn't apply it
+- Fix: Added explicit `created_at: now, updated_at: now` to every club INSERT
+
+Final auto-provision block creates: fresh UUID club → user row linked to new club. Every account is fully isolated.
+
+---
+
+### UI Polish
+
+- **Logo spacing**: H SVG wrapper `marginRight: -1` in both LoginPage and Sidebar (1px closer to "eadroom")
+- **Login card**: Removed h2 headings entirely; form + bottom links only (no titles, no tabs)
+- **Simulator helper text**: Removed all `helper="..."` props from every `FieldWrapper` (removed: "0 for free transfer", "Years (0.5 steps)", "Annual equivalent shown in results", "Spread across contract years")
+- **Scenario label**: Removed "(optional)" from label text; shortened placeholder to "Striker option A"
+
+---
+
+### History "Amount" Column
+
+`apps/web/src/pages/HistoryPage.tsx` — "Transfer Fee" column renamed to "Amount":
+- Buy → shows `transferFee`
+- Sell → shows `saleProceeds`
+- Loan Out → shows `loanFeeReceived`
+- Loan In → shows `loanFeePaid` (= `transferFee` field)
+
+---
+
+### Active State Visual Fix (SCRResultPanel)
+
+`apps/web/src/components/simulator/SCRResultPanel.tsx`:
+- Removed `bg-violet-50/30` background tint from active cards (caused purple-over-amber conflict)
+- When `afterActive === true`, always applies `border-violet-200` regardless of compliance status (violet ring completely overrides amber/red border color)
+
+---
+
+### Steps 6.1–6.4 (Integration)
+
+- **6.1** — E2E flow audit: auth → onboarding → simulate (4 types) → history → Active Baseline toggle → PDF export
+- **6.2** — RLS SQL written in `apps/api/prisma/rls.sql`: `current_club_id()` SECURITY DEFINER function + FOR ALL policies on all 7 tables. Idempotent (DROP IF EXISTS before CREATE).
+- **6.3** — Dev seed script `apps/api/prisma/seed.ts`: creates auth user `dev@headroom.test` / `Dev@headroom1!`, club "Headroom Dev FC", club_financials £95M revenue / £80M costs / 30% allowance for 2026-27
+- **6.4** — Prisma migration DDL in `apps/api/prisma/migrations/20260101000000_init/migration.sql` (generated via `migrate diff --from-empty --to-schema-datamodel`)
+
+### Prisma schema update
+
+`apps/api/prisma/schema.prisma` — Simulation model:
+- Removed: `clubFinancialsSnapshot Json`, `scrResult Json`
+- Added: `isIncluded Boolean @default(false) @map("is_included")`
+
+(Matches actual DB schema — snapshots were never used in practice; delta architecture stores only input + included flag)
+
+### Documentation finalized
+
+- `context.md` — Added MVP 1.0 COMPLETE banner; updated Section 5.4 Auth to OTP; updated DB schema simulations table; updated MVP 1.0 feature list to reflect 4 transaction types + Active Baseline delta architecture
+- `PLAN.md` — Marked Steps 3.4, 6.1–6.4 as [x]; 6.5 as [~] (skipped); Current Status updated to "MVP 1.0 COMPLETE"
+- `BUILD_LOG.md` — Session 9 appended (this entry)
+
+### Engine / TypeScript
+- Engine: 39 unit tests passing (engine unchanged this session)
+- All packages typecheck clean (zero errors)

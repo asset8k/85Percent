@@ -44,57 +44,60 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
     return reply.status(503).send({ error: 'Database unavailable' })
   }
 
-  // Self-heal: a row may exist under the same email but with a stale auth id
-  // (e.g. user was deleted from auth.users and re-created). Re-link it.
-  if (!user && authUser.email) {
-    const { data: byEmail } = await supabase
-      .from('users')
-      .select('id, club_id, role')
-      .eq('email', authUser.email)
-      .maybeSingle()
-
-    if (byEmail) {
-      const { error: relinkErr } = await supabase
-        .from('users')
-        .update({ id: authUser.id })
-        .eq('id', byEmail.id)
-      if (relinkErr) {
-        request.log.error({ err: relinkErr }, 'authMiddleware: user relink failed')
-        return reply.status(503).send({ error: 'Database unavailable' })
-      }
-      user = { id: authUser.id, club_id: byEmail.club_id, role: byEmail.role }
-    }
-  }
-
-  // Auto-provision: brand-new auth user with no app record → attach to a club as CFO.
-  // If no club exists yet, create one named "Headroom FC". MVP-only behaviour;
-  // replace with an invite + workspace-creation flow later.
+  // Auto-provision: brand-new auth user → always create a fresh club + user record.
+  // Every signup gets an isolated workspace; no cross-account data sharing.
   if (!user) {
-    let { data: club } = await supabase
-      .from('clubs')
-      .select('id')
-      .limit(1)
-      .maybeSingle()
-
-    if (!club) {
-      const newClubId = randomUUID()
-      const { data: createdClub, error: clubCreateErr } = await supabase
-        .from('clubs')
-        .insert({
-          id: newClubId,
-          name: 'Headroom FC',
-          short_name: 'HFC',
-          league_id: 'efl-championship',
-        })
+    // Clean up any orphaned rows from a previous account with the same email
+    // (Supabase Auth deletes auth.users but leaves public.users + FK refs behind).
+    // FK cascade order: simulations + audit_logs → users.
+    if (authUser.email) {
+      const { data: orphans } = await supabase
+        .from('users')
         .select('id')
-        .single()
+        .eq('email', authUser.email)
+        .neq('id', authUser.id)
 
-      if (clubCreateErr || !createdClub) {
-        request.log.error({ err: clubCreateErr }, 'authMiddleware: club auto-create failed')
-        return reply.status(503).send({ error: 'Failed to provision workspace' })
+      if (orphans && orphans.length > 0) {
+        const orphanIds = orphans.map((o) => o.id as string)
+        const { error: simErr } = await supabase.from('simulations').delete().in('created_by', orphanIds)
+        if (simErr) {
+          request.log.error({ err: simErr }, 'authMiddleware: orphan simulation cleanup failed')
+          return reply.status(503).send({ error: 'Failed to clean up previous account data' })
+        }
+        const { error: auditErr } = await supabase.from('audit_logs').delete().in('user_id', orphanIds)
+        if (auditErr) {
+          request.log.error({ err: auditErr }, 'authMiddleware: orphan audit_log cleanup failed')
+          return reply.status(503).send({ error: 'Failed to clean up previous account data' })
+        }
+        const { error: userErr } = await supabase.from('users').delete().in('id', orphanIds)
+        if (userErr) {
+          request.log.error({ err: userErr }, 'authMiddleware: orphan user cleanup failed')
+          return reply.status(503).send({ error: 'Failed to clean up previous account data' })
+        }
       }
-      club = createdClub
     }
+
+    const newClubId = randomUUID()
+    const now = new Date().toISOString()
+    const { data: createdClub, error: clubCreateErr } = await supabase
+      .from('clubs')
+      .insert({
+        id: newClubId,
+        name: 'Headroom FC',
+        short_name: 'HFC',
+        league_id: 'efl-championship',
+        created_at: now,
+        updated_at: now,
+      })
+      .select('id')
+      .single()
+
+    if (clubCreateErr || !createdClub) {
+      request.log.error({ err: clubCreateErr }, 'authMiddleware: club auto-create failed')
+      return reply.status(503).send({ error: 'Failed to provision workspace' })
+    }
+
+    const club = createdClub
 
     const fullName =
       (authUser.user_metadata?.['full_name'] as string | undefined) ??

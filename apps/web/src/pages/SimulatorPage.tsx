@@ -197,14 +197,14 @@ export function SimulatorPage() {
               {/* BUY fields */}
               {(txType === 'buy') && (
                 <div className="grid grid-cols-2 gap-4">
-                  <FieldWrapper label="Transfer Fee" helper="0 for free transfer" error={errs.transferFeePounds?.message}>
+                  <FieldWrapper label="Transfer Fee" error={errs.transferFeePounds?.message}>
                     <PoundInput name="transferFeePounds" control={form.control} max={200_000_000} hasError={!!errs.transferFeePounds} placeholder="5,000,000" />
                   </FieldWrapper>
-                  <ContractLengthField form={form} error={errs.contractLengthYears?.message} label="Contract Length" helper="Years (0.5 steps)" />
-                  <FieldWrapper label="Weekly Wage" helper="Annual equivalent shown in results" error={errs.weeklyWagePounds?.message}>
+                  <ContractLengthField form={form} error={errs.contractLengthYears?.message} label="Contract Length" />
+                  <FieldWrapper label="Weekly Wage" error={errs.weeklyWagePounds?.message}>
                     <PoundInput name="weeklyWagePounds" control={form.control} max={500_000} hasError={!!errs.weeklyWagePounds} placeholder="20,000" />
                   </FieldWrapper>
-                  <FieldWrapper label="Agent Fee (one-off)" helper="Spread across contract years" error={errs.agentFeePounds?.message}>
+                  <FieldWrapper label="Agent Fee (one-off)" error={errs.agentFeePounds?.message}>
                     <PoundInput name="agentFeePounds" control={form.control} max={20_000_000} hasError={!!errs.agentFeePounds} placeholder="500,000" />
                   </FieldWrapper>
                 </div>
@@ -216,13 +216,13 @@ export function SimulatorPage() {
                   <FieldWrapper label="Sale Proceeds" error={errs.saleProceedsPounds?.message}>
                     <PoundInput name="saleProceedsPounds" control={form.control} max={200_000_000} hasError={!!errs.saleProceedsPounds} placeholder="8,000,000" />
                   </FieldWrapper>
-                  <FieldWrapper label="Player Book Value" helper="Remaining amortised value" error={errs.playerBookValuePounds?.message}>
+                  <FieldWrapper label="Player Book Value" error={errs.playerBookValuePounds?.message}>
                     <PoundInput name="playerBookValuePounds" control={form.control} max={200_000_000} hasError={!!errs.playerBookValuePounds} placeholder="2,000,000" />
                   </FieldWrapper>
-                  <FieldWrapper label="Weekly Wage Released" helper="Player's current weekly wage" error={errs.weeklyWageReleasedPounds?.message}>
+                  <FieldWrapper label="Weekly Wage Released" error={errs.weeklyWageReleasedPounds?.message}>
                     <PoundInput name="weeklyWageReleasedPounds" control={form.control} max={500_000} hasError={!!errs.weeklyWageReleasedPounds} placeholder="25,000" />
                   </FieldWrapper>
-                  <FieldWrapper label="Annual Amortisation Relief" helper="Current annual amort charge" error={errs.annualAmortisationReliefPounds?.message}>
+                  <FieldWrapper label="Annual Amortisation Relief" error={errs.annualAmortisationReliefPounds?.message}>
                     <PoundInput name="annualAmortisationReliefPounds" control={form.control} max={50_000_000} hasError={!!errs.annualAmortisationReliefPounds} placeholder="1,000,000" />
                   </FieldWrapper>
                 </div>
@@ -231,11 +231,11 @@ export function SimulatorPage() {
               {/* LOAN IN fields */}
               {txType === 'loan_in' && (
                 <div className="grid grid-cols-2 gap-4">
-                  <FieldWrapper label="Loan Fee Paid" helper="0 for free loan" error={errs.transferFeePounds?.message}>
+                  <FieldWrapper label="Loan Fee Paid" error={errs.transferFeePounds?.message}>
                     <PoundInput name="transferFeePounds" control={form.control} max={20_000_000} hasError={!!errs.transferFeePounds} placeholder="500,000" />
                   </FieldWrapper>
-                  <ContractLengthField form={form} error={errs.contractLengthYears?.message} label="Loan Duration" helper="Years (0.5 steps)" />
-                  <FieldWrapper label="Weekly Wage Contribution" helper="Portion your club covers" error={errs.weeklyWagePounds?.message}>
+                  <ContractLengthField form={form} error={errs.contractLengthYears?.message} label="Loan Duration" />
+                  <FieldWrapper label="Weekly Wage Contribution" error={errs.weeklyWagePounds?.message}>
                     <PoundInput name="weeklyWagePounds" control={form.control} max={500_000} hasError={!!errs.weeklyWagePounds} placeholder="15,000" />
                   </FieldWrapper>
                 </div>
@@ -244,10 +244,10 @@ export function SimulatorPage() {
               {/* LOAN OUT fields */}
               {txType === 'loan_out' && (
                 <div className="grid grid-cols-2 gap-4">
-                  <FieldWrapper label="Loan Fee Received" helper="0 for free loan" error={errs.loanFeeReceivedPounds?.message}>
+                  <FieldWrapper label="Loan Fee Received" error={errs.loanFeeReceivedPounds?.message}>
                     <PoundInput name="loanFeeReceivedPounds" control={form.control} max={20_000_000} hasError={!!errs.loanFeeReceivedPounds} placeholder="250,000" />
                   </FieldWrapper>
-                  <FieldWrapper label="Loan Duration" helper="Years (0.5 steps)" error={errs.loanLengthYears?.message}>
+                  <FieldWrapper label="Loan Duration" error={errs.loanLengthYears?.message}>
                     <div className="relative">
                       <Controller
                         control={form.control}
@@ -271,7 +271,7 @@ export function SimulatorPage() {
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 select-none pointer-events-none">years</span>
                     </div>
                   </FieldWrapper>
-                  <FieldWrapper label="Weekly Wage Covered" helper="Portion paid by borrowing club" error={errs.weeklyWageCoveredPounds?.message}>
+                  <FieldWrapper label="Weekly Wage Covered" error={errs.weeklyWageCoveredPounds?.message}>
                     <PoundInput name="weeklyWageCoveredPounds" control={form.control} max={500_000} hasError={!!errs.weeklyWageCoveredPounds} placeholder="20,000" />
                   </FieldWrapper>
                 </div>
@@ -279,10 +279,10 @@ export function SimulatorPage() {
 
               {/* Label */}
               <div className="mt-5">
-                <FieldWrapper label="Scenario Label (optional)">
+                <FieldWrapper label="Scenario Label">
                   <input
                     type="text"
-                    placeholder="Striker option A — January window"
+                    placeholder="Striker option A"
                     {...form.register('label')}
                     className={inputCls(false)}
                   />
@@ -405,15 +405,14 @@ function PoundInput({ name, control, max, hasError, placeholder }: {
   )
 }
 
-function ContractLengthField({ form, error, label, helper }: {
+function ContractLengthField({ form, error, label }: {
   form: ReturnType<typeof useForm<SimulatorData>>
   error?: string
   label: string
-  helper: string
 }) {
   const errs = form.formState.errors
   return (
-    <FieldWrapper label={label} helper={helper} error={error}>
+    <FieldWrapper label={label} error={error}>
       <div className="relative">
         <Controller
           control={form.control}

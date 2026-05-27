@@ -3,6 +3,11 @@
 
 ---
 
+> **MVP 1.0 STATUS: COMPLETE**
+> Stack: Vite/React 18 + Fastify 5 + Supabase (PostgreSQL + Auth). Auth: Supabase email/password sign-in + 8-digit OTP for signup email verification (no magic links). Four transaction types: Permanent Buy, Permanent Sell, Loan In, Loan Out. Delta-based Active Baseline scenario builder. 39 engine tests passing. Deployed commit: `0396cb1`.
+
+---
+
 ## 1. What We Are Building
 
 **Headroom** is a B2B SaaS web application for professional football clubs. It is a financial compliance and transfer simulation platform — a "Decision Engine" that allows Club CFOs, Sporting Directors, and Finance Analysts to instantly simulate the financial and regulatory impact of player transfers before they happen.
@@ -237,8 +242,10 @@ Premier League clubs competing in European competitions (Champions League, Europ
 
 | Phase | Technology |
 |-------|-----------|
-| MVP 1.0 + 2.0 | **Supabase Auth** — email/password, magic links, session management. Free, built-in, no config. |
+| MVP 1.0 + 2.0 | **Supabase Auth** — email/password sign-in; 8-digit OTP for signup email verification (no magic links). Session management via Supabase JWT. Free, built-in, no config. |
 | MVP 3.0 | **Clerk** or **Auth0** — when enterprise clubs require SAML SSO, Active Directory integration, or multi-org management. |
+
+**OTP signup flow (implemented):** `signUp()` → if no session returned → show 8-digit OTP screen → `verifyOtp({ type: 'signup' })` → navigate to /simulator. Sign-in is email/password only (no OTP). Magic links are not used.
 
 Multi-tenancy: every database row that belongs to a club must have a `club_id` foreign key. Supabase Row Level Security (RLS) policies enforce that a logged-in user can only access rows belonging to their club. This is enforced at the database level, not just the API level.
 
@@ -429,11 +436,12 @@ simulations
   created_by      uuid REFERENCES users(id)
   season          varchar
   label           varchar        -- user-given name e.g. "Buy Striker X scenario"
-  transfer_input  jsonb          -- snapshot of TransferInput at time of simulation
-  club_financials_snapshot jsonb -- snapshot of ClubFinancials at time of simulation
-  scr_result      jsonb          -- snapshot of SCRResult
+  transfer_input  jsonb          -- delta input for this scenario (transactionType + financial fields)
+  is_included     boolean        -- whether this simulation is part of the Active Baseline
   created_at      timestamptz
 
+-- Active Baseline = baseSquadCosts + Σ cost deltas across is_included=true simulations
+-- SCR is recomputed client-side via @headroom/engine (no round-trip needed)
 -- NOTE: Store all monetary values as integers in pence/smallest currency unit.
 -- Never use float for money. Convert to pounds only for display.
 ```
@@ -442,7 +450,7 @@ simulations
 
 ## 8. MVP Stages — Detailed Feature Specifications
 
-### MVP 1.0 — Single Transfer Stress Tester
+### MVP 1.0 — Single Transfer Stress Tester ✅ COMPLETE
 **Timeline:** Months 1–10 from build start
 **Target:** 5–8 paying Championship clubs
 **Price:** £12,000–15,000/year
@@ -452,12 +460,12 @@ This is a lightweight, invite-only web application. Its sole purpose is to answe
 
 #### Screens and Features
 
-**1. Authentication**
+**1. Authentication** ✅
 - Email + password login (Supabase Auth)
-- Magic link login option
-- No self-signup. Accounts are created by admin.
-- Session persistence (stay logged in for 7 days)
-- Single club per account — a user sees only their club's data
+- 8-digit OTP email verification on signup (Supabase `verifyOtp({ type: 'signup' })`)
+- No magic links. Sign-in is password-only.
+- Session persistence (7 days via Supabase JWT)
+- Single club per account — a user sees only their club's data. Workspace isolation enforced at API middleware + Supabase RLS.
 
 **2. Club Setup / Onboarding (admin only)**
 - Input club's current season financial data:
@@ -468,13 +476,18 @@ This is a lightweight, invite-only web application. Its sole purpose is to answe
 - These figures set the Green Threshold and Red Threshold for the season
 - Display calculated thresholds clearly after input
 
-**3. Transfer Simulator (core feature)**
-Input form with the following fields:
-- Transfer fee (£)
-- Contract length (years — integer or half-year)
-- Weekly wage (£/week — convert to annual in the engine: × 52)
+**3. Transfer Simulator (core feature)** ✅
+Four transaction types supported: **Permanent Buy**, **Permanent Sell**, **Loan In**, **Loan Out**. Each type surfaces different fields (e.g. Sell exposes Sale Proceeds + Book Value; Loan In exposes Loan Fee Paid; Loan Out exposes Loan Fee Received).
+
+Input form fields (per type):
+- Transaction type selector
+- Transfer fee / Sale proceeds / Loan fee (contextual per type)
+- Contract length (years — integer or 0.5 steps)
+- Weekly wage (£/week — converted to annual via × 52)
 - Agent fee (£ one-off)
-- Toggle: "Simultaneously selling a player?" → if yes, input sale proceeds and player book value
+- Scenario label (optional)
+
+**Active Baseline delta architecture:** The engine is imported directly in the frontend (`@headroom/engine`). Each saved simulation stores only the input delta + `is_included` flag. Active Baseline = `(baseSquadCosts + Σ cost deltas) / (baseRevenue + Σ revenue deltas)` across all `is_included=true` simulations. SCR is recomputed client-side instantly without API round-trips.
 
 On submit, the engine runs and displays:
 

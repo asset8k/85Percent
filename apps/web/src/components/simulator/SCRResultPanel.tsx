@@ -127,7 +127,7 @@ function ComparisonCards({
   const afterActive = activeSide === 'after'
   const beforeCardCls = activeSide
     ? beforeActive
-      ? 'ring-2 ring-violet-400 shadow-md border-violet-200 bg-violet-50/30'
+      ? 'ring-2 ring-violet-400 shadow-sm border-violet-200'
       : 'border-slate-200 opacity-60'
     : 'border-slate-200'
 
@@ -171,9 +171,7 @@ function ComparisonCards({
       <div className={`rounded-xl border bg-white p-6 flex flex-col transition-all ${
         activeSide
           ? afterActive
-            ? `ring-2 ring-violet-400 shadow-md bg-violet-50/30 ${
-                afterStatus === 'amber' ? 'border-amber-200' : afterStatus === 'red' ? 'border-red-200' : 'border-violet-200'
-              }`
+            ? 'ring-2 ring-violet-400 shadow-sm border-violet-200'
             : `opacity-60 ${
                 afterStatus === 'amber' ? 'border-amber-200' : afterStatus === 'red' ? 'border-red-200' : 'border-slate-200'
               }`

@@ -141,7 +141,7 @@ function SimulationList() {
                 <Th>Date</Th>
                 <Th>Label</Th>
                 <Th>Type</Th>
-                <Th align="right">Transfer Fee</Th>
+                <Th align="right">Amount</Th>
                 <Th align="right">Run By</Th>
                 <Th align="right">{''}</Th>
               </tr>
@@ -230,7 +230,13 @@ function SimulationList() {
                       </span>
                     </td>
                     <td className="px-5 py-3.5 text-[13px] num text-right text-slate-900 whitespace-nowrap">
-                      {input?.['transferFee'] != null ? formatPence(input['transferFee'] as number) : '—'}
+                      {(() => {
+                        const type = (input?.['transactionType'] as string) ?? 'buy'
+                        const n = (key: string) => input?.[key] != null ? formatPence(input[key] as number) : '—'
+                        if (type === 'sell') return n('saleProceeds')
+                        if (type === 'loan_out') return n('loanFeeReceived')
+                        return n('transferFee')
+                      })()}
                     </td>
                     <td className="px-5 py-3.5 text-right">
                       <span

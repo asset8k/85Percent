@@ -99,15 +99,14 @@ model Contract {
 }
 
 model Simulation {
-  id                      String   @id @default(uuid())
-  clubId                  String   @map("club_id")
-  createdBy               String   @map("created_by")
-  season                  String
-  label                   String?
-  transferInput           Json     @map("transfer_input")
-  clubFinancialsSnapshot  Json     @map("club_financials_snapshot")
-  scrResult               Json     @map("scr_result")
-  createdAt               DateTime @default(now()) @map("created_at")
+  id            String   @id @default(uuid())
+  clubId        String   @map("club_id")
+  createdBy     String   @map("created_by")
+  season        String
+  label         String?
+  transferInput Json     @map("transfer_input")
+  isIncluded    Boolean  @default(false) @map("is_included")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   club Club @relation(fields: [clubId], references: [id])
   user User @relation(fields: [createdBy], references: [id])

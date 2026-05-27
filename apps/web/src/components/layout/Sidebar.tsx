@@ -58,7 +58,7 @@ export function Sidebar() {
       {/* Logo */}
       <div className="h-16 flex items-center px-5 border-b border-slate-100">
         <span className="inline-flex items-baseline gap-0 select-none" style={{ color: '#6d28d9', fontFamily: 'Inter', fontWeight: 700, letterSpacing: '-0.02em', fontSize: 20 }}>
-          <span aria-hidden="true" className="inline-flex items-end" style={{ height: 22 }}>
+          <span aria-hidden="true" className="inline-flex items-end" style={{ height: 22, marginRight: -1 }}>
             <svg width={18} height={22} viewBox="0 0 18 22" fill="none">
               {/* Left post — sideline */}
               <rect x="0" y="0" width="3.5" height="22" fill="#6d28d9" />
