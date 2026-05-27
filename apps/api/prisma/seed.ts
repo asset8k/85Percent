@@ -138,32 +138,35 @@ async function seed() {
     console.log(`  ✓ Auth user already exists: ${userId}`)
   }
 
-  // ── 2. Create club ─────────────────────────────────────────────────────────
-  const clubId = randomUUID()
-  console.log(`\nCreating club: ${SEED_CLUB_NAME}`)
-  const { error: clubErr } = await supabase.from('clubs').upsert(
-    {
-      id:          clubId,
-      name:        SEED_CLUB_NAME,
-      short_name:  SEED_CLUB_SHORT,
-      league_id:   'efl-championship',
-      created_at:  now,
-      updated_at:  now,
-    },
-    { onConflict: 'name', ignoreDuplicates: true }
-  )
-  if (clubErr) {
-    console.error('Club creation failed:', clubErr.message)
-    process.exit(1)
-  }
+  // ── 2. Create club (select-then-insert; no unique on clubs.name) ──────────
+  console.log(`\nResolving club: ${SEED_CLUB_NAME}`)
+  let resolvedClubId: string
 
-  const { data: clubRow } = await supabase
+  const { data: existingClub } = await supabase
     .from('clubs')
     .select('id')
     .eq('name', SEED_CLUB_NAME)
-    .single()
-  const resolvedClubId: string = clubRow?.id ?? clubId
-  console.log(`  ✓ Club id: ${resolvedClubId}`)
+    .maybeSingle()
+
+  if (existingClub?.id) {
+    resolvedClubId = existingClub.id
+    console.log(`  ✓ Club already exists: ${resolvedClubId}`)
+  } else {
+    resolvedClubId = randomUUID()
+    const { error: clubErr } = await supabase.from('clubs').insert({
+      id:         resolvedClubId,
+      name:       SEED_CLUB_NAME,
+      short_name: SEED_CLUB_SHORT,
+      league_id:  'efl-championship',
+      created_at: now,
+      updated_at: now,
+    })
+    if (clubErr) {
+      console.error('Club creation failed:', clubErr.message)
+      process.exit(1)
+    }
+    console.log(`  ✓ Club created: ${resolvedClubId}`)
+  }
 
   // ── 3. Create app user record ─────────────────────────────────────────────
   console.log(`\nCreating users record for ${SEED_EMAIL}`)
@@ -265,7 +268,8 @@ async function seed() {
       continue
     }
 
-    console.log(`  ✓ ${player.name} (${player.position}) — £${Number(player.annualWage) / 100 / 52}k/wk`)
+    const weeklyPounds = Math.round(Number(player.annualWage) / 100 / 52)
+    console.log(`  ✓ ${player.name} (${player.position}) — £${weeklyPounds.toLocaleString('en-GB')}/wk`)
   }
 
   // ── Summary ────────────────────────────────────────────────────────────────

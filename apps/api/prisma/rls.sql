@@ -10,16 +10,19 @@
 
 -- ---------------------------------------------------------------------------
 -- Helper: resolve the calling auth user's club_id from the users table.
+-- Returns TEXT because the Prisma schema uses TEXT primary keys (not UUID).
 -- SECURITY DEFINER so it can read across RLS without recursion.
 -- ---------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.current_club_id();
+
 CREATE OR REPLACE FUNCTION public.current_club_id()
-RETURNS uuid
+RETURNS text
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  SELECT club_id FROM public.users WHERE id = auth.uid()
+  SELECT club_id FROM public.users WHERE id = auth.uid()::text
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -46,8 +49,7 @@ DROP POLICY IF EXISTS "scenarios: own club only"        ON public.scenarios;
 DROP POLICY IF EXISTS "scenario_actions: via scenario"  ON public.scenario_actions;
 DROP POLICY IF EXISTS "audit_logs: own club only"       ON public.audit_logs;
 
--- (also drop old simulations policy if it still exists after the table is gone)
-DROP POLICY IF EXISTS "simulations: own club only"      ON public.simulations;
+-- (simulations table dropped in MVP 2.0 migration; no need to drop its policy)
 
 -- ---------------------------------------------------------------------------
 -- clubs
