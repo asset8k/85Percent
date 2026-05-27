@@ -910,3 +910,255 @@ Final auto-provision block creates: fresh UUID club → user row linked to new c
 ### Engine / TypeScript
 - Engine: 39 unit tests passing (engine unchanged this session)
 - All packages typecheck clean (zero errors)
+
+---
+
+# MVP 2.0 — Roster, Multi-Action Scenarios, PL Module
+
+## Session 10 — Phase 1: Relational DB Schema, RLS, Supavisor V2 Migration (2026-05-27)
+
+### What was accomplished
+
+Executed Phase 1 of [mvp_2.0_plan.md](mvp_2.0_plan.md): destructive database refactor to replace the manual `current_squad_costs` aggregate with a relational players + contracts source of truth, plus replacing the flat `simulations` table with named multi-action `scenarios`.
+
+**Commits:** `57ee101` (schema + RLS files), `bb39066` (applied to Supabase + fixes)
+
+---
+
+### Prisma schema changes
+
+[apps/api/prisma/schema.prisma](apps/api/prisma/schema.prisma):
+
+- **ClubFinancials**: dropped `currentSquadCosts`, added `seasonStartDate` + `seasonEndDate`
+- **Player**: added `isActive`, `archivedAt`, `updatedAt`, composite index `(club_id, is_active)`
+- **Contract**: renamed `contractStart`/`contractEnd` → `startDate`/`endDate`, added `updatedAt`, two composite indexes
+- **Simulation model REMOVED** → replaced with two new models:
+  - `Scenario` — named plan (id, club_id, created_by, season, name, is_included)
+  - `ScenarioAction` — ordered children with `onDelete: Cascade`, optional `player_id` FK
+
+### Migration applied
+
+[apps/api/prisma/migrations/20260527000001_mvp2_relational_roster/migration.sql](apps/api/prisma/migrations/20260527000001_mvp2_relational_roster/migration.sql):
+- Idempotent (`IF EXISTS` on every ALTER/DROP)
+- Safe `RENAME COLUMN` via `DO $$ … END $$` blocks to handle already-renamed columns
+- `DROP TABLE simulations CASCADE` — MVP 1.0 history did not migrate forward (destructive by design, accepted by user)
+
+### RLS
+
+[apps/api/prisma/rls.sql](apps/api/prisma/rls.sql) updated:
+- `current_club_id()` now returns **TEXT** (was UUID — latent MVP 1.0 bug: Prisma uses TEXT primary keys, not native UUID, so the previous `uuid` return signature would have type-mismatched against `club_id = current_club_id()` if anyone had ever queried under RLS)
+- Added scenarios policy + scenario_actions policy (the latter uses `EXISTS` subquery through scenarios, since scenario_actions has no direct `club_id`)
+- Removed simulations policy
+- Cleaned up 6 legacy snake_case policies (`clubs_own`, `players_own_club`, etc.) that overlapped the canonical set — only the rls.sql-defined policies remain
+
+### Seed update
+
+[apps/api/prisma/seed.ts](apps/api/prisma/seed.ts):
+- Removed `current_squad_costs` from financials insert
+- Added `season_start_date` + `season_end_date`
+- Added 5-player Championship squad with realistic pence values (Marcus Ward GK, Alex Deane DEF, Oliver Marsh DEF, Jordan Hayes MID, Carlos Ramos FWD)
+- Fixed clubs select-then-insert (no unique constraint on `clubs.name`, so the old `upsert(onConflict: 'name')` failed)
+
+---
+
+### Critical Fix — Supavisor V2 hostname migration
+
+**Symptom:** `prisma db execute` and `npx supabase db push` both rejected the tenant with `(ENOTFOUND) tenant/user postgres.xwvtwczdwdqaxdblyxtr not found` from every AWS region. The Supabase REST API worked fine with the new `sb_secret_…` service role key, so the project was alive — just the pooler couldn't find it.
+
+**Root cause:** Supabase migrated Supavisor from V1 to V2 sometime after MVP 1.0 was deployed. The hostname pattern changed from `aws-0-{region}.pooler.supabase.com` to `aws-1-{region}.pooler.supabase.com`. The `DATABASE_URL` in `.env` was stale.
+
+**Discovery method:** Wrote a probe script that tested every AWS region on both V1 and V2 hostname patterns. Only `aws-1-ap-southeast-1.pooler.supabase.com:5432` accepted the tenant.
+
+**Fix:** Updated `apps/api/.env` `DATABASE_URL` to use `aws-1-…`.
+
+**Also confirmed via research:** The new `sb_secret_` API key format (replaced JWTs in late 2025) is for PostgREST/Auth/Storage only — the pooler still uses the database password from the dashboard. Management API (`POST /v1/projects/{ref}/database/query`) requires a Personal Access Token (`sbp_…`), not a `sb_secret_` key.
+
+**Rule to remember:** When migrating to a Supabase project with a new API key format (`sb_secret_…`), assume the pooler hostname has also been updated. Check `aws-1-{region}` before `aws-0-{region}`.
+
+---
+
+### Verification (RLS smoke test)
+
+Verified isolation via anon key:
+```
+clubs                 ✓ blocked (0 rows)
+users                 ✓ blocked (0 rows)
+club_financials       ✓ blocked (0 rows)
+players               ✓ blocked (0 rows)
+contracts             ✓ blocked (0 rows)
+scenarios             ✓ blocked (0 rows)
+scenario_actions      ✓ blocked (0 rows)
+audit_logs            ✓ blocked (0 rows)
+```
+
+All 8 tables enforce club isolation, no errors.
+
+---
+
+## Session 11 — Phase 2: Roster Management + Smart CSV Mapper (2026-05-27)
+
+### What was accomplished
+
+Phase 2 of [mvp_2.0_plan.md](mvp_2.0_plan.md): built the squad roster system. Players + contracts are now the single source of truth for squad costs; manual aggregate is gone.
+
+**Commit:** `65d075c` (14 files, +2150/-4 lines)
+
+---
+
+### Engine — `currentBookValuePence` + 10 leap-year tests
+
+[packages/engine/src/amortisation.ts](packages/engine/src/amortisation.ts) added:
+
+```typescript
+export function currentBookValuePence(
+  transferFeePence: bigint | number,
+  startDate: Date,
+  endDate: Date,
+  asOf: Date = new Date()
+): number
+```
+
+- Whole-month straight-line amortisation
+- Clamps `asOf` to `[startDate, endDate]` — before start → full fee, at/after end → 0
+- Accepts `bigint` (Prisma BigInt) OR `number`
+- Internal `monthsBetween()` uses `getUTCFullYear` + `getUTCMonth` only — day-of-month is ignored. This is **the** behaviour SCR regulations want; a transfer on Feb 29 (leap year) and one on Feb 28 (non-leap) produce identical amortisation schedules.
+
+**Tests added** (mandated by Phase 2.5 of the plan):
+- `2024-02-29 → 2028-02-28`: exactly 48 months
+- `2025-02-28 → 2028-02-28`: exactly 36 months
+- Equal-length leap and non-leap signings produce identical month counts
+- Mid-month transfer (`2026-03-15 → 2028-03-15`): whole-month rounding ignores day-of-month
+- `asOf == end` → 0
+- `asOf < start` → full fee
+- `bigint` input → matches `number` input
+- Zero-length contract → 0 (defensive)
+- Free transfer (fee = 0) → 0
+- Midpoint of 4-year contract → half fee
+
+**Engine test count:** 59/59 passing (was 39 at MVP 1.0 close + 10 new = 49; plus 10 from Session 7 transaction types).
+
+---
+
+### Shared schemas
+
+[packages/shared/src/schemas.ts](packages/shared/src/schemas.ts) added:
+
+- `RosterRowSchema` — CSV row validation:
+  - `name` (1–80 chars), `position` (enum, case-insensitive on input), optional `nationality`
+  - `transfer_fee_pounds` ≥ 0, `weekly_wage_pounds` > 0, `agent_fee_pounds` ≥ 0
+  - `contract_start` / `contract_end`: ISO `YYYY-MM-DD`, end > start, end ≤ start + 7 years
+- `ManualPlayerSchema` — single-player form, fields in pence (no CSV underscores)
+- `ContractPatchSchema` — partial update, at-least-one-field constraint
+
+[packages/shared/src/types.ts](packages/shared/src/types.ts) added:
+- `PlayerPosition` union
+- `PlayerWithContract` wire-format type
+- `RosterStagingRow` for CSV staging (rowIndex, ok, issues[], parsed?)
+
+---
+
+### API — `apps/api/src/routes/roster.ts` (new, 8 endpoints)
+
+| Endpoint | Behaviour |
+|---|---|
+| `GET /roster` | active players + joined active contract, `monthsToExpiry` computed |
+| `GET /roster/archived` | soft-deleted players with their most-recent contract |
+| `POST /roster/parse` | parses CSV via `papaparse`, validates each row, returns staging rows. **NO DB writes.** Body: `{ csvText: string }` (JSON, not multipart — deliberate deviation from plan, simpler for tiny payloads) |
+| `POST /roster/commit` | re-validates the staging rows against `RosterRowSchema`, inserts players + contracts. On contract insert failure, rolls back the just-inserted players to avoid orphans |
+| `POST /roster/player` | single manual create (player + active contract) |
+| `PATCH /roster/player/:id` | name/position/nationality updates |
+| `PATCH /roster/contract/:id` | fields + recomputed `bookValue` via engine |
+| `POST /roster/player/:id/archive` | soft-delete: flips `is_active` to false, sets `archived_at`, deactivates all the player's active contracts. **Never hard-deletes** — audit trail requirement |
+
+**Defence-in-depth applied at every endpoint:**
+- `authMiddleware` preHandler → `request.clubId` from validated JWT
+- Role guard (`canMutateRoster`): CFO + Admin + Finance Analyst on every mutation (Sporting Director excluded per Phase 5 role matrix)
+- `.eq('club_id', request.clubId)` on every Supabase query
+- Audit log row written on every successful mutation (non-fatal on failure)
+
+**Book value strategy:** recomputed via `currentBookValuePence` on every write AND every read. The stored snapshot is just a historical baseline — `GET /roster` ignores it and recomputes against the current date.
+
+**Deps added:** `@fastify/multipart`, `papaparse`, `@types/papaparse`.
+
+### API — club.ts compatibility shim
+
+[apps/api/src/routes/club.ts](apps/api/src/routes/club.ts) — fixed two references to the dropped `current_squad_costs` column:
+- `GET /club/financials` now returns `currentSquadCosts: 0` (placeholder; Phase 3 Dashboard will derive from contracts)
+- `PUT /club/financials` accepts `currentSquadCostsPounds` in the body but does NOT write it
+
+This keeps the MVP 1.0 ClubSetupPage form working through the transition. Phase 3 will rip out the squad-costs input when it brings in the Dashboard.
+
+---
+
+### Web — `apps/web/src/pages/RosterPage.tsx` (new, ~700 LOC)
+
+Strictly follows the [design/UI Kit.html](design/UI%20Kit.html) system: violet accents, `.num` + `.meta-label` classes, JetBrains Mono for money, light cards with `slate-200` borders. **No new UI primitives invented** — reuses `Card`, `Button`, `NumericInput`, `Spinner`, `cn`.
+
+**Structure:**
+- Page header with violet vertical accent bar (same pattern as History/Simulator)
+- Two tabs: **Squad** (active players) | **Archived** (read-only history)
+- Squad tab features:
+  - Filter chips: All / Expiring ≤ 6 mo / GK / DEF / MID / FWD
+  - Player table: Name, Position pill, Annual Wage (mono), Book Value (mono), Contract End, To Expiry
+  - Per-row chips: amber `N mo` for ≤6 months, red `expired` past end date, red `EXPIRED` banner next to player name
+  - Row click → `PlayerEditDrawer` with player + contract patch + archive confirm
+  - "Add Player" button → `ManualPlayerModal`
+  - "Upload CSV" button → `CSVUploadModal` (staging area)
+
+**CSV staging UX** (the "Smart Mapper"):
+1. User clicks "Choose CSV file" → file picker
+2. File read as text in browser via `FileReader` → POST `/roster/parse` with `{ csvText }`
+3. Modal renders staging table: valid rows shown normally, invalid rows highlighted red with their `issues[]` listed below
+4. Invalid rows have a "Fix" button → opens inline `StagingRowEditor` with all 7 fields editable (text input, select, NumericInput, date pickers)
+5. Editor "Save" re-POSTs a single-row synthesised CSV to `/roster/parse` for server-side re-validation — guarantees the canonical schema is the source of truth
+6. Commit button enables only when every row is valid → POST `/roster/commit` with the parsed payload
+
+**Manual player modal + Edit drawer** share patterns: `ModalShell` wrapper, `Field` label helper, `PoundInput` (wraps NumericInput with `£` prefix), violet/light styling throughout.
+
+### Wiring
+
+- [apps/web/src/lib/api.ts](apps/web/src/lib/api.ts) — added `api.roster.*` methods, fully typed via `@headroom/shared`
+- [apps/web/src/App.tsx](apps/web/src/App.tsx) — `/roster` route
+- [apps/web/src/components/layout/Sidebar.tsx](apps/web/src/components/layout/Sidebar.tsx) — "Roster" nav link with people SVG (positioned between Simulator and History)
+
+---
+
+### E2E smoke test (11/11 passing, against live DB)
+
+| # | Test | Result |
+|---|---|---|
+| 1 | `GET /roster` returns seeded 5-player squad | ✓ |
+| 2 | `POST /roster/parse` correctly identifies 1 valid + 3 invalid rows (bad wage, inverted dates, bad position) | ✓ |
+| 3 | `POST /roster/commit` inserts the valid row | ✓ |
+| 4 | `GET /roster` now shows new player with computed `bookValue` + `monthsToExpiry` | ✓ |
+| 5 | `POST /roster/player` creates a manual player | ✓ |
+| 6 | `PATCH /roster/player/:id` renames a player | ✓ |
+| 7 | `POST /roster/player/:id/archive` soft-deletes | ✓ |
+| 8 | Archived player excluded from `GET /roster` | ✓ |
+| 9 | Archived player included in `GET /roster/archived` | ✓ |
+| 10 | `POST /roster/parse` rejects header-only CSV | ✓ |
+| 11 | `POST /roster/parse` rejects CSV with missing columns | ✓ |
+
+---
+
+### Documented deviations from plan
+
+| Plan said | Implemented | Reason |
+|---|---|---|
+| `/roster/parse` accepts `multipart/form-data` | `/roster/parse` accepts JSON `{ csvText: string }` | 25-row CSVs are a few KB; multipart adds dependency + complexity for no functional gain. File still gets read in the browser via `FileReader` first. |
+
+---
+
+### What's still broken (intentional, deferred to Phase 3)
+
+- **SimulatorPage** still references `financials.currentSquadCosts` which now always returns 0 — projected SCR will be wrong. Phase 3 replaces this page with the Dashboard which derives squad costs from contracts via `calculateSquadCosts`.
+- **HistoryPage** queries the dropped `simulations` table → 500. Phase 3 replaces with `scenarios.ts` routes + a new ScenariosPage.
+- **ClubSetupPage** form still has a manual squad costs input that gets silently dropped on submit. Phase 3 will remove the field with the Dashboard refactor.
+
+---
+
+### Engine / TypeScript
+
+- Engine: 59/59 tests passing (39 base + 10 transaction types + 10 leap-year/book-value)
+- API typecheck: 0 errors
+- Web typecheck: 0 errors
