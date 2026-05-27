@@ -1,5 +1,11 @@
 import { supabase } from './supabase'
-import type { SCRResult } from '@headroom/shared'
+import type {
+  SCRResult,
+  PlayerWithContract,
+  RosterStagingRow,
+  ManualPlayerInput,
+  ContractPatchInput,
+} from '@headroom/shared'
 
 const BASE = '/api'
 
@@ -117,5 +123,41 @@ export const api = {
       }),
     delete: (id: string) =>
       apiFetch<{ success: boolean }>(`/simulations/${id}`, { method: 'DELETE' }),
+  },
+  roster: {
+    list: () => apiFetch<{ players: PlayerWithContract[] }>('/roster'),
+    listArchived: () => apiFetch<{ players: PlayerWithContract[] }>('/roster/archived'),
+    parseCsv: (csvText: string) =>
+      apiFetch<{
+        rows: RosterStagingRow[]
+        summary: { total: number; ok: number; error: number }
+      }>('/roster/parse', {
+        method: 'POST',
+        body: JSON.stringify({ csvText }),
+      }),
+    commit: (rows: NonNullable<RosterStagingRow['parsed']>[]) =>
+      apiFetch<{ playersCreated: number; contractsCreated: number }>('/roster/commit', {
+        method: 'POST',
+        body: JSON.stringify({ rows }),
+      }),
+    createPlayer: (input: ManualPlayerInput) =>
+      apiFetch<{ playerId: string; contractId: string }>('/roster/player', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    updatePlayer: (id: string, patch: { name?: string; position?: 'GK' | 'DEF' | 'MID' | 'FWD'; nationality?: string | null }) =>
+      apiFetch<{ success: boolean }>(`/roster/player/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      }),
+    updateContract: (id: string, patch: ContractPatchInput) =>
+      apiFetch<{ success: boolean; bookValuePence: number }>(`/roster/contract/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      }),
+    archivePlayer: (id: string) =>
+      apiFetch<{ success: boolean; archivedAt: string }>(`/roster/player/${id}/archive`, {
+        method: 'POST',
+      }),
   },
 }

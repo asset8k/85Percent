@@ -8,6 +8,7 @@ import {
   calculatePointsDeduction,
   calculateAllowanceUpdate,
   generateAmortisationSchedule,
+  currentBookValuePence,
 } from '../src/index.js'
 import type { ClubFinancials, TransferInput } from '@headroom/shared'
 
@@ -450,5 +451,111 @@ describe('calculateSCR — transactionType: loan_out', () => {
     }
     const result = calculateSCR(BASE_FINANCIALS, loanOut)
     expect(result.amortisationSchedule).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// currentBookValuePence — straight-line book value with whole-month precision.
+// Leap-year + mid-month tests are mandated by the MVP 2.0 plan (Phase 2.5)
+// because day-precision math drifts on Feb 28/29 boundaries.
+// ---------------------------------------------------------------------------
+describe('currentBookValuePence', () => {
+  const FEE = 5_000_000_00 // £5M in pence
+  const utc = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d))
+
+  it('returns full fee when asOf is before contract start', () => {
+    const start = utc(2026, 7, 1)
+    const end   = utc(2030, 6, 30)
+    const asOf  = utc(2026, 6, 30)
+    expect(currentBookValuePence(FEE, start, end, asOf)).toBe(FEE)
+  })
+
+  it('returns 0 when asOf equals contract end (exactly)', () => {
+    const start = utc(2026, 7, 1)
+    const end   = utc(2028, 7, 1)
+    expect(currentBookValuePence(FEE, start, end, end)).toBe(0)
+  })
+
+  it('returns 0 when asOf is past contract end', () => {
+    const start = utc(2026, 7, 1)
+    const end   = utc(2028, 7, 1)
+    const asOf  = utc(2028, 7, 2)
+    expect(currentBookValuePence(FEE, start, end, asOf)).toBe(0)
+  })
+
+  it('returns half the fee at the exact midpoint of a 4-year contract', () => {
+    const start = utc(2026, 1, 1)
+    const end   = utc(2030, 1, 1)   // 48 months
+    const asOf  = utc(2028, 1, 1)   // 24 months in
+    expect(currentBookValuePence(FEE, start, end, asOf)).toBe(FEE / 2)
+  })
+
+  it('returns 0 for a free transfer regardless of dates', () => {
+    expect(currentBookValuePence(0, utc(2024, 1, 1), utc(2028, 1, 1), utc(2026, 1, 1))).toBe(0)
+  })
+
+  // ---- Leap-year edge cases (mandatory per Phase 2.5) ----
+
+  it('leap-day signing: 2024-02-29 → 2028-02-28 produces exactly 48 months', () => {
+    // Signed on a leap day; ends on Feb 28 of next leap year.
+    // Whole-month math: (2028-2024)*12 + (Feb-Feb) = 48
+    const start = utc(2024, 2, 29)
+    const end   = utc(2028, 2, 28)
+    // One year in (Feb 28 next year): 36 months remain → 36/48 of fee
+    const asOf  = utc(2025, 2, 28)
+    const expected = Math.floor(FEE * (36 / 48))
+    expect(currentBookValuePence(FEE, start, end, asOf)).toBe(expected)
+  })
+
+  it('non-leap signing: 2025-02-28 → 2028-02-28 produces exactly 36 months', () => {
+    // Signed on Feb 28 in a non-leap year; same end date as the leap-day case.
+    const start = utc(2025, 2, 28)
+    const end   = utc(2028, 2, 28)
+    expect(currentBookValuePence(FEE, start, end, end)).toBe(0)
+    // Halfway through: 18/36 = half fee
+    const asOf  = utc(2026, 8, 28)
+    const expected = Math.floor(FEE * (18 / 36))
+    expect(currentBookValuePence(FEE, start, end, asOf)).toBe(expected)
+  })
+
+  it('leap and non-leap signings of equal calendar length yield identical month counts', () => {
+    // Both contracts span 36 months by month-boundary math, even though
+    // calendar days differ by one (2024 is a leap year).
+    const leap = currentBookValuePence(
+      FEE,
+      utc(2024, 2, 29),       // leap-day start
+      utc(2027, 2, 28),
+      utc(2025, 8, 28)        // 18 months in
+    )
+    const nonLeap = currentBookValuePence(
+      FEE,
+      utc(2025, 2, 28),
+      utc(2028, 2, 28),
+      utc(2026, 8, 28)        // 18 months in
+    )
+    expect(leap).toBe(nonLeap)
+  })
+
+  it('mid-month transfer (15th to 15th) — whole-month rounding ignores day-of-month', () => {
+    // 2026-03-15 to 2028-03-15 → monthsBetween treats as (2028-2026)*12 + 0 = 24 months
+    // 2027-03-15 (halfway) → 12 months remain → 12/24 of fee
+    const start = utc(2026, 3, 15)
+    const end   = utc(2028, 3, 15)
+    const asOf  = utc(2027, 3, 15)
+    const expected = Math.floor(FEE * (12 / 24))
+    expect(currentBookValuePence(FEE, start, end, asOf)).toBe(expected)
+  })
+
+  it('accepts bigint transferFee (matches Prisma BigInt return)', () => {
+    const start = utc(2026, 1, 1)
+    const end   = utc(2030, 1, 1)
+    const asOf  = utc(2028, 1, 1)
+    const big = BigInt(FEE)
+    expect(currentBookValuePence(big, start, end, asOf)).toBe(FEE / 2)
+  })
+
+  it('returns 0 for zero-length contracts (defensive)', () => {
+    const date = utc(2026, 1, 1)
+    expect(currentBookValuePence(FEE, date, date, date)).toBe(0)
   })
 })

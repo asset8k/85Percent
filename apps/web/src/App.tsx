@@ -6,6 +6,7 @@ import { SimulatorPage } from '@/pages/SimulatorPage'
 import { HistoryPage } from '@/pages/HistoryPage'
 import { CalendarPage } from '@/pages/CalendarPage'
 import { ClubSetupPage } from '@/pages/ClubSetupPage'
+import { RosterPage } from '@/pages/RosterPage'
 
 export function App() {
   return (
@@ -24,6 +25,7 @@ export function App() {
           <Route path="/simulator" element={<SimulatorPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/history/:id" element={<HistoryPage />} />
+          <Route path="/roster" element={<RosterPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/setup" element={<ClubSetupPage />} />
         </Route>

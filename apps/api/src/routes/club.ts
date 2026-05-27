@@ -58,7 +58,10 @@ export async function clubRoutes(app: FastifyInstance) {
         clubId: f.club_id,
         season: f.season,
         footballRelatedRevenue: Number(f.football_related_revenue),
-        currentSquadCosts: Number(f.current_squad_costs),
+        // MVP 2.0: column dropped — squad costs derive from contracts (Phase 3 Dashboard).
+        // Returning 0 is a transitional stub for MVP 1.0 UI; will be removed when
+        // the Dashboard replaces SimulatorPage's manual baseline.
+        currentSquadCosts: 0,
         currentAllowanceRatio: Number(f.current_allowance_ratio),
         ownerEquityUsed1yr: f.owner_equity_used_1yr != null ? Number(f.owner_equity_used_1yr) : null,
         ownerEquityUsed3yr: f.owner_equity_used_3yr != null ? Number(f.owner_equity_used_3yr) : null,
@@ -88,12 +91,15 @@ export async function clubRoutes(app: FastifyInstance) {
       ownerEquityUsedThreeYearPounds,
     } = parsed.data
 
+    // currentSquadCostsPounds is accepted from the form for backward compat but
+    // not persisted — MVP 2.0 derives squad costs from contracts (Phase 3 Dashboard).
+    void currentSquadCostsPounds
+
     try {
       const financialsData = {
         club_id: request.clubId,
         season,
         football_related_revenue: footballRelatedRevenuePounds * 100,
-        current_squad_costs: currentSquadCostsPounds * 100,
         current_allowance_ratio: currentAllowanceRatio,
         owner_equity_used_1yr: ownerEquityUsedCurrentSeasonPounds != null
           ? ownerEquityUsedCurrentSeasonPounds * 100

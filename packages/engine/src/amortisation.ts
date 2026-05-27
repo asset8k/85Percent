@@ -1,5 +1,42 @@
 import type { AmortisationEntry } from '@headroom/shared'
 
+// Whole-month count between two dates. Day-of-month ignored — straight-line
+// amortisation for SCR uses month boundaries, not calendar-day precision.
+// This means a transfer on Feb 29 (leap year) and one on Feb 28 (non-leap)
+// produce identical schedules — what the regulations require.
+function monthsBetween(from: Date, to: Date): number {
+  return (to.getUTCFullYear() - from.getUTCFullYear()) * 12 +
+         (to.getUTCMonth() - from.getUTCMonth())
+}
+
+/**
+ * Current book value of a transfer fee, straight-line amortised over the
+ * contract's full date range. Returns 0 once the contract is fully amortised
+ * or the asOf date is at/past the end date. Returns the full fee if asOf is
+ * before the start date (book value is locked in at purchase).
+ *
+ * All monetary values in pence. Pure function — pass asOf explicitly in tests.
+ */
+export function currentBookValuePence(
+  transferFeePence: bigint | number,
+  startDate: Date,
+  endDate: Date,
+  asOf: Date = new Date()
+): number {
+  const fee = typeof transferFeePence === 'bigint' ? Number(transferFeePence) : transferFeePence
+  if (fee === 0) return 0
+
+  const totalMonths = monthsBetween(startDate, endDate)
+  if (totalMonths <= 0) return 0
+
+  // Clamp asOf to [startDate, endDate]
+  if (asOf.getTime() <= startDate.getTime()) return fee
+  if (asOf.getTime() >= endDate.getTime())   return 0
+
+  const remainingMonths = monthsBetween(asOf, endDate)
+  return Math.floor(fee * (remainingMonths / totalMonths))
+}
+
 /**
  * Generate a year-by-year amortisation schedule for a transfer.
  * Transfer fee is spread equally over contract length.

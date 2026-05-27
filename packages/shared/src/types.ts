@@ -82,3 +82,56 @@ export interface SCRResult {
 
 export type UserRole = 'cfo' | 'sporting_director' | 'finance_analyst' | 'admin'
 export type ComplianceStatus = 'green' | 'amber' | 'red'
+
+// ---------------------------------------------------------------------------
+// Roster (MVP 2.0) — wire-format response types
+// All monetary values are integers in pence. ISO date strings on the wire,
+// not Date objects, to keep JSON deterministic.
+// ---------------------------------------------------------------------------
+export type PlayerPosition = 'GK' | 'DEF' | 'MID' | 'FWD'
+
+export interface PlayerWithContract {
+  id: string                          // player id
+  clubId: string
+  name: string
+  position: PlayerPosition | null
+  nationality: string | null
+  isActive: boolean
+  archivedAt: string | null
+  createdAt: string
+
+  // Active contract (or null if the player has no active contract)
+  contract: {
+    id: string                        // contract id
+    transferFeePence: number
+    annualWagePence: number
+    agentFeePence: number
+    startDate: string                 // ISO YYYY-MM-DD
+    endDate: string
+    contractLengthYears: number
+    bookValuePence: number            // live, recomputed at read time
+    isActive: boolean
+  } | null
+
+  // Derived for UI consumption
+  monthsToExpiry: number | null       // null if no active contract; can be negative if expired
+}
+
+// CSV staging — one entry per row. `parsed` is set iff `issues` is empty.
+export interface RosterStagingRow {
+  rowIndex: number                    // 1-based row number from the CSV (excluding header)
+  ok: boolean
+  issues: string[]                    // human-readable validation errors
+  parsed?: {
+    name: string
+    position: PlayerPosition
+    nationality?: string
+    transferFeePence: number
+    annualWagePence: number
+    agentFeePence: number
+    startDate: string
+    endDate: string
+    contractLengthYears: number
+    bookValuePence: number
+  }
+}
