@@ -102,7 +102,7 @@ export function AppLayout() {
         <footer className="px-8 py-5 border-t border-slate-100">
           <div className="max-w-[1280px] mx-auto flex items-center justify-between">
             <p className="text-[11px] text-slate-400">{DISCLAIMER}</p>
-            <p className="num text-[11px] text-slate-400">v0.6.0 · 2026/27</p>
+            <p className="num text-[11px] text-slate-400">v2.0 · 2026/27</p>
           </div>
         </footer>
       </div>

@@ -260,7 +260,15 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(input),
       }),
-    updatePlayer: (id: string, patch: { name?: string; position?: 'GK' | 'DEF' | 'MID' | 'FWD'; nationality?: string | null }) =>
+    updatePlayer: (
+      id: string,
+      patch: {
+        name?: string
+        position?: 'GK' | 'DEF' | 'MID' | 'FWD'
+        nationality?: string | null
+        dateOfBirth?: string | null
+      }
+    ) =>
       apiFetch<{ success: boolean }>(`/roster/player/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(patch),

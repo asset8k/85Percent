@@ -17,10 +17,14 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Spinner, PageLoader } from '@/components/ui/spinner'
 import { NumericInput } from '@/components/ui/numeric-input'
+import { CountryPicker } from '@/components/ui/country-picker'
+import { DatePicker } from '@/components/ui/date-picker'
 import { cn } from '@/lib/utils'
 import { useCan } from '@/lib/role'
 import { useClubStore } from '@/stores/club'
 import { exportAmortisationXLSX } from '@/lib/exports/amortisationXlsx'
+import { findCountry } from '@/lib/countries'
+import { Flag } from '@/components/ui/flag'
 import { formatPence } from '@headroom/shared'
 import type {
   PlayerWithContract,
@@ -90,7 +94,7 @@ export function RosterPage() {
             Roster
           </h1>
           <p className="text-[13px] text-slate-500 mt-1.5">
-            Your 25-man squad. Squad costs are derived from these contracts.
+            Your squad. Squad costs are derived from these contracts.
           </p>
         </div>
         {tab === 'squad' && (
@@ -253,9 +257,12 @@ function PlayerTable({
               )}
             >
               <td className="px-5 py-3.5 text-[14px] text-slate-900 font-medium">
-                {p.name}
+                <span className="inline-flex items-center gap-2 align-middle">
+                  <NationalityFlag nationality={p.nationality} />
+                  <span>{p.name}</span>
+                </span>
                 {!archived && p.monthsToExpiry != null && p.monthsToExpiry < 0 && (
-                  <span className="ml-2 inline-block text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-100 text-red-700">
+                  <span className="ml-2 inline-block text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-100 text-red-700 align-middle">
                     EXPIRED
                   </span>
                 )}
@@ -307,6 +314,15 @@ function Th({
   )
 }
 
+// Renders a sharp SVG country flag for a player's nationality. Returns null
+// when the value is empty or doesn't match a known country (e.g. legacy
+// free-text values) — keeps the row clean rather than showing a placeholder.
+function NationalityFlag({ nationality }: { nationality: string | null }) {
+  const country = findCountry(nationality)
+  if (!country) return null
+  return <Flag code={country.code} title={country.name} width={20} />
+}
+
 function PositionPill({ position }: { position: string | null }) {
   if (!position) {
     return <span className="text-[12px] text-slate-400">—</span>
@@ -318,6 +334,16 @@ function PositionPill({ position }: { position: string | null }) {
   )
 }
 
+// "49" → "4 years 1 month" — years lead, months only when non-zero, singular/plural correct.
+function formatExpiryLabel(months: number): string {
+  const years = Math.floor(months / 12)
+  const rem = months % 12
+  if (years === 0) return `${rem} ${rem === 1 ? 'month' : 'months'}`
+  const yearPart = `${years} ${years === 1 ? 'year' : 'years'}`
+  if (rem === 0) return yearPart
+  return `${yearPart} ${rem} ${rem === 1 ? 'month' : 'months'}`
+}
+
 function ExpiryChip({ months }: { months: number | null }) {
   if (months == null) return <span className="text-slate-400">—</span>
   if (months < 0) {
@@ -326,17 +352,34 @@ function ExpiryChip({ months }: { months: number | null }) {
   if (months <= 6) {
     return (
       <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-md bg-amber-100 text-amber-700 whitespace-nowrap">
-        {months} mo
+        {formatExpiryLabel(months)}
       </span>
     )
   }
-  return <span className="text-slate-500 num">{months} mo</span>
+  return <span className="text-slate-500 whitespace-nowrap">{formatExpiryLabel(months)}</span>
 }
 
 function formatDate(iso: string): string {
   const d = new Date(iso + (iso.length === 10 ? 'T00:00:00Z' : ''))
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+// Compute integer age in years from an ISO YYYY-MM-DD DOB.
+// Returns null when the input is missing/invalid or the DOB is in the future.
+function ageFromDob(iso: string): number | null {
+  if (!iso) return null
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  if (!m) return null
+  const y = Number(m[1]), mo = Number(m[2]) - 1, d = Number(m[3])
+  const now = new Date()
+  let age = now.getFullYear() - y
+  // Subtract a year if the birthday hasn't occurred yet this year
+  const hadBirthdayThisYear =
+    now.getMonth() > mo || (now.getMonth() === mo && now.getDate() >= d)
+  if (!hadBirthdayThisYear) age -= 1
+  if (age < 0 || age > 120) return null
+  return age
 }
 
 // ---------------------------------------------------------------------------
@@ -440,10 +483,12 @@ function CSVUploadModal({
       <div className="max-h-[80vh] flex flex-col">
         <div className="px-5 pb-3">
           <p className="text-[13px] text-slate-600">
-            Expected columns:{' '}
+            Required:{' '}
             <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded">
               name, position, transfer_fee_pounds, weekly_wage_pounds, agent_fee_pounds, contract_start, contract_end
             </code>
+            . Optional:{' '}
+            <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded">nationality, date_of_birth</code>
             . Dates as <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded">YYYY-MM-DD</code>.
           </p>
           <div className="flex items-center gap-3 mt-4">
@@ -492,6 +537,7 @@ function CSVUploadModal({
                   <Th>#</Th>
                   <Th>Name</Th>
                   <Th>Pos</Th>
+                  <Th>DOB</Th>
                   <Th align="right">Fee (£)</Th>
                   <Th align="right">Wage £/wk</Th>
                   <Th align="right">Agent (£)</Th>
@@ -553,6 +599,7 @@ function StagingRowDisplay({
       <td className="px-5 py-3 text-[12px] text-slate-400 num">{row.rowIndex}</td>
       <td className="px-5 py-3 text-[13px] text-slate-900">{p?.name ?? '—'}</td>
       <td className="px-5 py-3"><PositionPill position={p?.position ?? null} /></td>
+      <td className="px-5 py-3 text-[13px] text-slate-500 num">{p?.dateOfBirth ?? '—'}</td>
       <td className="px-5 py-3 text-[13px] num text-right">{p ? formatPence(p.transferFeePence) : '—'}</td>
       <td className="px-5 py-3 text-[13px] num text-right">{p ? formatPence(Math.floor(p.annualWagePence / 52)) : '—'}</td>
       <td className="px-5 py-3 text-[13px] num text-right">{p ? formatPence(p.agentFeePence) : '—'}</td>
@@ -591,6 +638,7 @@ function StagingRowEditor({
   // Editor seeds from existing parsed data or empty defaults
   const [name, setName] = useState(row.parsed?.name ?? '')
   const [position, setPosition] = useState<PlayerPosition>(row.parsed?.position ?? 'MID')
+  const [dateOfBirth, setDateOfBirth] = useState(row.parsed?.dateOfBirth ?? '')
   const [transferPounds, setTransferPounds] = useState(row.parsed ? row.parsed.transferFeePence / 100 : NaN)
   const [weeklyWagePounds, setWeeklyWagePounds] = useState(
     row.parsed ? Math.round(row.parsed.annualWagePence / 52 / 100) : NaN
@@ -600,16 +648,25 @@ function StagingRowEditor({
   const [endDate, setEndDate] = useState(row.parsed?.endDate ?? '')
   const [saving, setSaving] = useState(false)
 
+  // Same DOB bounds as the manual modal (≤ today, ≥ 60 years ago).
+  const todayISO = new Date().toISOString().slice(0, 10)
+  const sixtyYearsAgoISO = (() => {
+    const d = new Date()
+    d.setFullYear(d.getFullYear() - 60)
+    return d.toISOString().slice(0, 10)
+  })()
+
   const save = async () => {
     setSaving(true)
     try {
       // Re-validate via the /roster/parse endpoint to ensure server-side rules apply.
       // Synthesize a one-row CSV and ask the server to validate.
       const csvText = [
-        'name,position,transfer_fee_pounds,weekly_wage_pounds,agent_fee_pounds,contract_start,contract_end',
+        'name,position,date_of_birth,transfer_fee_pounds,weekly_wage_pounds,agent_fee_pounds,contract_start,contract_end',
         [
           csvEscape(name),
           position,
+          dateOfBirth,
           isFinite(transferPounds) ? transferPounds : '',
           isFinite(weeklyWagePounds) ? weeklyWagePounds : '',
           isFinite(agentPounds) ? agentPounds : '',
@@ -642,6 +699,15 @@ function StagingRowEditor({
           {POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
       </td>
+      <td className="px-2 py-2 align-top">
+        <DatePicker
+          value={dateOfBirth}
+          onChange={setDateOfBirth}
+          min={sixtyYearsAgoISO}
+          max={todayISO}
+          placeholder="DOB"
+        />
+      </td>
       <td className="px-2 py-2">
         <NumericInput value={transferPounds} onChange={setTransferPounds} className={cellNumeric} placeholder="0" />
       </td>
@@ -651,11 +717,11 @@ function StagingRowEditor({
       <td className="px-2 py-2">
         <NumericInput value={agentPounds} onChange={setAgentPounds} className={cellNumeric} placeholder="0" />
       </td>
-      <td className="px-2 py-2">
-        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className={cellInput} />
+      <td className="px-2 py-2 align-top">
+        <DatePicker value={startDate} onChange={setStartDate} placeholder="Start date" />
       </td>
-      <td className="px-2 py-2">
-        <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className={cellInput} />
+      <td className="px-2 py-2 align-top">
+        <DatePicker value={endDate} onChange={setEndDate} placeholder="End date" />
         <div className="flex items-center justify-end gap-2 mt-2">
           <button onClick={onClose} className="text-[12px] text-slate-500 hover:text-slate-700">Cancel</button>
           <button onClick={save} disabled={saving} className="text-[12px] font-medium text-violet-600 hover:text-violet-700 disabled:opacity-60">
@@ -686,7 +752,8 @@ function ManualPlayerModal({
 }) {
   const [name, setName] = useState('')
   const [position, setPosition] = useState<PlayerPosition>('MID')
-  const [nationality, setNationality] = useState('')
+  const [nationality, setNationality] = useState<string | null>(null)
+  const [dateOfBirth, setDateOfBirth] = useState('')
   const [transferPounds, setTransferPounds] = useState(NaN)
   const [weeklyWagePounds, setWeeklyWagePounds] = useState(NaN)
   const [agentPounds, setAgentPounds] = useState(NaN)
@@ -695,15 +762,27 @@ function ManualPlayerModal({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  const computedAge = useMemo(() => ageFromDob(dateOfBirth), [dateOfBirth])
+  // Players are realistically 14–60. Reject obviously bogus DOBs at the UI
+  // boundary so the form is honest about what it will accept.
+  const todayISO = new Date().toISOString().slice(0, 10)
+  const sixtyYearsAgoISO = (() => {
+    const d = new Date()
+    d.setFullYear(d.getFullYear() - 60)
+    return d.toISOString().slice(0, 10)
+  })()
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
     setError('')
     try {
+      const cleanNationality = nationality?.trim() ?? ''
       const payload: ManualPlayerInput = {
         name: name.trim(),
         position,
-        ...(nationality.trim() ? { nationality: nationality.trim() } : {}),
+        ...(cleanNationality ? { nationality: cleanNationality } : {}),
+        ...(dateOfBirth ? { dateOfBirth } : {}),
         transferFeePence: (isFinite(transferPounds) ? transferPounds : 0) * 100,
         annualWagePence:  (isFinite(weeklyWagePounds) ? weeklyWagePounds : 0) * 52 * 100,
         agentFeePence:    (isFinite(agentPounds) ? agentPounds : 0) * 100,
@@ -720,7 +799,7 @@ function ManualPlayerModal({
 
   return (
     <ModalShell onClose={onClose} title="Add player">
-      <form onSubmit={submit} className="px-5 pb-5 space-y-4 max-h-[80vh] overflow-y-auto">
+      <form onSubmit={submit} className="px-5 pb-5 space-y-4 max-h-[80vh] overflow-y-auto overflow-x-visible">
         <Field label="Name">
           <input
             value={name}
@@ -738,14 +817,30 @@ function ManualPlayerModal({
             </select>
           </Field>
           <Field label="Nationality (optional)">
-            <input
-              value={nationality}
-              onChange={(e) => setNationality(e.target.value)}
-              maxLength={60}
-              className={fieldClass}
-            />
+            <CountryPicker value={nationality} onChange={setNationality} placeholder="Select country" />
           </Field>
         </div>
+
+        <Field
+          label={
+            <span className="flex items-center justify-between">
+              <span>Date of birth (optional)</span>
+              {computedAge != null && (
+                <span className="text-[11px] font-normal text-slate-500 normal-case tracking-normal">
+                  Age <span className="num text-slate-700 font-medium">{computedAge}</span>
+                </span>
+              )}
+            </span>
+          }
+        >
+          <DatePicker
+            value={dateOfBirth}
+            onChange={setDateOfBirth}
+            min={sixtyYearsAgoISO}
+            max={todayISO}
+            placeholder="Select date of birth"
+          />
+        </Field>
 
         <div className="grid grid-cols-3 gap-4">
           <Field label="Transfer fee (£)">
@@ -761,10 +856,10 @@ function ManualPlayerModal({
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Contract start">
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required className={fieldClass} />
+            <DatePicker value={startDate} onChange={setStartDate} required placeholder="Select start date" />
           </Field>
           <Field label="Contract end">
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required className={fieldClass} />
+            <DatePicker value={endDate} onChange={setEndDate} required placeholder="Select end date" />
           </Field>
         </div>
 
@@ -804,7 +899,8 @@ function PlayerEditDrawer({
   const c = player.contract
   const [name, setName] = useState(player.name)
   const [position, setPosition] = useState<PlayerPosition>(player.position ?? 'MID')
-  const [nationality, setNationality] = useState(player.nationality ?? '')
+  const [nationality, setNationality] = useState<string | null>(player.nationality)
+  const [dateOfBirth, setDateOfBirth] = useState(player.dateOfBirth ?? '')
   const [transferPounds, setTransferPounds] = useState(c ? c.transferFeePence / 100 : NaN)
   const [weeklyWagePounds, setWeeklyWagePounds] = useState(c ? Math.round(c.annualWagePence / 52 / 100) : NaN)
   const [agentPounds, setAgentPounds] = useState(c ? c.agentFeePence / 100 : NaN)
@@ -815,17 +911,32 @@ function PlayerEditDrawer({
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [error, setError] = useState('')
 
+  const computedAge = useMemo(() => ageFromDob(dateOfBirth), [dateOfBirth])
+  const todayISO = new Date().toISOString().slice(0, 10)
+  const sixtyYearsAgoISO = (() => {
+    const d = new Date()
+    d.setFullYear(d.getFullYear() - 60)
+    return d.toISOString().slice(0, 10)
+  })()
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
     setError('')
     try {
       // Update player fields
-      const playerPatch: { name?: string; position?: PlayerPosition; nationality?: string | null } = {}
+      const playerPatch: {
+        name?: string
+        position?: PlayerPosition
+        nationality?: string | null
+        dateOfBirth?: string | null
+      } = {}
       if (name.trim() !== player.name) playerPatch.name = name.trim()
       if (position !== player.position) playerPatch.position = position
-      const cleanNationality = nationality.trim() === '' ? null : nationality.trim()
+      const cleanNationality = !nationality || nationality.trim() === '' ? null : nationality.trim()
       if (cleanNationality !== player.nationality) playerPatch.nationality = cleanNationality
+      const cleanDob = dateOfBirth.trim() === '' ? null : dateOfBirth.trim()
+      if (cleanDob !== (player.dateOfBirth ?? null)) playerPatch.dateOfBirth = cleanDob
 
       if (Object.keys(playerPatch).length > 0) {
         await api.roster.updatePlayer(player.id, playerPatch)
@@ -871,7 +982,7 @@ function PlayerEditDrawer({
 
   return (
     <ModalShell onClose={onClose} title={`Edit ${player.name}`}>
-      <form onSubmit={save} className="px-5 pb-5 space-y-4 max-h-[80vh] overflow-y-auto">
+      <form onSubmit={save} className="px-5 pb-5 space-y-4 max-h-[80vh] overflow-y-auto overflow-x-visible">
         <Field label="Name">
           <input
             value={name}
@@ -889,14 +1000,30 @@ function PlayerEditDrawer({
             </select>
           </Field>
           <Field label="Nationality">
-            <input
-              value={nationality}
-              onChange={(e) => setNationality(e.target.value)}
-              maxLength={60}
-              className={fieldClass}
-            />
+            <CountryPicker value={nationality} onChange={setNationality} placeholder="Select country" />
           </Field>
         </div>
+
+        <Field
+          label={
+            <span className="flex items-center justify-between">
+              <span>Date of birth (optional)</span>
+              {computedAge != null && (
+                <span className="text-[11px] font-normal text-slate-500 normal-case tracking-normal">
+                  Age <span className="num text-slate-700 font-medium">{computedAge}</span>
+                </span>
+              )}
+            </span>
+          }
+        >
+          <DatePicker
+            value={dateOfBirth}
+            onChange={setDateOfBirth}
+            min={sixtyYearsAgoISO}
+            max={todayISO}
+            placeholder="Select date of birth"
+          />
+        </Field>
 
         {c && (
           <>
@@ -915,10 +1042,10 @@ function PlayerEditDrawer({
               </div>
               <div className="grid grid-cols-2 gap-4 mt-4">
                 <Field label="Contract start">
-                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required className={fieldClass} />
+                  <DatePicker value={startDate} onChange={setStartDate} required placeholder="Select start date" />
                 </Field>
                 <Field label="Contract end">
-                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required className={fieldClass} />
+                  <DatePicker value={endDate} onChange={setEndDate} required placeholder="Select end date" />
                 </Field>
               </div>
               <p className="mt-2 text-[12px] text-slate-500">
@@ -1014,7 +1141,7 @@ function ModalShell({
 const fieldClass =
   'w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-colors'
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   return (
     <label className="block">
       <span className="meta-label block mb-1.5">{label}</span>

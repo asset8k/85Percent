@@ -47,8 +47,8 @@ const EXPECTED_COLUMNS = [
   'agent_fee_pounds', 'contract_start', 'contract_end',
 ] as const
 
-// Optional CSV column
-const OPTIONAL_COLUMNS = ['nationality'] as const
+// Optional CSV columns — accepted when present, ignored otherwise.
+const OPTIONAL_COLUMNS = ['nationality', 'date_of_birth'] as const
 
 type CsvRow = Record<string, string | number | undefined>
 
@@ -90,6 +90,7 @@ function buildStagingRow(rowIndex: number, rawRow: CsvRow): RosterStagingRow {
     name:                normaliseCell(rawRow['name']),
     position:            normaliseCell(rawRow['position']),
     nationality:         normaliseCell(rawRow['nationality']),
+    date_of_birth:       normaliseCell(rawRow['date_of_birth']),
     transfer_fee_pounds: parsePoundsCell(rawRow['transfer_fee_pounds']),
     weekly_wage_pounds:  parsePoundsCell(rawRow['weekly_wage_pounds']),
     agent_fee_pounds:    parsePoundsCell(rawRow['agent_fee_pounds']),
@@ -136,6 +137,7 @@ function buildStagingRow(rowIndex: number, rawRow: CsvRow): RosterStagingRow {
           name: r.name,
           position: r.position,
           ...(r.nationality !== undefined ? { nationality: r.nationality } : {}),
+          ...(r.date_of_birth !== undefined ? { dateOfBirth: r.date_of_birth } : {}),
           transferFeePence,
           annualWagePence,
           agentFeePence,
@@ -187,12 +189,19 @@ function buildPlayerResponse(
       (endObj.getUTCMonth()    - now.getUTCMonth())
   }
 
+  // date_of_birth comes back from Postgres as either a YYYY-MM-DD string or an
+  // ISO timestamp depending on whether the column is DATE or TIMESTAMP. Slice
+  // to the first 10 chars defensively so the wire-format is always YYYY-MM-DD.
+  const rawDob = player['date_of_birth']
+  const dateOfBirth = rawDob == null ? null : String(rawDob).slice(0, 10)
+
   return {
     id: String(player['id']),
     clubId: String(player['club_id']),
     name: String(player['name']),
     position: (player['position'] as PlayerWithContract['position']) ?? null,
     nationality: (player['nationality'] as string | null) ?? null,
+    dateOfBirth,
     isActive: Boolean(player['is_active']),
     archivedAt: (player['archived_at'] as string | null) ?? null,
     createdAt: String(player['created_at']),
@@ -218,6 +227,7 @@ const CommitBody = z.object({
       name: z.string().min(1),
       position: z.enum(['GK', 'DEF', 'MID', 'FWD']),
       nationality: z.string().max(60).optional(),
+      dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date of birth must be YYYY-MM-DD').optional(),
       transferFeePence: z.number().int().min(0),
       annualWagePence:  z.number().int().positive(),
       agentFeePence:    z.number().int().min(0),
@@ -231,6 +241,8 @@ const PlayerPatchBody = z.object({
   name:        z.string().trim().min(1).max(80).optional(),
   position:    z.enum(['GK', 'DEF', 'MID', 'FWD']).optional(),
   nationality: z.string().trim().max(60).nullable().optional(),
+  // Pass null to clear; pass YYYY-MM-DD to set.
+  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD').nullable().optional(),
 }).refine((r) => Object.values(r).some((v) => v !== undefined), { message: 'No fields provided' })
 
 // ---------------------------------------------------------------------------
@@ -244,7 +256,7 @@ export async function rosterRoutes(app: FastifyInstance) {
     try {
       const { data: players, error: playersErr } = await supabase
         .from('players')
-        .select('id, club_id, name, position, nationality, is_active, archived_at, created_at')
+        .select('id, club_id, name, position, nationality, date_of_birth, is_active, archived_at, created_at')
         .eq('club_id', request.clubId)
         .eq('is_active', true)
         .order('name', { ascending: true })
@@ -285,7 +297,7 @@ export async function rosterRoutes(app: FastifyInstance) {
     try {
       const { data: players, error } = await supabase
         .from('players')
-        .select('id, club_id, name, position, nationality, is_active, archived_at, created_at')
+        .select('id, club_id, name, position, nationality, date_of_birth, is_active, archived_at, created_at')
         .eq('club_id', request.clubId)
         .eq('is_active', false)
         .order('archived_at', { ascending: false })
@@ -388,6 +400,7 @@ export async function rosterRoutes(app: FastifyInstance) {
         name: r.name,
         position: r.position,
         nationality: r.nationality ?? '',
+        date_of_birth: r.dateOfBirth ?? '',
         transfer_fee_pounds: Math.floor(r.transferFeePence / 100),
         weekly_wage_pounds:  Math.floor(r.annualWagePence / 52 / 100),
         agent_fee_pounds:    Math.floor(r.agentFeePence / 100),
@@ -430,6 +443,7 @@ export async function rosterRoutes(app: FastifyInstance) {
           name: r.name,
           position: r.position,
           nationality: r.nationality ?? null,
+          date_of_birth: r.dateOfBirth ?? null,
           is_active: true,
           created_at: nowISO,
           updated_at: nowISO,
@@ -510,6 +524,7 @@ export async function rosterRoutes(app: FastifyInstance) {
         name: r.name,
         position: r.position,
         nationality: r.nationality ?? null,
+        date_of_birth: r.dateOfBirth ?? null,
         is_active: true,
         created_at: nowISO,
         updated_at: nowISO,
@@ -560,7 +575,7 @@ export async function rosterRoutes(app: FastifyInstance) {
     try {
       const { data: existing, error: findErr } = await supabase
         .from('players')
-        .select('id, name, position, nationality')
+        .select('id, name, position, nationality, date_of_birth')
         .eq('id', id)
         .eq('club_id', request.clubId)
         .maybeSingle()
@@ -572,6 +587,7 @@ export async function rosterRoutes(app: FastifyInstance) {
       if (parsed.data.name        !== undefined) patch['name']        = parsed.data.name
       if (parsed.data.position    !== undefined) patch['position']    = parsed.data.position
       if (parsed.data.nationality !== undefined) patch['nationality'] = parsed.data.nationality
+      if (parsed.data.dateOfBirth !== undefined) patch['date_of_birth'] = parsed.data.dateOfBirth
 
       const { error: updateErr } = await supabase
         .from('players')

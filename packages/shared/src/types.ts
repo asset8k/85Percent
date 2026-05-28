@@ -100,6 +100,7 @@ export interface PlayerWithContract {
   name: string
   position: PlayerPosition | null
   nationality: string | null
+  dateOfBirth: string | null          // ISO YYYY-MM-DD; null = unknown (age UI hides)
   isActive: boolean
   archivedAt: string | null
   createdAt: string
@@ -130,6 +131,7 @@ export interface RosterStagingRow {
     name: string
     position: PlayerPosition
     nationality?: string
+    dateOfBirth?: string              // ISO YYYY-MM-DD, optional CSV column
     transferFeePence: number
     annualWagePence: number
     agentFeePence: number

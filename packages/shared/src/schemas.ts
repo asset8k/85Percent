@@ -43,6 +43,9 @@ export const RosterRowSchema = z
     name: z.string().trim().min(1, 'Name is required').max(80, 'Name too long'),
     position: z.string().transform((s) => s.trim().toUpperCase()).pipe(POSITION),
     nationality: z.string().trim().max(60).optional().or(z.literal('').transform(() => undefined)),
+    // Optional CSV column — accepts blank / missing. Same realism refine as the
+    // manual-add path (must be in the past, within the last 70 years).
+    date_of_birth: ISODateString.optional().or(z.literal('').transform(() => undefined)),
     transfer_fee_pounds: z.number({ invalid_type_error: 'Transfer fee must be a number' }).int().min(0, 'Transfer fee cannot be negative'),
     weekly_wage_pounds:  z.number({ invalid_type_error: 'Weekly wage must be a number' }).int().positive('Weekly wage must be > 0'),
     agent_fee_pounds:    z.number({ invalid_type_error: 'Agent fee must be a number' }).int().min(0, 'Agent fee cannot be negative'),
@@ -62,6 +65,13 @@ export const RosterRowSchema = z
     message: 'Contract cannot exceed 7 years',
     path: ['contract_end'],
   })
+  .refine((r) => {
+    if (!r.date_of_birth) return true
+    const dob = new Date(r.date_of_birth + 'T00:00:00Z').getTime()
+    const now = Date.now()
+    const seventyYearsMs = 70 * 365.25 * 24 * 60 * 60 * 1000
+    return dob <= now && now - dob <= seventyYearsMs
+  }, { message: 'Date of birth must be in the past and within the last 70 years', path: ['date_of_birth'] })
 
 export type RosterRowInput = z.infer<typeof RosterRowSchema>
 
@@ -72,6 +82,8 @@ export const ManualPlayerSchema = z
     name: z.string().trim().min(1).max(80),
     position: POSITION,
     nationality: z.string().trim().max(60).optional(),
+    // Optional date of birth — drives the age display only; not used in compliance math.
+    dateOfBirth: ISODateString.optional(),
     transferFeePence: z.number().int().min(0),
     annualWagePence:  z.number().int().positive(),
     agentFeePence:    z.number().int().min(0),
@@ -91,6 +103,14 @@ export const ManualPlayerSchema = z
     message: 'Contract cannot exceed 7 years',
     path: ['endDate'],
   })
+  .refine((r) => {
+    if (!r.dateOfBirth) return true
+    // Reject future birthdays and impossibly-old players (> 70).
+    const dob = new Date(r.dateOfBirth + 'T00:00:00Z').getTime()
+    const now = Date.now()
+    const seventyYearsMs = 70 * 365.25 * 24 * 60 * 60 * 1000
+    return dob <= now && now - dob <= seventyYearsMs
+  }, { message: 'Date of birth must be in the past and within the last 70 years', path: ['dateOfBirth'] })
 
 export type ManualPlayerInput = z.infer<typeof ManualPlayerSchema>
 

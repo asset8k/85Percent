@@ -27,6 +27,8 @@ import { exportSquadPDF } from '@/lib/exports/squadPdf'
 import { calculateSquadCosts, type ContractInput } from '@headroom/engine'
 import type { PlayerWithContract } from '@headroom/shared'
 import { formatPence } from '@headroom/shared'
+import { findCountry } from '@/lib/countries'
+import { Flag } from '@/components/ui/flag'
 import { cn } from '@/lib/utils'
 
 type SortKey = 'name' | 'position' | 'wage' | 'amortisation' | 'agentFee' | 'total' | 'expiry'
@@ -54,12 +56,13 @@ export function DashboardPage() {
 
   // Per-player breakdown via the engine — same math the API uses to derive the total.
   const { totalSquadCostsPence, breakdownByPlayer } = useMemo(() => {
-    const inputs: Array<ContractInput & { playerName: string; position: string | null; monthsToExpiry: number | null }> = players
+    const inputs: Array<ContractInput & { playerName: string; position: string | null; nationality: string | null; monthsToExpiry: number | null }> = players
       .filter((p) => p.contract)
       .map((p) => ({
         playerId: p.id,
         playerName: p.name,
         position: p.position,
+        nationality: p.nationality,
         monthsToExpiry: p.monthsToExpiry,
         transferFeePence: p.contract!.transferFeePence,
         annualWagePence:  p.contract!.annualWagePence,
@@ -298,7 +301,12 @@ export function DashboardPage() {
           <tbody>
             {filteredBreakdown.map((row) => (
               <tr key={row.playerId} className="border-b border-slate-100 last:border-0 hover:bg-violet-50/40 transition-colors">
-                <td className="px-6 py-3.5 text-[14px] text-slate-900 font-medium">{row.playerName}</td>
+                <td className="px-6 py-3.5 text-[14px] text-slate-900 font-medium">
+                  <span className="inline-flex items-center gap-2 align-middle">
+                    <NationalityFlag nationality={row.nationality} />
+                    <span>{row.playerName}</span>
+                  </span>
+                </td>
                 <td className="px-6 py-3.5">
                   <PositionPill position={row.position} />
                 </td>
@@ -396,6 +404,15 @@ function SortableTh({
   )
 }
 
+// Renders a sharp SVG country flag for a player's nationality. Returns null
+// when the value is empty or doesn't match a known country (e.g. legacy
+// free-text values) — keeps the row clean rather than showing a placeholder.
+function NationalityFlag({ nationality }: { nationality: string | null }) {
+  const country = findCountry(nationality)
+  if (!country) return null
+  return <Flag code={country.code} title={country.name} width={20} />
+}
+
 function PositionPill({ position }: { position: string | null }) {
   if (!position) return <span className="text-[12px] text-slate-400">—</span>
   return (
@@ -405,15 +422,25 @@ function PositionPill({ position }: { position: string | null }) {
   )
 }
 
+// "49" → "4 years 1 month" — years lead, months only when non-zero, singular/plural correct.
+function formatExpiryLabel(months: number): string {
+  const years = Math.floor(months / 12)
+  const rem = months % 12
+  if (years === 0) return `${rem} ${rem === 1 ? 'month' : 'months'}`
+  const yearPart = `${years} ${years === 1 ? 'year' : 'years'}`
+  if (rem === 0) return yearPart
+  return `${yearPart} ${rem} ${rem === 1 ? 'month' : 'months'}`
+}
+
 function ExpiryChip({ months }: { months: number | null }) {
   if (months == null) return <span className="text-slate-400 text-[12px]">—</span>
   if (months < 0) return <span className="text-red-700 num text-[12px]">expired</span>
   if (months <= 6) {
     return (
       <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-md bg-amber-100 text-amber-700 whitespace-nowrap">
-        {months} mo
+        {formatExpiryLabel(months)}
       </span>
     )
   }
-  return <span className="text-slate-500 num text-[12px]">{months} mo</span>
+  return <span className="text-slate-500 text-[12px] whitespace-nowrap">{formatExpiryLabel(months)}</span>
 }

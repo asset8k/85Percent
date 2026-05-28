@@ -22,7 +22,7 @@ const SetupSchema = z.object({
     .number({ invalid_type_error: 'Revenue must be a number' })
     .int()
     .positive('Revenue must be positive')
-    .max(500_000_000, 'Revenue cannot exceed £500M'),
+    .max(2_000_000_000, 'Revenue cannot exceed £2B'),
   currentAllowanceRatio: z.number({ invalid_type_error: 'Allowance must be a number' }).min(0).max(1),
   ownerEquityUsedCurrentSeasonPounds: z.number({ invalid_type_error: 'Must be a number' }).int().min(0).max(15_000_000, 'EFL limit is £15M per season').optional(),
 })
@@ -265,7 +265,7 @@ export function ClubSetupPage() {
                         onChange={field.onChange}
                         onBlur={field.onBlur}
                         ref={field.ref}
-                        max={500_000_000}
+                        max={2_000_000_000}
                         className={inputCls(!!errs.footballRelatedRevenuePounds, 'pl-7')}
                       />
                     )}
