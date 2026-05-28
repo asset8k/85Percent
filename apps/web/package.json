@@ -38,6 +38,7 @@
     "react-router-dom": "^7.6.2",
     "recharts": "^2.15.3",
     "tailwind-merge": "^3.3.0",
+    "xlsx": "^0.18.5",
     "zod": "^3.25.28",
     "zustand": "^5.0.5"
   },

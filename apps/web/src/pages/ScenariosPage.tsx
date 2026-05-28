@@ -29,6 +29,7 @@ import { formatPence } from '@headroom/shared'
 import type { ScenarioDetail, ScenarioAction, ClubFinancialsResponse } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useCan } from '@/lib/role'
+import { exportComparisonPDF } from '@/lib/exports/comparisonPdf'
 import {
   DndContext,
   closestCenter,
@@ -470,6 +471,7 @@ export function ScenariosPage() {
         <CompareModal
           scenarios={scenarios}
           financials={liveFinancials}
+          clubName={useClubStore.getState().clubName ?? 'Headroom FC'}
           onClose={() => setCompareOpen(false)}
         />
       )}
@@ -911,10 +913,11 @@ function ProjectionPanel({
 // Compare modal
 // ---------------------------------------------------------------------------
 function CompareModal({
-  scenarios, financials, onClose,
+  scenarios, financials, clubName, onClose,
 }: {
   scenarios: ScenarioDetail[]
   financials: ClubFinancialsResponse
+  clubName: string
   onClose: () => void
 }) {
   const [aId, setAId] = useState<string>(scenarios[0]?.id ?? '')
@@ -964,7 +967,22 @@ function CompareModal({
         {projA && projB && (
           <div className="px-5 pb-5">
             <Card className="p-5 bg-slate-50 border-slate-200">
-              <div className="meta-label mb-2">Delta — B vs A</div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="meta-label">Delta — B vs A</div>
+                {a && b && (
+                  <button
+                    onClick={() => exportComparisonPDF({
+                      clubName,
+                      financials,
+                      scenarioA: a,
+                      scenarioB: b,
+                    })}
+                    className="text-[12px] font-medium text-violet-600 hover:text-violet-700"
+                  >
+                    Export comparison PDF
+                  </button>
+                )}
+              </div>
               <div className="grid grid-cols-3 gap-4">
                 <Stat label="ΔSCR" value={`${((projB.ratio - projA.ratio) * 100).toFixed(2)} pp`} />
                 <Stat label="ΔCosts" value={signedPence(projB.baselineSquadCosts - projA.baselineSquadCosts)} />

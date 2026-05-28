@@ -1599,3 +1599,104 @@ Admin role bypasses every restriction (reserved for internal Headroom staff).
 - Engine: 95/95 tests passing (unchanged from Phase 4)
 - API typecheck: 0 errors
 - Web typecheck: 0 errors
+
+---
+
+## Session 15 — Phase 6: PDF + Excel Exports + MVP 2.0 Audit (2026-05-28)
+
+### What was accomplished
+
+Phase 6 of [mvp_2.0_plan.md](mvp_2.0_plan.md) — three client-side board-ready export flows. Then a holistic MVP 2.0 bug sweep that caught two real issues. **MVP 2.0 is now feature-complete.**
+
+---
+
+### New module: [apps/web/src/lib/exports/](apps/web/src/lib/exports)
+
+**Shared primitives** ([pdfBase.ts](apps/web/src/lib/exports/pdfBase.ts), [excelBase.ts](apps/web/src/lib/exports/excelBase.ts)):
+- `addHeader`, `addFooter`, `addSectionHeader`, `addStatusPill`, `addComplianceGauge`, `finalizeFooters` — match design-system tokens (violet-700 accents, slate body, status colours) so every PDF reads as the same product
+- `pdfMoney`, `pdfPct` — display formatters using the same `formatPence` the UI uses (negatives render with U+2212 so jspdf doesn't reflow)
+- `GBP_FORMAT`, `applyNumberFormatToColumn`, `freezeHeaderRow`, `downloadBlob` — XLSX helpers, all on the Community SheetJS build (no styling licence required)
+- `__setDownloadBlobForTesting` — swap hook on `downloadBlob` so Node-based smoke tests can capture the buffer without trying to mutate ESM module bindings
+
+**Compliance gauge drawn natively in jsPDF** — no `html2canvas` dependency. Three coloured zones + dashed threshold markers + position arrows for current + projected SCR. Print-friendly and reproducible.
+
+**Three exports** ([squadPdf.ts](apps/web/src/lib/exports/squadPdf.ts), [amortisationXlsx.ts](apps/web/src/lib/exports/amortisationXlsx.ts), [comparisonPdf.ts](apps/web/src/lib/exports/comparisonPdf.ts)):
+
+| Export | Trigger | Output |
+|---|---|---|
+| Squad financial report | Dashboard → "Export PDF" | A4 PDF: executive summary stat row, compliance gauge, per-player SCR table sorted by total cost desc, expiring-contracts callout (≤ 6 mo), disclaimer footer on every page |
+| Amortisation schedules | Roster → "Export Excel" | XLSX with Index + per-player + Summary sheets. £ format (`£#,##0;[Red]−£#,##0`) registered in styles.xml so cells render correctly in Excel/Numbers. Frozen header rows. Numeric cells (not strings) so SUM/SORT work natively. |
+| Scenario comparison | Scenarios → Compare modal → "Export comparison PDF" | A4 PDF, 3 pages: per-scenario (A) summary + actions, per-scenario (B), delta page with ΔSCR / ΔCosts / ΔRevenue + side-by-side metric table |
+
+**Deps added:** `xlsx@0.18.5` (SheetJS Community). `jspdf` + `jspdf-autotable` were already present from MVP 1.0.
+
+**Page wiring:**
+- [DashboardPage](apps/web/src/pages/DashboardPage.tsx) — "Export PDF" button (header right, disabled when roster is empty)
+- [RosterPage](apps/web/src/pages/RosterPage.tsx) — "Export Excel" button (header right, available to all roles since it's read-only)
+- [ScenariosPage](apps/web/src/pages/ScenariosPage.tsx) — "Export comparison PDF" link in the Compare modal's delta card
+
+---
+
+### E2E verification — Playwright + Chromium headless
+
+Drove the running dev app through all three flows with a real browser. **3/3 exports downloaded as valid files.**
+
+| File | Size | Validation |
+|---|---|---|
+| `headroom-squad-2026-27.pdf` | 25 KB, 1 page | `%PDF` magic ✓ · disclaimer string present ✓ |
+| `headroom-amortisation-Headroom-Dev-FC-…xlsx` | 18 KB | ZIP magic ✓ · 8 sheets (Index + 6 per-player + Summary) · £ format registered in `xl/styles.xml` (numFmtId 60, `£#,##0;[Red]−£#,##0`) and referenced by money cells via `s="1"` |
+| `headroom-compare-…vs-….pdf` | 30 KB, 3 pages | `%PDF` magic ✓ · disclaimer string present ✓ |
+
+Summary sheet round-trip: 2026-27 row totals £45,035,404.75 — matches the live Dashboard derived squad costs exactly. No drift across engine → API → DB → re-read.
+
+---
+
+### MVP 2.0 holistic bug sweep — two fixes
+
+After Phase 6, ran a `grep`-driven cross-phase review covering: lingering refs to dropped tables/columns, missing role guards, missing audit calls, BigInt→Number coverage, engine purity, money math sanity, `.single()` vs `.maybeSingle()`, console leaks, swallowed promise rejections. Two real bugs surfaced:
+
+**Bug A — [apps/api/src/middleware/auth.ts](apps/api/src/middleware/auth.ts) orphan cleanup deleted from dropped `simulations` table.**
+- Phase 1 dropped `simulations`, but the auth middleware's orphan-cleanup path (triggered when an email re-registers after deletion from `auth.users`) still ran `from('simulations').delete()` first. Any matching cleanup would have 503'd because the table no longer exists.
+- Fix: replaced with `from('scenarios').delete()` (FK to `scenario_actions` cascades automatically). Audit-log cleanup unchanged.
+
+**Bug B — [packages/shared/src/schemas.ts](packages/shared/src/schemas.ts) carried four dead MVP 1.0 schemas with stale `currentSquadCosts*` fields.**
+- `ClubFinancialsSchema`, `TransferInputSchema`, `TransferFormSchema`, `ClubFinancialsInputSchema` + their `z.infer` type aliases — none of these were imported anywhere in MVP 2.0 (grep-verified). They referenced the dropped `currentSquadCosts` column.
+- Fix: removed all four + their type aliases. Routes define their own Zod bodies inline; engine consumes typed interfaces from `types.ts` directly. No runtime impact (dead code), but eliminates a footgun.
+
+Both fixes are in this commit. 95/95 engine tests still pass; all 4 packages typecheck clean.
+
+---
+
+### MVP 2.0 final state
+
+| Metric | Value |
+|---|---|
+| Engine tests | 95 / 95 passing |
+| TypeScript errors | 0 across engine, shared, api, web |
+| Web production build | 1.4 MB main bundle (gzip 427 KB); 0 errors |
+| API routes | 31 endpoints across 6 route files |
+| New DB tables (MVP 2.0) | players, contracts, scenarios, scenario_actions, ssr_working_capital, ssr_liquidity, ssr_equity, invites |
+| Dropped tables | simulations |
+| Dropped columns | club_financials.current_squad_costs (now derived from contracts) |
+| RLS policies | 12 (all `FOR ALL`, isolated via `current_club_id()`) |
+| Audit log coverage | every mutating route writes one row via `writeAuditLog` (non-fatal on failure) |
+| Role matrix enforced | API via `requireRole` / `hasRole`; UI via `useCan()` |
+| Engine purity | preserved — only `new Date()` defaults in `asOf` parameters; deterministic when called with explicit dates |
+
+### Cumulative E2E coverage (live DB, across sessions)
+
+- Phase 1: RLS smoke — 8/8 tables block anon
+- Phase 2: 11/11 roster + CSV staging
+- Phase 3: 11/11 scenarios + derived squad costs
+- Phase 4: 13/13 SSR + league switch + 404 isolation
+- Phase 5: 15/15 invites + RBAC + audit log + filters
+- Phase 6: 3/3 export downloads via headless Chromium
+
+**Total: 61 E2E smoke checks passing.**
+
+### Engine / TypeScript
+
+- Engine: 95/95 tests passing
+- API typecheck: 0 errors
+- Web typecheck: 0 errors
+- Web production build: 0 errors

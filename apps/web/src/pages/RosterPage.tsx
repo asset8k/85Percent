@@ -19,6 +19,8 @@ import { Spinner, PageLoader } from '@/components/ui/spinner'
 import { NumericInput } from '@/components/ui/numeric-input'
 import { cn } from '@/lib/utils'
 import { useCan } from '@/lib/role'
+import { useClubStore } from '@/stores/club'
+import { exportAmortisationXLSX } from '@/lib/exports/amortisationXlsx'
 import { formatPence } from '@headroom/shared'
 import type {
   PlayerWithContract,
@@ -34,6 +36,7 @@ const POSITIONS: PlayerPosition[] = ['GK', 'DEF', 'MID', 'FWD']
 // ---------------------------------------------------------------------------
 export function RosterPage() {
   const can = useCan()
+  const { clubName, financials } = useClubStore()
   const [tab, setTab] = useState<'squad' | 'archived'>('squad')
   const [active, setActive] = useState<PlayerWithContract[]>([])
   const [archived, setArchived] = useState<PlayerWithContract[]>([])
@@ -90,12 +93,28 @@ export function RosterPage() {
             Your 25-man squad. Squad costs are derived from these contracts.
           </p>
         </div>
-        {tab === 'squad' && can.mutateRoster && (
+        {tab === 'squad' && (
           <div className="flex items-center gap-2">
-            <Button variant="secondary" onClick={() => setCsvOpen(true)}>
-              Upload CSV
+            <Button
+              variant="ghost"
+              onClick={() => exportAmortisationXLSX({
+                clubName: clubName ?? 'Headroom FC',
+                season: financials?.season ?? '2026-27',
+                players: active,
+              })}
+              disabled={active.length === 0}
+              title="Download per-player amortisation schedules as an Excel workbook"
+            >
+              Export Excel
             </Button>
-            <Button onClick={() => setManualOpen(true)}>Add Player</Button>
+            {can.mutateRoster && (
+              <>
+                <Button variant="secondary" onClick={() => setCsvOpen(true)}>
+                  Upload CSV
+                </Button>
+                <Button onClick={() => setManualOpen(true)}>Add Player</Button>
+              </>
+            )}
           </div>
         )}
       </div>

@@ -49,7 +49,10 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
   if (!user) {
     // Clean up any orphaned rows from a previous account with the same email
     // (Supabase Auth deletes auth.users but leaves public.users + FK refs behind).
-    // FK cascade order: simulations + audit_logs → users.
+    // FK cascade order for MVP 2.0:
+    //   scenarios.created_by   → users.id  (scenario_actions cascade via scenarios FK)
+    //   audit_logs.user_id     → users.id
+    // then we can drop the users row itself.
     if (authUser.email) {
       const { data: orphans } = await supabase
         .from('users')
@@ -59,9 +62,10 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
 
       if (orphans && orphans.length > 0) {
         const orphanIds = orphans.map((o) => o.id as string)
-        const { error: simErr } = await supabase.from('simulations').delete().in('created_by', orphanIds)
-        if (simErr) {
-          request.log.error({ err: simErr }, 'authMiddleware: orphan simulation cleanup failed')
+
+        const { error: scenarioErr } = await supabase.from('scenarios').delete().in('created_by', orphanIds)
+        if (scenarioErr) {
+          request.log.error({ err: scenarioErr }, 'authMiddleware: orphan scenario cleanup failed')
           return reply.status(503).send({ error: 'Failed to clean up previous account data' })
         }
         const { error: auditErr } = await supabase.from('audit_logs').delete().in('user_id', orphanIds)

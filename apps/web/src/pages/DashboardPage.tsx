@@ -23,6 +23,7 @@ import { StatusBadge } from '@/components/ui/badge'
 import { Spinner, PageLoader } from '@/components/ui/spinner'
 import { ComplianceGauge } from '@/components/simulator/ComplianceGauge'
 import { computeActiveBaseline, computeThresholds, statusFromRatio } from '@/lib/scr'
+import { exportSquadPDF } from '@/lib/exports/squadPdf'
 import { calculateSquadCosts, type ContractInput } from '@headroom/engine'
 import type { PlayerWithContract } from '@headroom/shared'
 import { formatPence } from '@headroom/shared'
@@ -32,7 +33,7 @@ type SortKey = 'name' | 'position' | 'wage' | 'amortisation' | 'agentFee' | 'tot
 type SortDir = 'asc' | 'desc'
 
 export function DashboardPage() {
-  const { financials, scenarios } = useClubStore()
+  const { financials, scenarios, clubName, leagueId } = useClubStore()
   const [players, setPlayers] = useState<PlayerWithContract[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -176,9 +177,19 @@ export function DashboardPage() {
     ? (thresholds!.redPence / baseline.revenuePence) * 100
     : 85
 
+  const handleExport = () => {
+    if (!financials || players.length === 0) return
+    exportSquadPDF({
+      clubName: clubName ?? 'Headroom FC',
+      leagueId: leagueId ?? 'efl-championship',
+      financials,
+      players,
+    })
+  }
+
   return (
     <div>
-      <PageHeader />
+      <PageHeader onExport={handleExport} canExport={players.length > 0} />
 
       {/* Hero — derived SCR position */}
       <div className="grid grid-cols-3 gap-4 mb-6">
@@ -320,7 +331,9 @@ export function DashboardPage() {
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function PageHeader() {
+function PageHeader({
+  onExport, canExport,
+}: { onExport?: () => void; canExport?: boolean } = {}) {
   return (
     <div className="mb-6 flex items-center gap-3">
       <span className="inline-block w-1.5 h-7 rounded-full bg-violet-600" />
@@ -332,6 +345,11 @@ function PageHeader() {
           Your live compliance position — derived directly from active contracts.
         </p>
       </div>
+      {onExport && (
+        <Button variant="secondary" onClick={onExport} disabled={!canExport}>
+          Export PDF
+        </Button>
+      )}
       <Link to="/scenarios">
         <Button variant="outline">Plan a scenario</Button>
       </Link>
