@@ -54,6 +54,11 @@ model ClubFinancials {
   // All monetary values stored as BigInt in pence — NEVER float
   // current_squad_costs REMOVED — now derived from contracts (Phase 2 sum)
   footballRelatedRevenue BigInt    @map("football_related_revenue")
+  // 'derived' (sum from active contracts) or 'manual' (user-entered override).
+  // Default 'derived' preserves MVP 2.0 behavior. When 'manual',
+  // manualSquadCosts is used everywhere currentSquadCosts is read.
+  squadCostsMode         String    @default("derived") @map("squad_costs_mode")
+  manualSquadCosts       BigInt?   @map("manual_squad_costs")
   currentAllowanceRatio  Decimal   @map("current_allowance_ratio")
   ownerEquityUsed1yr     BigInt?   @map("owner_equity_used_1yr")  // Championship only
   ownerEquityUsed3yr     BigInt?   @map("owner_equity_used_3yr")  // Championship only

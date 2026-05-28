@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { useProgress } from '@/components/ui/progress-bar'
 import type {
   PlayerWithContract,
   RosterStagingRow,
@@ -16,16 +17,26 @@ async function getAuthToken(): Promise<string> {
   return token
 }
 
+// Every API call ticks the global progress bar via a reference counter so the
+// top sweep stays visible across overlapping fetches (e.g. roster + scenarios
+// + financials all firing on page load) and only disappears when the last one
+// resolves. start/done are paired in try/finally so errors still decrement.
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = await getAuthToken()
-  const headers: HeadersInit = { Authorization: `Bearer ${token}` }
-  if (init?.body != null) headers['Content-Type'] = 'application/json'
-  const res = await fetch(`${BASE}${path}`, { ...init, headers: { ...headers, ...init?.headers } })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }))
-    throw new Error((err as { error: string }).error ?? `API error ${res.status}`)
+  const { start, done } = useProgress.getState()
+  start()
+  try {
+    const token = await getAuthToken()
+    const headers: HeadersInit = { Authorization: `Bearer ${token}` }
+    if (init?.body != null) headers['Content-Type'] = 'application/json'
+    const res = await fetch(`${BASE}${path}`, { ...init, headers: { ...headers, ...init?.headers } })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }))
+      throw new Error((err as { error: string }).error ?? `API error ${res.status}`)
+    }
+    return (await res.json()) as T
+  } finally {
+    done()
   }
-  return res.json() as Promise<T>
 }
 
 // ---------------------------------------------------------------------------
@@ -37,10 +48,19 @@ export interface ClubFinancialsResponse {
   clubId: string
   season: string
   footballRelatedRevenue: number
-  /** MVP 2.0: derived live from active contracts (no longer a stored aggregate). */
+  /**
+   * Effective squad costs used in all SCR math. Equals `derivedSquadCosts`
+   * when `squadCostsMode === 'derived'` and `manualSquadCosts` when `'manual'`.
+   */
   currentSquadCosts: number
-  /** Number of active contracts contributing to currentSquadCosts. */
+  /** Number of active contracts contributing to the derived sum. */
   contractCount: number
+  /** Source of currentSquadCosts. */
+  squadCostsMode: 'derived' | 'manual'
+  /** Live sum from active contracts — always present, regardless of mode. */
+  derivedSquadCosts: number
+  /** Persisted manual override value in pence. Null until the user sets one. */
+  manualSquadCosts: number | null
   currentAllowanceRatio: number
   ownerEquityUsed1yr: number | null
   ownerEquityUsed3yr: number | null
@@ -227,6 +247,8 @@ export const api = {
       currentAllowanceRatio: number
       ownerEquityUsedCurrentSeasonPounds?: number
       ownerEquityUsedThreeYearPounds?: number
+      squadCostsMode?: 'derived' | 'manual'
+      manualSquadCostsPounds?: number
     }) =>
       apiFetch<{ success: boolean; id: string }>('/club/financials', {
         method: 'PUT',
@@ -281,6 +303,15 @@ export const api = {
     archivePlayer: (id: string) =>
       apiFetch<{ success: boolean; archivedAt: string }>(`/roster/player/${id}/archive`, {
         method: 'POST',
+      }),
+    restorePlayer: (id: string) =>
+      apiFetch<{ success: boolean; reactivatedContractId: string | null }>(
+        `/roster/player/${id}/restore`,
+        { method: 'POST' }
+      ),
+    deletePlayer: (id: string) =>
+      apiFetch<{ success: boolean }>(`/roster/player/${id}`, {
+        method: 'DELETE',
       }),
   },
   scenarios: {

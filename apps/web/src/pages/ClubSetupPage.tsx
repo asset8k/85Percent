@@ -5,8 +5,17 @@ import { z } from 'zod'
 import { api } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
 import { Button } from '@/components/ui/button'
-import { Spinner, PageLoader } from '@/components/ui/spinner'
+import { Spinner } from '@/components/ui/spinner'
+import { FormPageSkeleton } from '@/components/ui/page-skeletons'
 import { NumericInput } from '@/components/ui/numeric-input'
+import { AnimatedNumber } from '@/components/ui/animated-number'
+import { toast } from '@/components/ui/toast'
+
+// Same format helper as the Dashboard — used by AnimatedNumber so intermediate
+// frames render as £-prefixed integers, not raw decimals.
+function formatPenceNumber(pence: number) {
+  return '£' + Math.round(pence / 100).toLocaleString('en-GB')
+}
 import { Card } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/badge'
 import { formatPence } from '@headroom/shared'
@@ -17,15 +26,27 @@ import { useCan } from '@/lib/role'
 import type { ComplianceStatus } from '@headroom/shared'
 import type { InviteRow, TeamMember, AuditEntry, InviteRole } from '@/lib/api'
 
-const SetupSchema = z.object({
-  footballRelatedRevenuePounds: z
-    .number({ invalid_type_error: 'Revenue must be a number' })
-    .int()
-    .positive('Revenue must be positive')
-    .max(2_000_000_000, 'Revenue cannot exceed £2B'),
-  currentAllowanceRatio: z.number({ invalid_type_error: 'Allowance must be a number' }).min(0).max(1),
-  ownerEquityUsedCurrentSeasonPounds: z.number({ invalid_type_error: 'Must be a number' }).int().min(0).max(15_000_000, 'EFL limit is £15M per season').optional(),
-})
+const SetupSchema = z
+  .object({
+    footballRelatedRevenuePounds: z
+      .number({ invalid_type_error: 'Revenue must be a number' })
+      .int()
+      .positive('Revenue must be positive')
+      .max(2_000_000_000, 'Revenue cannot exceed £2B'),
+    currentAllowanceRatio: z.number({ invalid_type_error: 'Allowance must be a number' }).min(0).max(1),
+    ownerEquityUsedCurrentSeasonPounds: z.number({ invalid_type_error: 'Must be a number' }).int().min(0).max(15_000_000, 'EFL limit is £15M per season').optional(),
+    squadCostsMode: z.enum(['derived', 'manual']),
+    manualSquadCostsPounds: z
+      .number({ invalid_type_error: 'Squad costs must be a number' })
+      .int()
+      .min(0)
+      .max(2_000_000_000, 'Squad costs cannot exceed £2B')
+      .optional(),
+  })
+  .refine(
+    (d) => d.squadCostsMode !== 'manual' || (d.manualSquadCostsPounds != null && d.manualSquadCostsPounds >= 0),
+    { message: 'Enter a manual value or switch back to derived', path: ['manualSquadCostsPounds'] },
+  )
 type SetupData = z.infer<typeof SetupSchema>
 
 export function ClubSetupPage() {
@@ -51,18 +72,35 @@ export function ClubSetupPage() {
       ownerEquityUsedCurrentSeasonPounds: financials?.ownerEquityUsed1yr
         ? Math.round(financials.ownerEquityUsed1yr / 100)
         : undefined,
+      squadCostsMode: financials?.squadCostsMode ?? 'derived',
+      // Seed from the persisted manual value if there is one; falling back to
+      // the derived sum gives the user a sensible starting number the first
+      // time they flip into manual mode.
+      manualSquadCostsPounds:
+        financials?.manualSquadCosts != null
+          ? Math.round(financials.manualSquadCosts / 100)
+          : financials
+          ? Math.round(financials.derivedSquadCosts / 100)
+          : undefined,
     },
   })
 
   const watchRevenue = form.watch('footballRelatedRevenuePounds')
   const watchAllowance = form.watch('currentAllowanceRatio')
   const watchEquity = form.watch('ownerEquityUsedCurrentSeasonPounds')
+  const watchMode = form.watch('squadCostsMode')
+  const watchManualSquad = form.watch('manualSquadCostsPounds')
 
-  // Squad costs are now DERIVED from contracts — read from the live financials,
-  // not the form. The user no longer types this in.
+  // The roster-derived sum is always shown so the user can sanity-check what
+  // they're overriding when in manual mode. The "effective" value is whichever
+  // mode is active and feeds the SCR preview below.
   const derivedSquadCostsPounds = financials
-    ? Math.round(financials.currentSquadCosts / 100)
+    ? Math.round(financials.derivedSquadCosts / 100)
     : null
+  const effectiveSquadCostsPounds =
+    watchMode === 'manual'
+      ? Number.isFinite(watchManualSquad) ? (watchManualSquad as number) : null
+      : derivedSquadCostsPounds
 
   // Live threshold preview
   let greenThreshold: number | null = null
@@ -75,8 +113,8 @@ export function ClubSetupPage() {
     const adjustedRevenuePounds = watchRevenue + (watchEquity ?? 0)
     greenThreshold = Math.floor(adjustedRevenuePounds * 100 * EFL_CHAMPIONSHIP_CONFIG.greenThresholdRatio)
     redThreshold = Math.floor(greenThreshold * (1 + watchAllowance))
-    if (derivedSquadCostsPounds != null && derivedSquadCostsPounds >= 0) {
-      const squadPence = derivedSquadCostsPounds * 100
+    if (effectiveSquadCostsPounds != null && effectiveSquadCostsPounds >= 0) {
+      const squadPence = effectiveSquadCostsPounds * 100
       currentPct = (squadPence / (adjustedRevenuePounds * 100)) * 100
       scrStatus = currentPct > EFL_CHAMPIONSHIP_CONFIG.greenThresholdRatio * (1 + watchAllowance) * 100
         ? 'red'
@@ -95,8 +133,11 @@ export function ClubSetupPage() {
       const updated = await api.club.getFinancials('2026-27')
       setFinancials(updated)
       setSaved(true)
+      toast.success('Settings saved', 'Thresholds updated across the app.')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save club financials')
+      const msg = e instanceof Error ? e.message : 'Failed to save club financials'
+      setError(msg)
+      toast.error('Save failed', msg)
     }
   }
 
@@ -106,10 +147,12 @@ export function ClubSetupPage() {
     setError('')
     try {
       await api.club.setLeague(next)
-      // Update local store so the SSR sidebar item appears/disappears immediately
       if (clubId) setClub(clubId, clubName ?? 'Your Club', next)
+      toast.success('League switched', next === 'premier-league' ? 'Premier League rules now apply.' : 'Championship rules now apply.')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to change league')
+      const msg = e instanceof Error ? e.message : 'Failed to change league'
+      setError(msg)
+      toast.error('League change failed', msg)
     } finally {
       setLeagueSaving(false)
     }
@@ -274,17 +317,51 @@ export function ClubSetupPage() {
               </FieldWrapper>
 
               <FieldWrapper
-                label="Squad Costs (derived)"
-                helper="Computed live from your active roster — manage players in the Roster tab."
+                label="Squad Costs"
+                helper={
+                  watchMode === 'manual'
+                    ? 'Manual override — your roster sum is ignored everywhere SCR is computed.'
+                    : 'Derived live from your active roster. Switch to manual to enter a value directly.'
+                }
+                error={errs.manualSquadCostsPounds?.message}
               >
-                <div className="relative">
-                  <span className="num absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">£</span>
-                  <input
-                    type="text"
-                    value={derivedSquadCostsPounds != null ? derivedSquadCostsPounds.toLocaleString('en-GB') : '—'}
-                    disabled
-                    className={inputCls(false, 'pl-7') + ' text-slate-500 bg-slate-50 cursor-not-allowed'}
+                <div className="space-y-2">
+                  <Controller
+                    control={form.control}
+                    name="squadCostsMode"
+                    render={({ field }) => (
+                      <SquadCostsModeToggle value={field.value} onChange={field.onChange} />
+                    )}
                   />
+                  {watchMode === 'manual' ? (
+                    <div className="relative">
+                      <span className="num absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">£</span>
+                      <Controller
+                        control={form.control}
+                        name="manualSquadCostsPounds"
+                        render={({ field }) => (
+                          <NumericInput
+                            value={field.value ?? NaN}
+                            onChange={(n) => field.onChange(isNaN(n) ? undefined : n)}
+                            onBlur={field.onBlur}
+                            ref={field.ref}
+                            max={2_000_000_000}
+                            className={inputCls(!!errs.manualSquadCostsPounds, 'pl-7')}
+                          />
+                        )}
+                      />
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <span className="num absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">£</span>
+                      <input
+                        type="text"
+                        value={derivedSquadCostsPounds != null ? derivedSquadCostsPounds.toLocaleString('en-GB') : '—'}
+                        disabled
+                        className={inputCls(false, 'pl-7') + ' text-slate-500 bg-slate-50 cursor-not-allowed'}
+                      />
+                    </div>
+                  )}
                 </div>
               </FieldWrapper>
 
@@ -353,8 +430,12 @@ export function ClubSetupPage() {
           </form>
         </Card>
 
-        {/* Live threshold preview panel */}
-        <Card className="p-6 self-start sticky top-20 relative overflow-hidden">
+        {/* Live threshold preview panel — aligns to the top of the shared grid
+            row in both leagues. Previously sticky/top-20, which interacted
+            badly with grid `self-start` once the page got tall in PL mode
+            (the Promoted-club uplift block above adds height) and shifted the
+            card down out of alignment with Season Financials. */}
+        <Card className="p-6 self-start relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-violet-600" />
           <h3 className="text-[13px] font-semibold tracking-wider text-violet-700 uppercase mt-1" style={{ letterSpacing: '0.08em' }}>
             Calculated Thresholds
@@ -364,15 +445,31 @@ export function ClubSetupPage() {
           <div className="mt-6 space-y-5">
             <div>
               <div className="meta-label">Green Threshold ({greenPct}%)</div>
-              <div className="num text-[28px] font-semibold text-green-700 leading-none mt-1.5">
-                {greenThreshold !== null ? formatPence(greenThreshold) : '—'}
+              <div className="mt-1.5">
+                {greenThreshold !== null ? (
+                  <AnimatedNumber
+                    value={greenThreshold}
+                    format={formatPenceNumber}
+                    className="num text-[28px] font-semibold text-green-700 leading-none"
+                  />
+                ) : (
+                  <span className="num text-[28px] font-semibold text-green-700 leading-none">—</span>
+                )}
               </div>
               <div className="text-[11px] text-slate-400 mt-1">Maximum squad costs — no levy</div>
             </div>
             <div>
               <div className="meta-label">Red Threshold ({redPctVal}%)</div>
-              <div className="num text-[28px] font-semibold text-red-600 leading-none mt-1.5">
-                {redThreshold !== null ? formatPence(redThreshold) : '—'}
+              <div className="mt-1.5">
+                {redThreshold !== null ? (
+                  <AnimatedNumber
+                    value={redThreshold}
+                    format={formatPenceNumber}
+                    className="num text-[28px] font-semibold text-red-600 leading-none"
+                  />
+                ) : (
+                  <span className="num text-[28px] font-semibold text-red-600 leading-none">—</span>
+                )}
               </div>
               <div className="text-[11px] text-slate-400 mt-1">Points deduction above this line</div>
             </div>
@@ -381,15 +478,22 @@ export function ClubSetupPage() {
               <div className="pt-5 border-t border-slate-100">
                 <div className="meta-label mb-2">Current SCR Position</div>
                 <div className="flex items-baseline gap-3">
-                  <span className="num text-[24px] font-medium text-slate-900">{currentPct.toFixed(1)}%</span>
+                  <AnimatedNumber
+                    value={currentPct}
+                    decimals={1}
+                    suffix="%"
+                    className="num text-[24px] font-medium text-slate-900"
+                  />
                   <StatusBadge status={scrStatus} />
                 </div>
                 {headroom !== null && (
                   <div className="mt-3 flex items-center justify-between text-[12px]">
                     <span className="text-slate-500">Headroom to Green</span>
-                    <span className={`num font-medium ${headroom < 0 ? 'text-red-600' : 'text-slate-900'}`}>
-                      {headroom < 0 ? '−' : '+'}{formatPence(Math.abs(headroom))}
-                    </span>
+                    <AnimatedNumber
+                      value={headroom}
+                      format={(n) => (n < 0 ? '−' + formatPenceNumber(Math.abs(n)) : '+' + formatPenceNumber(n))}
+                      className={`num font-medium ${headroom < 0 ? 'text-red-600' : 'text-slate-900'}`}
+                    />
                   </div>
                 )}
               </div>
@@ -485,6 +589,12 @@ function TeamTab() {
   const [creating, setCreating] = useState(false)
   const [justCreated, setJustCreated] = useState<{ token: string; email: string } | null>(null)
   const [copied, setCopied] = useState(false)
+  // Per-row state for the pending-invites table — mirrors the archived-roster
+  // pattern: copy gives transient feedback; revoke uses a two-step inline
+  // confirm so a single misclick can't kill a pending invite.
+  const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null)
+  const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null)
+  const [revokingId, setRevokingId] = useState<string | null>(null)
 
   const refresh = async () => {
     setLoading(true)
@@ -520,23 +630,32 @@ function TeamTab() {
   }
 
   const handleRevoke = async (id: string) => {
+    setRevokingId(id)
     try {
       await api.invites.revoke(id)
+      setConfirmRevokeId(null)
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to revoke invite')
+    } finally {
+      setRevokingId(null)
     }
   }
 
-  const copyLink = async (token: string) => {
+  const copyLink = async (token: string, inviteId?: string) => {
     try {
       await navigator.clipboard.writeText(INVITE_LINK_BASE() + token)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      if (inviteId) {
+        setCopiedInviteId(inviteId)
+        setTimeout(() => setCopiedInviteId((curr) => (curr === inviteId ? null : curr)), 2000)
+      } else {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      }
     } catch { /* ignore */ }
   }
 
-  if (loading) return <PageLoader />
+  if (loading) return <FormPageSkeleton />
 
   return (
     <div className="space-y-5">
@@ -669,21 +788,17 @@ function TeamTab() {
                   <td className="px-6 py-3.5 text-[12px] text-slate-500 num">
                     {new Date(inv.expiresAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                   </td>
-                  <td className="px-6 py-3.5 text-right flex items-center justify-end gap-3">
-                    {inv.token && (
-                      <button
-                        onClick={() => copyLink(inv.token!)}
-                        className="text-[12px] font-medium text-violet-600 hover:text-violet-700"
-                      >
-                        Copy link
-                      </button>
-                    )}
-                    <button
-                      onClick={() => handleRevoke(inv.id)}
-                      className="text-[12px] font-medium text-red-600 hover:text-red-700"
-                    >
-                      Revoke
-                    </button>
+                  <td className="px-6 py-3.5 text-right">
+                    <InviteRowActions
+                      invite={inv}
+                      copiedInviteId={copiedInviteId}
+                      confirmRevokeId={confirmRevokeId}
+                      revokingId={revokingId}
+                      onCopy={(token, id) => copyLink(token, id)}
+                      onRequestRevoke={(id) => setConfirmRevokeId(id)}
+                      onConfirmRevoke={handleRevoke}
+                      onCancelRevoke={() => setConfirmRevokeId(null)}
+                    />
                   </td>
                 </tr>
               ))}
@@ -718,6 +833,158 @@ const TABLE_LABEL: Record<string, string> = {
   invites:             'Invite',
 }
 
+// Icon-button actions for a pending-invite row — Copy link + Revoke, mirroring
+// the archived-roster row UX. Copy flips to a check glyph for 2s after success.
+// Revoke is two-step (icon → inline Confirm/Cancel) to avoid accidental loss.
+function InviteRowActions({
+  invite,
+  copiedInviteId,
+  confirmRevokeId,
+  revokingId,
+  onCopy,
+  onRequestRevoke,
+  onConfirmRevoke,
+  onCancelRevoke,
+}: {
+  invite: InviteRow
+  copiedInviteId: string | null
+  confirmRevokeId: string | null
+  revokingId: string | null
+  onCopy: (token: string, inviteId: string) => void
+  onRequestRevoke: (id: string) => void
+  onConfirmRevoke: (id: string) => void
+  onCancelRevoke: () => void
+}) {
+  const confirming = confirmRevokeId === invite.id
+  const revoking = revokingId === invite.id
+  const justCopied = copiedInviteId === invite.id
+
+  if (confirming) {
+    return (
+      <span className="inline-flex items-center gap-2 justify-end">
+        <span className="text-[11px] text-slate-600 whitespace-nowrap">Revoke {invite.email}?</span>
+        <SettingsIconButton
+          label={revoking ? 'Revoking…' : 'Confirm revoke'}
+          tone="danger"
+          disabled={revoking}
+          onClick={() => onConfirmRevoke(invite.id)}
+        >
+          {revoking ? <Spinner size={14} /> : <CheckIcon />}
+        </SettingsIconButton>
+        <SettingsIconButton
+          label="Cancel"
+          tone="neutral"
+          disabled={revoking}
+          onClick={onCancelRevoke}
+        >
+          <CloseIcon />
+        </SettingsIconButton>
+      </span>
+    )
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1.5 justify-end">
+      {invite.token && (
+        <SettingsIconButton
+          label={justCopied ? 'Copied' : 'Copy invite link'}
+          tone={justCopied ? 'success' : 'violet'}
+          onClick={() => onCopy(invite.token!, invite.id)}
+        >
+          {justCopied ? <CheckIcon /> : <CopyIcon />}
+        </SettingsIconButton>
+      )}
+      <SettingsIconButton
+        label="Revoke invite"
+        tone="danger"
+        onClick={() => onRequestRevoke(invite.id)}
+      >
+        <TrashIcon />
+      </SettingsIconButton>
+    </span>
+  )
+}
+
+// Local 28×28 icon button — matches the archived-roster IconButton visually.
+// Kept inline so the Team tab stays self-contained; tone covers the four
+// states we need (violet for primary affordances, danger for destructive,
+// success for transient confirmation, neutral for cancel).
+function SettingsIconButton({
+  label,
+  tone,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string
+  tone: 'violet' | 'danger' | 'neutral' | 'success'
+  disabled?: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  const toneClass =
+    tone === 'violet'
+      ? 'text-violet-600 hover:bg-violet-50 hover:border-violet-200'
+      : tone === 'danger'
+      ? 'text-red-600 hover:bg-red-50 hover:border-red-200'
+      : tone === 'success'
+      ? 'text-green-600 border-green-200 bg-green-50'
+      : 'text-slate-500 hover:bg-slate-50 hover:border-slate-300'
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        'inline-flex items-center justify-center w-7 h-7 rounded-md border border-slate-200 bg-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed',
+        toneClass
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+function CopyIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  )
+}
+
+function TrashIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  )
+}
+
+function CheckIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M18 6 6 18" />
+      <path d="M6 6l12 12" />
+    </svg>
+  )
+}
+
 function ActivityTab() {
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [total, setTotal] = useState(0)
@@ -742,7 +1009,7 @@ function ActivityTab() {
     return () => { cancelled = true }
   }, [page])
 
-  if (loading) return <PageLoader />
+  if (loading) return <FormPageSkeleton />
 
   return (
     <div className="space-y-4">
@@ -904,6 +1171,52 @@ function AllowanceInput({
       />
       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 select-none pointer-events-none">%</span>
     </div>
+  )
+}
+
+// Segmented control matching the league switch in this same page — keeps the
+// settings surface visually consistent. Mirrors the pill style used elsewhere.
+function SquadCostsModeToggle({
+  value,
+  onChange,
+}: {
+  value: 'derived' | 'manual'
+  onChange: (v: 'derived' | 'manual') => void
+}) {
+  return (
+    <div className="inline-flex bg-slate-100 rounded-lg p-1 w-full">
+      <SegmentButton active={value === 'derived'} onClick={() => onChange('derived')}>
+        Derived from roster
+      </SegmentButton>
+      <SegmentButton active={value === 'manual'} onClick={() => onChange('manual')}>
+        Manual input
+      </SegmentButton>
+    </div>
+  )
+}
+
+function SegmentButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'flex-1 px-3 py-1.5 text-[12.5px] font-medium rounded-md transition-colors',
+        active
+          ? 'bg-white text-slate-900 shadow-sm'
+          : 'text-slate-500 hover:text-slate-700'
+      )}
+    >
+      {children}
+    </button>
   )
 }
 

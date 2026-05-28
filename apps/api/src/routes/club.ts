@@ -8,13 +8,25 @@ import { writeAuditLog } from '../lib/audit.js'
 import { LEAGUE_CONFIGS } from '@headroom/shared'
 import { calculateSquadCosts, type ContractInput } from '@headroom/engine'
 
-const UpdateFinancialsBody = z.object({
-  season: z.string().regex(/^\d{4}-\d{2}$/),
-  footballRelatedRevenuePounds: z.number().int().positive(),
-  currentAllowanceRatio: z.number().min(0).max(1),
-  ownerEquityUsedCurrentSeasonPounds: z.number().int().min(0).optional(),
-  ownerEquityUsedThreeYearPounds: z.number().int().min(0).optional(),
-})
+const UpdateFinancialsBody = z
+  .object({
+    season: z.string().regex(/^\d{4}-\d{2}$/),
+    footballRelatedRevenuePounds: z.number().int().positive(),
+    currentAllowanceRatio: z.number().min(0).max(1),
+    ownerEquityUsedCurrentSeasonPounds: z.number().int().min(0).optional(),
+    ownerEquityUsedThreeYearPounds: z.number().int().min(0).optional(),
+    // Squad-costs source toggle. When 'manual', manualSquadCostsPounds is the
+    // override used everywhere SCR math reads currentSquadCosts. When 'derived',
+    // the value is computed live from active contracts and any supplied
+    // manualSquadCostsPounds is preserved on the record (so toggling back is
+    // non-destructive) but ignored.
+    squadCostsMode: z.enum(['derived', 'manual']).default('derived'),
+    manualSquadCostsPounds: z.number().int().min(0).max(2_000_000_000).optional(),
+  })
+  .refine(
+    (b) => b.squadCostsMode !== 'manual' || (b.manualSquadCostsPounds != null && b.manualSquadCostsPounds >= 0),
+    { message: 'Manual squad costs are required when mode = manual', path: ['manualSquadCostsPounds'] },
+  )
 
 // Sum active contracts for a club into a single squad-cost pence total.
 // Pure engine call — DB I/O is here, not in @headroom/engine.
@@ -104,17 +116,25 @@ export async function clubRoutes(app: FastifyInstance) {
       if (error) throw error
       if (!f) return reply.status(404).send({ error: 'No financials found for this season' })
 
-      // MVP 2.0: squad costs are derived from the active roster, NOT stored in
-      // club_financials anymore. Compute live from contracts.
+      // MVP 2.0: squad costs are normally derived from the active roster. The
+      // 'manual' mode lets a CFO override the value entirely — useful when the
+      // user wants to model arbitrary cost scenarios without rebuilding the
+      // roster. Derived is always computed too, so the UI can show both.
       const derived = await deriveSquadCostsForClub(String(request.clubId))
+      const mode: 'derived' | 'manual' = f.squad_costs_mode === 'manual' ? 'manual' : 'derived'
+      const manualPence = f.manual_squad_costs != null ? Number(f.manual_squad_costs) : null
+      const currentSquadCosts = mode === 'manual' && manualPence != null ? manualPence : derived.totalPence
 
       return reply.send({
         id: f.id,
         clubId: f.club_id,
         season: f.season,
         footballRelatedRevenue: Number(f.football_related_revenue),
-        currentSquadCosts: derived.totalPence,
+        currentSquadCosts,
         contractCount: derived.contractCount,
+        squadCostsMode: mode,
+        derivedSquadCosts: derived.totalPence,
+        manualSquadCosts: manualPence,
         currentAllowanceRatio: Number(f.current_allowance_ratio),
         ownerEquityUsed1yr: f.owner_equity_used_1yr != null ? Number(f.owner_equity_used_1yr) : null,
         ownerEquityUsed3yr: f.owner_equity_used_3yr != null ? Number(f.owner_equity_used_3yr) : null,
@@ -140,13 +160,22 @@ export async function clubRoutes(app: FastifyInstance) {
       currentAllowanceRatio,
       ownerEquityUsedCurrentSeasonPounds,
       ownerEquityUsedThreeYearPounds,
+      squadCostsMode,
+      manualSquadCostsPounds,
     } = parsed.data
 
     try {
+      // Preserve any previously-saved manual value when the user toggles back to
+      // derived — that way switching modes is non-destructive and they can flip
+      // between them without re-typing the override.
+      const manualPence = manualSquadCostsPounds != null ? manualSquadCostsPounds * 100 : undefined
+
       const financialsData = {
         club_id: request.clubId,
         season,
         football_related_revenue: footballRelatedRevenuePounds * 100,
+        squad_costs_mode: squadCostsMode,
+        ...(manualPence != null ? { manual_squad_costs: manualPence } : {}),
         current_allowance_ratio: currentAllowanceRatio,
         owner_equity_used_1yr: ownerEquityUsedCurrentSeasonPounds != null
           ? ownerEquityUsedCurrentSeasonPounds * 100

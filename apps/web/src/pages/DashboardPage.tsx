@@ -20,7 +20,8 @@ import { useClubStore } from '@/stores/club'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/badge'
-import { Spinner, PageLoader } from '@/components/ui/spinner'
+import { Spinner } from '@/components/ui/spinner'
+import { DashboardSkeleton } from '@/components/ui/page-skeletons'
 import { ComplianceGauge } from '@/components/simulator/ComplianceGauge'
 import { computeActiveBaseline, computeThresholds, statusFromRatio } from '@/lib/scr'
 import { exportSquadPDF } from '@/lib/exports/squadPdf'
@@ -29,7 +30,15 @@ import type { PlayerWithContract } from '@headroom/shared'
 import { formatPence } from '@headroom/shared'
 import { findCountry } from '@/lib/countries'
 import { Flag } from '@/components/ui/flag'
+import { AnimatedNumber } from '@/components/ui/animated-number'
 import { cn } from '@/lib/utils'
+
+// Format a pence integer as a pretty £ string ("£1,234,567") — used by the
+// AnimatedNumber `format` callback so the intermediate frames during the
+// count-up still render in the same shape as the final value.
+function formatPenceNumber(pence: number) {
+  return '£' + Math.round(pence / 100).toLocaleString('en-GB')
+}
 
 type SortKey = 'name' | 'position' | 'wage' | 'amortisation' | 'agentFee' | 'total' | 'expiry'
 type SortDir = 'asc' | 'desc'
@@ -127,7 +136,7 @@ export function DashboardPage() {
     [financials, scenarios]
   )
 
-  if (loading) return <PageLoader />
+  if (loading) return <DashboardSkeleton />
 
   if (error) {
     return (
@@ -210,18 +219,26 @@ export function DashboardPage() {
             </StatusBadge>
           </div>
           <div className="flex items-baseline gap-3">
-            <span className={cn(
-              'num text-[44px] font-semibold leading-none',
-              status === 'green' ? 'text-slate-900' : status === 'amber' ? 'text-amber-700' : 'text-red-700'
-            )}>
-              {currentPct.toFixed(1)}%
-            </span>
+            <AnimatedNumber
+              value={currentPct}
+              decimals={1}
+              suffix="%"
+              className={cn(
+                'num text-[44px] font-semibold leading-none',
+                status === 'green' ? 'text-slate-900' : status === 'amber' ? 'text-amber-700' : 'text-red-700'
+              )}
+            />
             <span className="text-[14px] text-slate-400">of revenue</span>
           </div>
           {activeBaseline && activeBaseline.includedCount > 0 && (
             <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-50 border border-violet-100 text-[12px]">
               <span className="meta-label text-violet-700">With {activeBaseline.includedCount} included {activeBaseline.includedCount === 1 ? 'scenario' : 'scenarios'}</span>
-              <span className="num text-violet-700 font-medium">{(activeBaseline.ratio * 100).toFixed(1)}%</span>
+              <AnimatedNumber
+                value={activeBaseline.ratio * 100}
+                decimals={1}
+                suffix="%"
+                className="num text-violet-700 font-medium"
+              />
             </div>
           )}
         </Card>
@@ -229,12 +246,14 @@ export function DashboardPage() {
         {/* Threshold stat */}
         <Card className="p-6 flex flex-col">
           <div className="meta-label">Headroom to Green</div>
-          <div className={cn(
-            'num text-[28px] font-semibold leading-none mt-3',
-            headroomPence >= 0 ? 'text-slate-900' : 'text-red-700'
-          )}>
-            {headroomPence >= 0 ? formatPence(headroomPence) : `−${formatPence(Math.abs(headroomPence))}`}
-          </div>
+          <AnimatedNumber
+            value={headroomPence}
+            format={(n) => (n >= 0 ? formatPenceNumber(n) : `−${formatPenceNumber(Math.abs(n))}`)}
+            className={cn(
+              'num text-[28px] font-semibold leading-none mt-3',
+              headroomPence >= 0 ? 'text-slate-900' : 'text-red-700'
+            )}
+          />
           <div className="text-[12px] text-slate-400 mt-2 num">
             Green threshold: {formatPence(thresholds!.greenPence)}
           </div>

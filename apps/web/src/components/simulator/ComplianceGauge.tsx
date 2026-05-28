@@ -1,3 +1,5 @@
+import { motion } from 'framer-motion'
+
 interface ComplianceGaugeProps {
   currentPct: number
   projectedPct: number
@@ -8,6 +10,11 @@ interface ComplianceGaugeProps {
 function fmtPct(n: number) {
   return n.toFixed(1) + '%'
 }
+
+// Spring config for marker sweeps. Stiff enough to land quickly; damped enough
+// that the dot doesn't bounce past the destination.
+const SWEEP_SPRING = { type: 'spring' as const, stiffness: 220, damping: 26 }
+const COLOR_TWEEN = { duration: 0.35 }
 
 export function ComplianceGauge({ currentPct, projectedPct, greenPct, redPct }: ComplianceGaugeProps) {
   const max = Math.max(redPct + 12, projectedPct + 6, 108)
@@ -48,44 +55,87 @@ export function ComplianceGauge({ currentPct, projectedPct, greenPct, redPct }: 
       </div>
 
       <div className="px-4">
-        {/* Current label + arrow above bar (always) */}
+        {/* Current label + arrow above bar (always). The horizontal position
+            is driven by a motion `left` value so the markers sweep smoothly
+            when scenarios toggle or revenue/squad-cost inputs change. */}
         <div className="relative h-12">
-          {/* Current: label + arrow grouped at bottom */}
-          <div className="absolute flex flex-col items-center" style={{ left: `${currentX}%`, transform: 'translateX(-50%)', bottom: 0 }}>
+          <motion.div
+            className="absolute flex flex-col items-center"
+            initial={false}
+            animate={{ left: `${currentX}%` }}
+            transition={SWEEP_SPRING}
+            style={{ transform: 'translateX(-50%)', bottom: 0 }}
+          >
             <span className="num text-[13px] text-slate-700 font-medium mb-1.5">{fmtPct(currentPct)}</span>
             <svg width="14" height="8" viewBox="0 0 14 8">
               <path d="M7 8 L0 0 L14 0 Z" fill="#475569" />
             </svg>
-          </div>
-          {/* Projected: label + arrow when far apart; arrow only when staggered (label goes below bar) */}
-          <div className="absolute flex flex-col items-center" style={{ left: `${projectedX}%`, transform: 'translateX(-50%)', bottom: 0 }}>
+          </motion.div>
+          <motion.div
+            className="absolute flex flex-col items-center"
+            initial={false}
+            animate={{ left: `${projectedX}%` }}
+            transition={SWEEP_SPRING}
+            style={{ transform: 'translateX(-50%)', bottom: 0 }}
+          >
             {!shouldStagger && (
-              <span className="num text-[13px] font-semibold mb-1.5" style={{ color: projColor }}>{fmtPct(projectedPct)}</span>
+              <motion.span
+                className="num text-[13px] font-semibold mb-1.5"
+                initial={false}
+                animate={{ color: projColor }}
+                transition={COLOR_TWEEN}
+              >
+                {fmtPct(projectedPct)}
+              </motion.span>
             )}
-            <svg width="14" height="8" viewBox="0 0 14 8">
+            <motion.svg width="14" height="8" viewBox="0 0 14 8" initial={false} animate={{ fill: projColor }} transition={COLOR_TWEEN}>
               <path d="M7 8 L0 0 L14 0 Z" fill={projColor} />
-            </svg>
-          </div>
+            </motion.svg>
+          </motion.div>
         </div>
 
-        {/* The bar */}
+        {/* The bar — zones animate in width when revenue/allowance shift */}
         <div className="relative gauge-track">
-          <div className="zone" style={{ left: 0, width: `${greenEnd}%`, background: '#dcfce7' }} />
-          <div className="zone" style={{ left: `${greenEnd}%`, width: `${amberEnd - greenEnd}%`, background: '#fef3c7' }} />
-          <div className="zone" style={{ left: `${amberEnd}%`, right: 0, background: '#fee2e2' }} />
-          <div className="absolute top-0 bottom-0 w-px bg-white/70" style={{ left: `${greenEnd}%` }} />
-          <div className="absolute top-0 bottom-0 w-px bg-white/70" style={{ left: `${amberEnd}%` }} />
-          <div className="absolute" style={{ left: `${projectedX}%`, top: '50%', transform: 'translate(-50%, -50%)', zIndex: 2 }}>
-            <span className="block w-4 h-4 rounded-full bg-white" style={{ boxShadow: `0 0 0 2.5px ${projColor}, 0 1px 3px rgba(0,0,0,0.15)` }} />
-          </div>
+          <motion.div className="zone" initial={false} animate={{ width: `${greenEnd}%` }} transition={SWEEP_SPRING} style={{ left: 0, background: '#dcfce7' }} />
+          <motion.div className="zone" initial={false} animate={{ left: `${greenEnd}%`, width: `${amberEnd - greenEnd}%` }} transition={SWEEP_SPRING} style={{ background: '#fef3c7' }} />
+          <motion.div className="zone" initial={false} animate={{ left: `${amberEnd}%` }} transition={SWEEP_SPRING} style={{ right: 0, background: '#fee2e2' }} />
+          <motion.div className="absolute top-0 bottom-0 w-px bg-white/70" initial={false} animate={{ left: `${greenEnd}%` }} transition={SWEEP_SPRING} />
+          <motion.div className="absolute top-0 bottom-0 w-px bg-white/70" initial={false} animate={{ left: `${amberEnd}%` }} transition={SWEEP_SPRING} />
+          <motion.div
+            className="absolute"
+            initial={false}
+            animate={{ left: `${projectedX}%` }}
+            transition={SWEEP_SPRING}
+            style={{ top: '50%', transform: 'translate(-50%, -50%)', zIndex: 2 }}
+          >
+            <motion.span
+              className="block w-4 h-4 rounded-full bg-white"
+              initial={false}
+              animate={{ boxShadow: `0 0 0 2.5px ${projColor}, 0 1px 3px rgba(0,0,0,0.15)` }}
+              transition={COLOR_TWEEN}
+            />
+          </motion.div>
         </div>
 
         {/* Projected label below bar — only when close to current */}
         {shouldStagger && (
           <div className="relative h-6 mt-1.5">
-            <div className="absolute" style={{ left: `${projectedX}%`, transform: 'translateX(-50%)', top: 0 }}>
-              <span className="num text-[13px] font-semibold" style={{ color: projColor }}>{fmtPct(projectedPct)}</span>
-            </div>
+            <motion.div
+              className="absolute"
+              initial={false}
+              animate={{ left: `${projectedX}%` }}
+              transition={SWEEP_SPRING}
+              style={{ transform: 'translateX(-50%)', top: 0 }}
+            >
+              <motion.span
+                className="num text-[13px] font-semibold"
+                initial={false}
+                animate={{ color: projColor }}
+                transition={COLOR_TWEEN}
+              >
+                {fmtPct(projectedPct)}
+              </motion.span>
+            </motion.div>
           </div>
         )}
 

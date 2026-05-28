@@ -1,8 +1,12 @@
 import { useEffect, useMemo } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
+import { AnimatePresence, motion } from 'framer-motion'
 import { Sidebar } from './Sidebar'
 import { useClubStore } from '@/stores/club'
 import { StatusBadge } from '@/components/ui/badge'
+import { AnimatedNumber } from '@/components/ui/animated-number'
+import { ProgressBar } from '@/components/ui/progress-bar'
+import { ToastHost } from '@/components/ui/toast'
 import { api } from '@/lib/api'
 import { computeActiveBaseline } from '@/lib/scr'
 
@@ -58,6 +62,8 @@ export function AppLayout() {
 
   return (
     <div className="min-h-screen flex bg-white text-slate-900">
+      <ProgressBar />
+      <ToastHost />
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <header className="h-16 sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-200 flex items-center gap-4 px-8">
@@ -68,18 +74,29 @@ export function AppLayout() {
           </div>
 
           {scrPct !== null && (
-            <div className="flex items-center gap-3 px-3 py-1.5 rounded-full bg-violet-50 border border-violet-100 whitespace-nowrap">
+            <motion.div
+              layout
+              className="flex items-center gap-3 px-3 py-1.5 rounded-full bg-violet-50 border border-violet-100 whitespace-nowrap"
+            >
               <span className="meta-label text-violet-700">{stackedOn ? 'Projected SCR' : 'Current SCR'}</span>
-              <span className="num text-[13px] text-slate-900 font-medium">{scrPct.toFixed(1)}%</span>
+              <AnimatedNumber
+                value={scrPct}
+                decimals={1}
+                suffix="%"
+                className="num text-[13px] text-slate-900 font-medium"
+              />
               <span className="w-px h-3.5 bg-violet-200" />
               <StatusBadge status={scrStatus}>
-                <span
+                <motion.span
+                  layout
+                  initial={false}
+                  animate={{ backgroundColor: statusDot }}
+                  transition={{ duration: 0.35 }}
                   className="inline-block w-1.5 h-1.5 rounded-full mr-1.5"
-                  style={{ background: statusDot }}
                 />
                 {statusText}
               </StatusBadge>
-            </div>
+            </motion.div>
           )}
 
           <div className="flex-1 flex items-center justify-end gap-2.5 min-w-0">
@@ -95,7 +112,20 @@ export function AppLayout() {
 
         <main className="flex-1 px-8 py-8">
           <div className="max-w-[1280px] mx-auto">
-            <Outlet />
+            {/* Route transition: fade + tiny lift. Keyed on the first path
+                segment so navigating between sub-routes within the same page
+                doesn't trigger a full remount animation. */}
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={firstSegment}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <Outlet />
+              </motion.div>
+            </AnimatePresence>
           </div>
         </main>
 

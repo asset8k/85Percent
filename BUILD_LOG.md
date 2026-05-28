@@ -1700,3 +1700,78 @@ Both fixes are in this commit. 95/95 engine tests still pass; all 4 packages typ
 - API typecheck: 0 errors
 - Web typecheck: 0 errors
 - Web production build: 0 errors
+
+---
+
+## Session 16 — Post-MVP 2.0 polish: squad-costs mode, archive actions, scenarios redesign, animation pass (2026-05-29)
+
+A long polish session driven by user-reported UX bugs and feature requests on top of shipped MVP 2.0.
+
+### Squad-costs source toggle (derived vs manual)
+
+**Why:** Some users want to model arbitrary squad-cost scenarios without rebuilding the roster — e.g. "what if our wage bill was £80M?"
+
+- New columns on `club_financials`: `squad_costs_mode TEXT NOT NULL DEFAULT 'derived'` (CHECK in `'derived' | 'manual'`) + `manual_squad_costs BIGINT NULL` ([apps/api/prisma/migrations/20260528000001_squad_costs_mode/migration.sql](apps/api/prisma/migrations/20260528000001_squad_costs_mode/migration.sql))
+- `GET /club/financials` returns `squadCostsMode`, `derivedSquadCosts`, `manualSquadCosts`. The effective `currentSquadCosts` is auto-resolved server-side, so every downstream surface (top-bar SCR pill, Dashboard, Scenarios, SSR) picks up the override with **zero call-site changes** ([apps/api/src/routes/club.ts](apps/api/src/routes/club.ts))
+- `PUT /club/financials` validates `manualSquadCostsPounds` is required when mode=manual; preserves the manual value when toggling back to derived (non-destructive toggle)
+- Settings UI: replaced the disabled "Squad Costs (derived)" tile with a segmented `SquadCostsModeToggle` + conditional `£` input ([apps/web/src/pages/ClubSetupPage.tsx](apps/web/src/pages/ClubSetupPage.tsx))
+
+### Roster polish: archive delete / restore + icon-button row actions
+
+- New endpoints: `POST /roster/player/:id/restore` (un-archives + reactivates most recent contract by `created_at DESC`) and `DELETE /roster/player/:id` (archived-only, FK cleanup order: `scenario_actions → contracts → players`, audit log written **before** final delete so trail survives) ([apps/api/src/routes/roster.ts](apps/api/src/routes/roster.ts))
+- Archived roster rows get icon-button actions (restore = rotate-ccw glyph, delete = trash) with inline two-step confirm ("Delete {name}?" → check/cancel icons). Pending state swaps glyph for Spinner so the row never goes dead
+- Top-bar SCR stale-after-mutation bug fixed: `RosterPage.refresh()` now re-fetches `/club/financials` in parallel so `useClubStore.financials.currentSquadCosts` updates after add/edit/archive/restore/delete
+- Contract length cap raised 7y → 10y to accommodate Chelsea-style ultra-long deals ([packages/shared/src/schemas.ts](packages/shared/src/schemas.ts) + API contract PATCH)
+
+### Settings + Team: icon actions, layout fixes, OTP fixes
+
+- Team pending-invite rows: replaced text "Copy link"/"Revoke" buttons with icon buttons (CopyIcon → CheckIcon for 2s on success, TrashIcon with two-step confirm). Per-row `copiedInviteId` state ([apps/web/src/pages/ClubSetupPage.tsx](apps/web/src/pages/ClubSetupPage.tsx))
+- Manual squad-costs `£` glyph centering bug fixed (hint `<p>` was inside `relative` wrapper, inflating bounding box for `top-1/2` calc)
+- "Roster sum (ignored)" hint removed from manual mode per user feedback (too much text)
+- `sticky top-20` removed from Calculated Thresholds card — was breaking alignment with Season Financials in PL mode (Promoted-club uplift block adds height, sticky activated and shifted right card down). Now both cards use `self-start` only and align naturally in both leagues
+- **Invite signup bug fixed**: `prefillEmail` arrives async from `api.invites.lookup`, but RHF's `defaultValues` only run on mount → email field stayed empty *and* became read-only once `emailLocked` flipped. Added `useEffect` calling `form.setValue('email', prefillEmail, { shouldValidate: true })` ([apps/web/src/pages/LoginPage.tsx](apps/web/src/pages/LoginPage.tsx))
+- **OTP screen** width bug: `OTP_LENGTH = 8` but cells sized for 6, also text said "6-digit code". Switched to `OTP_LENGTH` interpolation in label, sized cells `w-10 h-12 gap-1` with `ml-3` on cell 5 for 4+4 visual grouping (356px total, fits 364px inner width)
+
+### Scenarios redesign (user-driven)
+
+Original layout had a redundant "Active Baseline" card on the left rail duplicating top-bar SCR + projection panel. The include-in-plan tick was confusing.
+
+- New `<Switch>` UI primitive — proper sliding toggle with size variants + portal-based tooltip that escapes ancestor `overflow:hidden` ([apps/web/src/components/ui/switch.tsx](apps/web/src/components/ui/switch.tsx))
+- Saved-scenario rows: tick → Switch, bold violet left-edge accent + soft violet tint when in-plan, `"X of Y in plan · 73.2% SCR"` compact footer replaces removed Active Baseline card
+- Live Projection gets a header status chip (3 states: `In active plan` / `Not in plan` / `Draft — save to include`) with inline Switch so user can toggle without scrolling. "With this plan" tile gets a violet ring + "✓ Currently driving SCR" caption when included ([apps/web/src/pages/ScenariosPage.tsx](apps/web/src/pages/ScenariosPage.tsx))
+
+### Animation pass (new)
+
+Installed `framer-motion` (~50KB gzip). Built a complete animation system:
+
+**Primitives** ([apps/web/src/components/ui/](apps/web/src/components/ui/)):
+- `progress-bar.tsx` — reference-counted top sweep + `useProgress` zustand store, every `apiFetch` calls start/done in try/finally so it tracks real outstanding network
+- `skeleton.tsx` + `page-skeletons.tsx` — shimmer block + page-shaped skeletons (Dashboard, Roster, Scenarios, FormPage for SSR/Settings) replacing the full-screen `PageLoader` everywhere
+- `animated-number.tsx` — count-up with `useInView` so off-screen value changes don't fake-animate
+- `toast.tsx` — imperative `toast.success/error/info` + spring-eased `ToastHost`. Replaces inline "Settings saved" text
+- `spinner.tsx` — new `PageLoader` using the Headroom mark with breathing-pulse bars
+
+**CSS** ([apps/web/src/index.css](apps/web/src/index.css)):
+- `shimmer`, `hr-mark-bar`, `hr-mark-pulse`, `hr-progress-indeterminate` keyframes
+- `.card-lift` utility for subtle hover lift
+- `prefers-reduced-motion` guard silences all motion-related animation
+
+**Wiring**:
+- `AppLayout`: mounts `<ProgressBar />` + `<ToastHost />`, wraps `<Outlet />` in `<AnimatePresence mode="wait">` keyed on first path segment for route fade+lift transitions, animates the top-bar SCR pill number + status dot color crossfade
+- `ComplianceGauge`: zone widths + marker positions become `motion.div`s with spring sweep when scenarios toggle; projected color crossfades on green↔amber↔red transitions
+- `StatusBadge`: `motion.span` crossfades bg + fg colors on status change
+- All Roster modals (CSV / Add player / Edit player — they share `ModalShell`) + Scenarios `CompareModal`: pure-fade entrance (no `y`, no `scale` — user reported 8px slide read as a layout shift). 160ms ease-out
+
+### Files touched / added
+
+- 19 modified files (~1500 insertions, ~300 deletions)
+- 1 new migration directory: `20260528000001_squad_costs_mode/`
+- 6 new UI primitives: `animated-number.tsx`, `page-skeletons.tsx`, `progress-bar.tsx`, `skeleton.tsx`, `switch.tsx`, `toast.tsx`
+
+### Verification
+
+- Web typecheck: 0 errors
+- API typecheck: 0 errors
+- Web production build: 1.81 MB / 539 KB gzipped (+49 KB for framer-motion, as estimated)
+- Manual checks: route transitions, modal fades, gauge sweep on scenario toggle, count-up on Dashboard / Scenarios / Settings, archive restore + delete flow, manual squad-costs mode end-to-end, invite signup flow with prefilled email, 8-digit OTP layout
+- DB migration **not yet applied** to live Supabase — user to run `pnpm --filter @headroom/api exec prisma migrate deploy` when ready

@@ -216,6 +216,18 @@ function SignUpForm({
     ...(prefillEmail ? { defaultValues: { email: prefillEmail } } : {}),
   })
 
+  // The invite lookup that drives `prefillEmail` is async, so the parent
+  // mounts SignUpForm with prefillEmail=undefined first and the invite email
+  // arrives a tick later. RHF's defaultValues only run on mount, so without
+  // this sync the email field stays empty and (once emailLocked flips to
+  // true) becomes a read-only blank — the user can't fill it. Using setValue
+  // preserves any password the user may have typed in the meantime.
+  useEffect(() => {
+    if (prefillEmail) {
+      form.setValue('email', prefillEmail, { shouldValidate: true })
+    }
+  }, [prefillEmail, form])
+
   const onSubmit = async (data: SignUpData) => {
     onError('')
     const { data: result, error } = await supabase.auth.signUp({
@@ -356,11 +368,15 @@ function OTPForm({
       <div>
         <p className="text-sm font-medium text-slate-900 mb-1">Check your email</p>
         <p className="text-[13px] text-slate-500">
-          We sent a 6-digit code to <span className="font-medium text-slate-700">{email}</span>
+          We sent an {OTP_LENGTH}-digit code to <span className="font-medium text-slate-700">{email}</span>
         </p>
       </div>
 
-      <div className="flex gap-2 justify-center" onPaste={handlePaste}>
+      {/* Cells sized to fit 8 digits inside the 420px card with 4+4 grouping
+          for readability. Math: 8 × w-10 (40px) + 6 × gap-1 (4px small gaps)
+          + ml-3 (12px) on the 5th cell = 356px, comfortably under the 364px
+          inner width. */}
+      <div className="flex gap-1 justify-center" onPaste={handlePaste}>
         {digits.map((d, i) => (
           <input
             key={i}
@@ -371,7 +387,10 @@ function OTPForm({
             value={d}
             onChange={(e) => handleChange(i, e.target.value)}
             onKeyDown={(e) => handleKeyDown(i, e)}
-            className="w-11 h-12 text-center text-lg font-semibold text-slate-900 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-colors"
+            className={
+              'w-10 h-12 text-center text-lg font-semibold text-slate-900 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-colors num' +
+              (i === OTP_LENGTH / 2 ? ' ml-3' : '')
+            }
           />
         ))}
       </div>

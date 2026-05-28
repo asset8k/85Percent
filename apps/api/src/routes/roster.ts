@@ -636,14 +636,17 @@ export async function rosterRoutes(app: FastifyInstance) {
         startDate:        parsed.data.startDate        ?? String(existing.start_date).slice(0, 10),
         endDate:          parsed.data.endDate          ?? String(existing.end_date).slice(0, 10),
       }
-      // Cross-field validation: end > start, ≤ 7 years
+      // Cross-field validation: end > start, ≤ 10 years.
+      // Chelsea's ultra-long deals (Mudryk 8.5y, Caicedo/Enzo 8y) and the
+      // follow-on UEFA amortization debate forced the cap upward — 10y still
+      // catches obvious typos while accommodating any real-world contract.
       if (new Date(next.endDate) <= new Date(next.startDate)) {
         return reply.status(400).send({ error: 'End date must be after start date' })
       }
-      const sevenYearsOut = new Date(next.startDate)
-      sevenYearsOut.setFullYear(sevenYearsOut.getFullYear() + 7)
-      if (new Date(next.endDate) > sevenYearsOut) {
-        return reply.status(400).send({ error: 'Contract cannot exceed 7 years' })
+      const maxEnd = new Date(next.startDate)
+      maxEnd.setFullYear(maxEnd.getFullYear() + 10)
+      if (new Date(next.endDate) > maxEnd) {
+        return reply.status(400).send({ error: 'Contract cannot exceed 10 years' })
       }
 
       const startObj = new Date(next.startDate + 'T00:00:00Z')
@@ -731,6 +734,161 @@ export async function rosterRoutes(app: FastifyInstance) {
     } catch (err) {
       request.log.error({ err }, 'POST /roster/player/:id/archive failed')
       return reply.status(500).send({ error: 'Failed to archive player' })
+    }
+  })
+
+  // ---------------------------------------------------------------------- POST /roster/player/:id/restore
+  // Undo a soft-delete: mark the player active again and reactivate the most
+  // recently-created contract for them (whether or not it has expired — the
+  // expiry chip will render "expired" honestly; users can then edit it).
+  app.post('/roster/player/:id/restore', async (request, reply) => {
+    if (!canMutateRoster(request.userRole)) {
+      return reply.status(403).send({ error: 'Insufficient permissions' })
+    }
+    const { id } = request.params as { id: string }
+
+    try {
+      const { data: existing, error: findErr } = await supabase
+        .from('players')
+        .select('id, is_active, name')
+        .eq('id', id)
+        .eq('club_id', request.clubId)
+        .maybeSingle()
+
+      if (findErr) throw findErr
+      if (!existing) return reply.status(404).send({ error: 'Player not found' })
+      if (existing.is_active === true) {
+        return reply.status(409).send({ error: 'Player is already active' })
+      }
+
+      const nowISO = new Date().toISOString()
+
+      const { error: pErr } = await supabase
+        .from('players')
+        .update({ is_active: true, archived_at: null, updated_at: nowISO })
+        .eq('id', id)
+        .eq('club_id', request.clubId)
+      if (pErr) throw pErr
+
+      // Reactivate the most-recent contract for this player (if any). If no
+      // contracts exist the player simply returns with no contract attached,
+      // which the UI already handles (book value / wage / expiry render as "—").
+      const { data: contracts } = await supabase
+        .from('contracts')
+        .select('id, created_at')
+        .eq('player_id', id)
+        .eq('club_id', request.clubId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      let reactivatedContractId: string | null = null
+      const mostRecent = contracts?.[0]
+      if (mostRecent) {
+        const contractId = mostRecent.id as string
+        const { error: cErr } = await supabase
+          .from('contracts')
+          .update({ is_active: true, updated_at: nowISO })
+          .eq('id', contractId)
+          .eq('club_id', request.clubId)
+        if (cErr) {
+          // Best-effort: revert the player flag so state stays consistent
+          await supabase.from('players')
+            .update({ is_active: false, archived_at: nowISO, updated_at: nowISO })
+            .eq('id', id)
+            .eq('club_id', request.clubId)
+          throw cErr
+        }
+        reactivatedContractId = contractId
+      }
+
+      await writeAuditLog(request, 'players', id, 'update', {
+        restored: true,
+        reactivatedContractId,
+        name: existing.name,
+      })
+
+      return reply.send({ success: true, reactivatedContractId })
+    } catch (err) {
+      request.log.error({ err }, 'POST /roster/player/:id/restore failed')
+      return reply.status(500).send({ error: 'Failed to restore player' })
+    }
+  })
+
+  // ---------------------------------------------------------------------- DELETE /roster/player/:id
+  // Hard delete an archived player. Restricted to already-archived players so
+  // an active squad member cannot be removed in a single misclick. Cleans up
+  // FK references in this order (Supabase has no transactions over REST so we
+  // order operations to minimize damage on partial failure):
+  //   1. scenario_actions referencing the player — those actions become
+  //      nonsensical once the player is gone, so we drop them outright. A
+  //      scenario with zero remaining actions still exists; the user can
+  //      clean it up separately.
+  //   2. contracts for the player
+  //   3. the player row itself
+  app.delete('/roster/player/:id', async (request, reply) => {
+    if (!canMutateRoster(request.userRole)) {
+      return reply.status(403).send({ error: 'Insufficient permissions' })
+    }
+    const { id } = request.params as { id: string }
+
+    try {
+      const { data: existing, error: findErr } = await supabase
+        .from('players')
+        .select('id, is_active, name')
+        .eq('id', id)
+        .eq('club_id', request.clubId)
+        .maybeSingle()
+
+      if (findErr) throw findErr
+      if (!existing) return reply.status(404).send({ error: 'Player not found' })
+      if (existing.is_active === true) {
+        return reply.status(409).send({
+          error: 'Active players cannot be deleted. Archive the player first.',
+        })
+      }
+
+      // 1. Drop any scenario_actions pointing at this player (e.g. a saved
+      //    "sell Smith" action). The scenario row itself is left intact.
+      const { error: saErr } = await supabase
+        .from('scenario_actions')
+        .delete()
+        .eq('player_id', id)
+      if (saErr) {
+        request.log.error({ err: saErr }, 'DELETE /roster/player/:id scenario_actions cleanup failed')
+        return reply.status(500).send({ error: 'Failed to delete player (scenario reference cleanup)' })
+      }
+
+      // 2. Drop contracts for this player (active or not).
+      const { error: cErr } = await supabase
+        .from('contracts')
+        .delete()
+        .eq('player_id', id)
+        .eq('club_id', request.clubId)
+      if (cErr) {
+        request.log.error({ err: cErr }, 'DELETE /roster/player/:id contracts cleanup failed')
+        return reply.status(500).send({ error: 'Failed to delete player (contract cleanup)' })
+      }
+
+      // 3. Audit BEFORE the final delete so the trail survives.
+      await writeAuditLog(request, 'players', id, 'delete', {
+        hardDelete: true,
+        name: existing.name,
+      })
+
+      const { error: pErr } = await supabase
+        .from('players')
+        .delete()
+        .eq('id', id)
+        .eq('club_id', request.clubId)
+      if (pErr) {
+        request.log.error({ err: pErr }, 'DELETE /roster/player/:id final delete failed')
+        return reply.status(500).send({ error: 'Failed to delete player' })
+      }
+
+      return reply.send({ success: true })
+    } catch (err) {
+      request.log.error({ err }, 'DELETE /roster/player/:id failed')
+      return reply.status(500).send({ error: 'Failed to delete player' })
     }
   })
 }

@@ -16,7 +16,8 @@ import { useClubStore } from '@/stores/club'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/badge'
-import { Spinner, PageLoader } from '@/components/ui/spinner'
+import { Spinner } from '@/components/ui/spinner'
+import { FormPageSkeleton } from '@/components/ui/page-skeletons'
 import { NumericInput } from '@/components/ui/numeric-input'
 import { formatPence } from '@headroom/shared'
 import { cn } from '@/lib/utils'
@@ -182,7 +183,7 @@ function WorkingCapitalTab() {
     }
   }
 
-  if (loading) return <PageLoader />
+  if (loading) return <FormPageSkeleton />
 
   const evaluation = data?.evaluation ?? null
   const rowsByMonth = new Map<string, ReturnType<typeof Number>>()
@@ -339,7 +340,7 @@ function LiquidityTab() {
     return { effective, headroom, passing: headroom >= 0 }
   }, [assets, liabilities, marketValue])
 
-  if (loading) return <PageLoader />
+  if (loading) return <FormPageSkeleton />
 
   const evalServer = data?.evaluation ?? null
   const passing = evalServer?.passing ?? preview?.passing ?? null
@@ -479,7 +480,7 @@ function EquityTab() {
     return { ratio, passing: ratio <= threshold, marginPp: (threshold - ratio) * 100 }
   }, [liabilities, adjustedAssets, threshold])
 
-  if (loading) return <PageLoader />
+  if (loading) return <FormPageSkeleton />
 
   const evalServer = data?.evaluation ?? null
   const passing = evalServer?.passing ?? preview?.passing ?? null

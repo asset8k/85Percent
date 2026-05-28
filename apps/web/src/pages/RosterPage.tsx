@@ -12,10 +12,12 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Spinner, PageLoader } from '@/components/ui/spinner'
+import { Spinner } from '@/components/ui/spinner'
+import { RosterSkeleton } from '@/components/ui/page-skeletons'
 import { NumericInput } from '@/components/ui/numeric-input'
 import { CountryPicker } from '@/components/ui/country-picker'
 import { DatePicker } from '@/components/ui/date-picker'
@@ -40,7 +42,7 @@ const POSITIONS: PlayerPosition[] = ['GK', 'DEF', 'MID', 'FWD']
 // ---------------------------------------------------------------------------
 export function RosterPage() {
   const can = useCan()
-  const { clubName, financials } = useClubStore()
+  const { clubName, financials, setFinancials } = useClubStore()
   const [tab, setTab] = useState<'squad' | 'archived'>('squad')
   const [active, setActive] = useState<PlayerWithContract[]>([])
   const [archived, setArchived] = useState<PlayerWithContract[]>([])
@@ -52,17 +54,33 @@ export function RosterPage() {
   const [manualOpen, setManualOpen] = useState(false)
   const [editPlayer, setEditPlayer] = useState<PlayerWithContract | null>(null)
 
+  // Archived-row action state — null when no row has confirm UI open. Only
+  // one player can be in confirm-delete mode at a time so the user can't fan
+  // a destructive action across multiple rows accidentally.
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [pendingActionId, setPendingActionId] = useState<string | null>(null)
+
   // Filters (Squad tab)
   const [filter, setFilter] = useState<'all' | 'expiring' | PlayerPosition>('all')
 
-  // Reload on demand
+  // Roster mutations (add / edit contract / archive / CSV commit) change the
+  // server-derived `currentSquadCosts` in financials. The top-bar SCR pill,
+  // Setup page squad-cost line and any scenario projections all read that
+  // value from the store, so we re-fetch financials alongside the roster on
+  // every refresh. Season fallback matches the bootstrap in ProtectedRoute.
   const refresh = async () => {
     setLoading(true)
     setError('')
+    const season = financials?.season ?? '2026-27'
     try {
-      const [a, b] = await Promise.all([api.roster.list(), api.roster.listArchived()])
+      const [a, b, f] = await Promise.all([
+        api.roster.list(),
+        api.roster.listArchived(),
+        api.club.getFinancials(season).catch(() => null),
+      ])
       setActive(a.players)
       setArchived(b.players)
+      if (f) setFinancials(f)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load roster')
     } finally {
@@ -74,6 +92,33 @@ export function RosterPage() {
     refresh()
   }, [])
 
+  const handleRestore = async (id: string) => {
+    setPendingActionId(id)
+    setError('')
+    try {
+      await api.roster.restorePlayer(id)
+      await refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to restore player')
+    } finally {
+      setPendingActionId(null)
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    setPendingActionId(id)
+    setError('')
+    try {
+      await api.roster.deletePlayer(id)
+      setConfirmDeleteId(null)
+      await refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete player')
+    } finally {
+      setPendingActionId(null)
+    }
+  }
+
   const filteredActive = useMemo(() => {
     if (filter === 'all') return active
     if (filter === 'expiring') {
@@ -82,7 +127,7 @@ export function RosterPage() {
     return active.filter((p) => p.position === filter)
   }, [active, filter])
 
-  if (loading) return <PageLoader />
+  if (loading) return <RosterSkeleton />
 
   return (
     <div>
@@ -184,39 +229,55 @@ export function RosterPage() {
               hint="Players you archive will appear here for audit history."
             />
           ) : (
-            <PlayerTable players={archived} onRowClick={() => undefined} archived />
+            <PlayerTable
+              players={archived}
+              onRowClick={() => undefined}
+              archived
+              canMutate={can.mutateRoster}
+              confirmDeleteId={confirmDeleteId}
+              pendingActionId={pendingActionId}
+              onRestore={handleRestore}
+              onRequestDelete={(id) => setConfirmDeleteId(id)}
+              onConfirmDelete={handleDelete}
+              onCancelDelete={() => setConfirmDeleteId(null)}
+            />
           )}
         </>
       )}
 
-      {csvOpen && (
-        <CSVUploadModal
-          onClose={() => setCsvOpen(false)}
-          onCommitted={async () => {
-            setCsvOpen(false)
-            await refresh()
-          }}
-        />
-      )}
-      {manualOpen && (
-        <ManualPlayerModal
-          onClose={() => setManualOpen(false)}
-          onCreated={async () => {
-            setManualOpen(false)
-            await refresh()
-          }}
-        />
-      )}
-      {editPlayer && (
-        <PlayerEditDrawer
-          player={editPlayer}
-          onClose={() => setEditPlayer(null)}
-          onSaved={async () => {
-            setEditPlayer(null)
-            await refresh()
-          }}
-        />
-      )}
+      <AnimatePresence>
+        {csvOpen && (
+          <CSVUploadModal
+            key="csv"
+            onClose={() => setCsvOpen(false)}
+            onCommitted={async () => {
+              setCsvOpen(false)
+              await refresh()
+            }}
+          />
+        )}
+        {manualOpen && (
+          <ManualPlayerModal
+            key="manual"
+            onClose={() => setManualOpen(false)}
+            onCreated={async () => {
+              setManualOpen(false)
+              await refresh()
+            }}
+          />
+        )}
+        {editPlayer && (
+          <PlayerEditDrawer
+            key={`edit-${editPlayer.id}`}
+            player={editPlayer}
+            onClose={() => setEditPlayer(null)}
+            onSaved={async () => {
+              setEditPlayer(null)
+              await refresh()
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }
@@ -228,11 +289,29 @@ function PlayerTable({
   players,
   onRowClick,
   archived = false,
+  canMutate = false,
+  confirmDeleteId = null,
+  pendingActionId = null,
+  onRestore,
+  onRequestDelete,
+  onConfirmDelete,
+  onCancelDelete,
 }: {
   players: PlayerWithContract[]
   onRowClick: (p: PlayerWithContract) => void
   archived?: boolean
+  // Archived-only props — required when `archived` is true and the caller
+  // wants to expose restore/delete affordances. Kept optional so the squad
+  // tab can still mount the table without ceremony.
+  canMutate?: boolean
+  confirmDeleteId?: string | null
+  pendingActionId?: string | null
+  onRestore?: (id: string) => void
+  onRequestDelete?: (id: string) => void
+  onConfirmDelete?: (id: string) => void
+  onCancelDelete?: () => void
 }) {
+  const showActions = archived && canMutate && !!onRestore && !!onRequestDelete && !!onConfirmDelete && !!onCancelDelete
   return (
     <Card className="overflow-hidden">
       <table className="w-full">
@@ -244,6 +323,7 @@ function PlayerTable({
             <Th align="right">Book Value</Th>
             <Th>Contract End</Th>
             <Th align="right">{archived ? 'Archived' : 'To Expiry'}</Th>
+            {showActions && <Th align="right">Actions</Th>}
           </tr>
         </thead>
         <tbody>
@@ -286,11 +366,176 @@ function PlayerTable({
                   <ExpiryChip months={p.monthsToExpiry} />
                 )}
               </td>
+              {showActions && (
+                <td className="px-5 py-3.5 text-right text-[12px] whitespace-nowrap">
+                  <ArchivedRowActions
+                    playerId={p.id}
+                    playerName={p.name}
+                    confirmDeleteId={confirmDeleteId}
+                    pendingActionId={pendingActionId}
+                    onRestore={onRestore!}
+                    onRequestDelete={onRequestDelete!}
+                    onConfirmDelete={onConfirmDelete!}
+                    onCancelDelete={onCancelDelete!}
+                  />
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
       </table>
     </Card>
+  )
+}
+
+// Action affordances for an archived row — Restore on its own, Delete with an
+// inline two-step confirm to avoid accidental destruction. Only one row can
+// be in the confirm state at a time (state held in the parent), so opening
+// confirm here implicitly cancels any other row's confirm.
+function ArchivedRowActions({
+  playerId,
+  playerName,
+  confirmDeleteId,
+  pendingActionId,
+  onRestore,
+  onRequestDelete,
+  onConfirmDelete,
+  onCancelDelete,
+}: {
+  playerId: string
+  playerName: string
+  confirmDeleteId: string | null
+  pendingActionId: string | null
+  onRestore: (id: string) => void
+  onRequestDelete: (id: string) => void
+  onConfirmDelete: (id: string) => void
+  onCancelDelete: () => void
+}) {
+  const confirming = confirmDeleteId === playerId
+  const pending = pendingActionId === playerId
+
+  if (confirming) {
+    return (
+      <span className="inline-flex items-center gap-2 justify-end">
+        <span className="text-[11px] text-slate-600 whitespace-nowrap">Delete {playerName}?</span>
+        <IconButton
+          label={pending ? 'Deleting…' : 'Confirm delete'}
+          tone="danger"
+          disabled={pending}
+          onClick={() => onConfirmDelete(playerId)}
+        >
+          {pending ? <Spinner size={14} /> : <CheckIcon />}
+        </IconButton>
+        <IconButton
+          label="Cancel"
+          tone="neutral"
+          disabled={pending}
+          onClick={onCancelDelete}
+        >
+          <CloseIcon />
+        </IconButton>
+      </span>
+    )
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1.5 justify-end">
+      <IconButton
+        label={pending ? 'Restoring…' : 'Restore player'}
+        tone="violet"
+        disabled={pending}
+        onClick={() => onRestore(playerId)}
+      >
+        {pending ? <Spinner size={14} /> : <RestoreIcon />}
+      </IconButton>
+      <IconButton
+        label="Delete permanently"
+        tone="danger"
+        disabled={pending}
+        onClick={() => onRequestDelete(playerId)}
+      >
+        <TrashIcon />
+      </IconButton>
+    </span>
+  )
+}
+
+// Small square icon button used inside table cells. Matches the UI Kit
+// language — neutral border + subtle hover tint per tone. Accessible via
+// aria-label + title (tooltip).
+function IconButton({
+  label,
+  tone,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string
+  tone: 'violet' | 'danger' | 'neutral'
+  disabled?: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  const toneClass =
+    tone === 'violet'
+      ? 'text-violet-600 hover:bg-violet-50 hover:border-violet-200'
+      : tone === 'danger'
+      ? 'text-red-600 hover:bg-red-50 hover:border-red-200'
+      : 'text-slate-500 hover:bg-slate-50 hover:border-slate-300'
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        'inline-flex items-center justify-center w-7 h-7 rounded-md border border-slate-200 bg-white transition-colors disabled:opacity-60 disabled:cursor-not-allowed',
+        toneClass
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
+// Lucide-style 16px stroke icons. Kept inline because they're only used here
+// and pulling in a full icon package for two glyphs would be overkill.
+function RestoreIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <path d="M3 3v5h5" />
+    </svg>
+  )
+}
+
+function TrashIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
+    </svg>
+  )
+}
+
+function CheckIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M18 6 6 18" />
+      <path d="M6 6l12 12" />
+    </svg>
   )
 }
 
@@ -1110,31 +1355,46 @@ function ModalShell({
   children: React.ReactNode
 }) {
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40"
-      onClick={(e) => {
-        // Close on backdrop click only
-        if (e.target === e.currentTarget) onClose()
-      }}
-    >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl border border-slate-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="text-[16px] font-semibold text-slate-900">{title}</h2>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="text-slate-400 hover:text-slate-700 p-1 -m-1 rounded"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 6L6 18" /><path d="M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
+    <AnimatePresence>
+      <motion.div
+        key="backdrop"
+        role="dialog"
+        aria-modal="true"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.18 }}
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-[2px]"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose()
+        }}
+      >
+        <motion.div
+          // Pure fade — no translation, no scale. The dialog materialises in
+          // place rather than sliding/zooming into position, so there's no
+          // residual motion that reads as a layout shift.
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0, transition: { duration: 0.12 } }}
+          transition={{ duration: 0.16, ease: 'easeOut' }}
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl border border-slate-200 overflow-hidden"
+        >
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+            <h2 className="text-[16px] font-semibold text-slate-900">{title}</h2>
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="text-slate-400 hover:text-slate-700 p-1 -m-1 rounded transition-colors"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 6L6 18" /><path d="M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          {children}
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
   )
 }
 

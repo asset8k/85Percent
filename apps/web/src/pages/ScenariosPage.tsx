@@ -13,13 +13,22 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/badge'
-import { Spinner, PageLoader } from '@/components/ui/spinner'
+import { Spinner } from '@/components/ui/spinner'
+import { ScenariosSkeleton } from '@/components/ui/page-skeletons'
 import { NumericInput } from '@/components/ui/numeric-input'
+import { Switch } from '@/components/ui/switch'
+import { AnimatedNumber } from '@/components/ui/animated-number'
+import { toast } from '@/components/ui/toast'
+
+function formatPenceNumber(pence: number) {
+  return '£' + Math.round(pence / 100).toLocaleString('en-GB')
+}
 import { ComplianceGauge } from '@/components/simulator/ComplianceGauge'
 import { computeActiveBaseline, computeDryRun, computeThresholds, actionToEngineInput } from '@/lib/scr'
 import { calculateSquadCosts, type ContractInput } from '@headroom/engine'
@@ -316,7 +325,7 @@ export function ScenariosPage() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
-  if (loading) return <PageLoader />
+  if (loading) return <ScenariosSkeleton />
 
   if (!liveFinancials) {
     return (
@@ -351,35 +360,36 @@ export function ScenariosPage() {
                 Build a plan on the right and save it to compare later.
               </p>
             ) : (
-              <ul className="flex flex-col gap-1.5">
-                {scenarios.map((s) => (
-                  <ScenarioListItem
-                    key={s.id}
-                    scenario={s}
-                    isEditing={editingScenarioId === s.id}
-                    canToggle={can.toggleActiveBaseline}
-                    onLoad={() => handleLoadScenario(s)}
-                    onDelete={() => handleDeleteScenario(s.id)}
-                    onToggle={(v) => handleToggleInclude(s.id, v)}
-                  />
-                ))}
-              </ul>
+              <>
+                <ul className="flex flex-col gap-2">
+                  {scenarios.map((s) => (
+                    <ScenarioListItem
+                      key={s.id}
+                      scenario={s}
+                      isEditing={editingScenarioId === s.id}
+                      canToggle={can.toggleActiveBaseline}
+                      onLoad={() => handleLoadScenario(s)}
+                      onDelete={() => handleDeleteScenario(s.id)}
+                      onToggle={(v) => handleToggleInclude(s.id, v)}
+                    />
+                  ))}
+                </ul>
+                <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
+                  <span>
+                    <span className="num text-slate-700 font-medium">
+                      {scenarios.filter((s) => s.isIncluded).length}
+                    </span>{' '}
+                    of <span className="num">{scenarios.length}</span> in active plan
+                  </span>
+                  {activeBaseline && (
+                    <span className="num text-slate-400">
+                      {(activeBaseline.ratio * 100).toFixed(1)}% SCR
+                    </span>
+                  )}
+                </div>
+              </>
             )}
           </Card>
-
-          {activeBaseline && (
-            <Card className="p-5 bg-violet-50/40 border-violet-100">
-              <div className="meta-label text-violet-700">Active Baseline</div>
-              <div className="num text-[28px] font-semibold text-violet-700 leading-none mt-2">
-                {(activeBaseline.ratio * 100).toFixed(1)}%
-              </div>
-              <p className="text-[11px] text-slate-500 mt-2">
-                {activeBaseline.includedCount === 0
-                  ? 'No scenarios applied — this is your roster-only SCR.'
-                  : `${activeBaseline.includedCount} scenario${activeBaseline.includedCount === 1 ? '' : 's'} applied to projection.`}
-              </p>
-            </Card>
-          )}
         </aside>
 
         {/* Builder */}
@@ -419,6 +429,21 @@ export function ScenariosPage() {
               <ProjectionPanel
                 dryRun={dryRun}
                 financials={liveFinancials}
+                // Plan-status context — drives the header pill + inline switch.
+                // When editing a saved scenario we know its current inclusion;
+                // for a fresh draft we surface a 'Draft — save to include' chip.
+                editingScenario={
+                  editingScenarioId
+                    ? scenarios.find((s) => s.id === editingScenarioId) ?? null
+                    : null
+                }
+                canToggle={can.toggleActiveBaseline}
+                onToggleInclude={handleToggleInclude}
+                otherIncludedCount={
+                  scenarios.filter(
+                    (s) => s.isIncluded && s.id !== editingScenarioId,
+                  ).length
+                }
               />
             </Card>
           )}
@@ -467,14 +492,16 @@ export function ScenariosPage() {
         </div>
       </div>
 
-      {compareOpen && (
-        <CompareModal
-          scenarios={scenarios}
-          financials={liveFinancials}
-          clubName={useClubStore.getState().clubName ?? 'Headroom FC'}
-          onClose={() => setCompareOpen(false)}
-        />
-      )}
+      <AnimatePresence>
+        {compareOpen && (
+          <CompareModal
+            scenarios={scenarios}
+            financials={liveFinancials}
+            clubName={useClubStore.getState().clubName ?? 'Headroom FC'}
+            onClose={() => setCompareOpen(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }
@@ -506,6 +533,11 @@ function PageHeader({
 
 // ---------------------------------------------------------------------------
 // Saved scenario list row
+//
+// Layout: violet left-edge accent (when in plan) + name/meta clickable area +
+// switch + delete icon. The accent makes the in-plan state visible at a glance
+// without reading the switch state. Switch carries the tooltip explaining the
+// action — "include in active baseline" was confusing as a tick.
 // ---------------------------------------------------------------------------
 function ScenarioListItem({
   scenario, isEditing, canToggle, onLoad, onDelete, onToggle,
@@ -518,44 +550,65 @@ function ScenarioListItem({
   onToggle: (v: boolean) => void
 }) {
   const [deleting, setDeleting] = useState(false)
+  const inPlan = scenario.isIncluded
+  const actionCount = scenario.actionCount ?? scenario.actions.length
 
   return (
     <li
       className={cn(
-        'rounded-lg border px-3 py-2.5 transition-colors',
-        isEditing ? 'border-violet-300 bg-violet-50/60' : 'border-slate-200 hover:border-slate-300'
+        'relative rounded-lg border transition-colors overflow-hidden',
+        // Bold violet accent for in-plan rows. Editing state stacks on top
+        // (slightly stronger background so the editing row is identifiable
+        // even when both rows are in-plan).
+        inPlan
+          ? isEditing
+            ? 'border-violet-300 bg-violet-50/70'
+            : 'border-violet-200 bg-violet-50/40 hover:border-violet-300'
+          : isEditing
+          ? 'border-violet-300 bg-violet-50/60'
+          : 'border-slate-200 hover:border-slate-300',
       )}
     >
-      <div className="flex items-start gap-2">
-        {canToggle ? (
-          <label
-            className="inline-flex items-center cursor-pointer pt-0.5"
-            onClick={(e) => e.stopPropagation()}
-            title="Include in Active Baseline"
-          >
-            <input
-              type="checkbox"
-              checked={scenario.isIncluded}
-              onChange={(e) => onToggle(e.target.checked)}
-              className="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-2 focus:ring-violet-500 cursor-pointer accent-violet-600"
-            />
-          </label>
-        ) : (
-          // Read-only display for Finance Analyst — show the included state but no toggle
-          <span
-            className={cn(
-              'inline-block w-4 h-4 mt-0.5 rounded border',
-              scenario.isIncluded ? 'bg-violet-600 border-violet-600' : 'bg-white border-slate-300'
-            )}
-            title="Active Baseline (read-only)"
-          />
+      {/* Left-edge accent bar */}
+      <span
+        className={cn(
+          'absolute left-0 top-0 bottom-0 w-1 transition-colors',
+          inPlan ? 'bg-violet-600' : 'bg-transparent',
         )}
+        aria-hidden="true"
+      />
+      <div className="flex items-center gap-2 pl-3.5 pr-2 py-2.5">
         <button onClick={onLoad} className="flex-1 text-left min-w-0">
           <div className="text-[13px] font-medium text-slate-900 truncate">{scenario.name}</div>
           <div className="text-[11px] text-slate-500 mt-0.5">
-            {scenario.actionCount ?? scenario.actions.length} {(scenario.actionCount ?? scenario.actions.length) === 1 ? 'action' : 'actions'} · {scenario.season}
+            {actionCount} {actionCount === 1 ? 'action' : 'actions'} · {scenario.season}
+            {inPlan && <span className="ml-1.5 text-violet-600 font-medium">· In plan</span>}
           </div>
         </button>
+        {canToggle ? (
+          <Switch
+            checked={inPlan}
+            onChange={onToggle}
+            size="sm"
+            tooltip={
+              inPlan
+                ? 'Remove from active plan'
+                : 'Add to active plan — applies this scenario to your dashboard SCR'
+            }
+            aria-label={inPlan ? 'Remove from active plan' : 'Include in active plan'}
+          />
+        ) : (
+          // Read-only switch for Finance Analyst — visual matches but cannot
+          // be flipped (we render a disabled Switch so the affordance still
+          // reads as a toggle to the user, not as something they should click).
+          <Switch
+            checked={inPlan}
+            onChange={() => undefined}
+            disabled
+            size="sm"
+            aria-label="Active plan (read-only)"
+          />
+        )}
         <button
           onClick={async (e) => {
             e.stopPropagation()
@@ -563,7 +616,7 @@ function ScenarioListItem({
             try { await onDelete() } finally { setDeleting(false) }
           }}
           disabled={deleting}
-          className="text-slate-400 hover:text-red-600 p-1 -m-1"
+          className="text-slate-400 hover:text-red-600 p-1.5 rounded-md hover:bg-red-50 transition-colors"
           aria-label="Delete scenario"
         >
           {deleting ? <Spinner size={11} /> : (
@@ -847,9 +900,19 @@ function PlayerPicker({
 function ProjectionPanel({
   dryRun,
   financials,
+  editingScenario,
+  canToggle,
+  onToggleInclude,
+  otherIncludedCount,
 }: {
   dryRun: ReturnType<typeof computeDryRun>
   financials: ClubFinancialsResponse
+  /** The currently-loaded saved scenario, if any. Null for fresh drafts. */
+  editingScenario: ScenarioDetail | null
+  canToggle: boolean
+  onToggleInclude: (id: string, next: boolean) => void
+  /** Number of OTHER included scenarios feeding the baseline tile. */
+  otherIncludedCount: number
 }) {
   const { before, after } = dryRun
   const thresholds = computeThresholds(after.adjustedRevenue, financials.currentAllowanceRatio)
@@ -859,42 +922,106 @@ function ProjectionPanel({
   const redPct = after.adjustedRevenue > 0 ? (thresholds.redPence / after.adjustedRevenue) * 100 : 85
 
   const status = after.status
+  // Three-state plan status: included | excluded | draft (not saved yet).
+  const planState: 'included' | 'excluded' | 'draft' =
+    !editingScenario ? 'draft' : editingScenario.isIncluded ? 'included' : 'excluded'
+
   const colorMap = {
     green: 'text-green-700 bg-green-50 border-green-200',
     amber: 'text-amber-700 bg-amber-50 border-amber-200',
     red:   'text-red-700 bg-red-50 border-red-200',
   }
 
+  // Baseline subtitle — what's actually contributing to the "before" number.
+  const baselineSubtitle =
+    otherIncludedCount === 0
+      ? 'Roster only'
+      : `Roster + ${otherIncludedCount} other ${otherIncludedCount === 1 ? 'scenario' : 'scenarios'}`
+
   return (
     <div>
-      <div className="flex items-center gap-3 mb-5">
-        <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
-        <div>
-          <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">Live Projection</h3>
-          <p className="text-[12px] text-slate-500 mt-0.5">
-            What this plan does to your active baseline.
-          </p>
+      <div className="flex items-start justify-between gap-3 mb-4 flex-wrap">
+        <div className="flex items-center gap-3">
+          <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
+          <div>
+            <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">Live Projection</h3>
+            <p className="text-[12px] text-slate-500 mt-0.5">
+              What this plan does to your active baseline.
+            </p>
+          </div>
         </div>
+        <PlanStatusChip
+          state={planState}
+          canToggle={canToggle}
+          onToggle={(next) => {
+            if (editingScenario) onToggleInclude(editingScenario.id, next)
+          }}
+        />
       </div>
 
       <div className="grid grid-cols-2 gap-4 mb-5">
+        {/* Active Baseline tile — neutral white card, always */}
         <div className="rounded-xl border border-slate-200 bg-white p-5">
           <div className="meta-label">Active Baseline</div>
-          <div className="num text-[28px] font-semibold text-slate-900 leading-none mt-2">{currentPct.toFixed(1)}%</div>
+          <div className="mt-2">
+            <AnimatedNumber
+              value={currentPct}
+              decimals={1}
+              suffix="%"
+              className="num text-[28px] font-semibold text-slate-900 leading-none"
+            />
+          </div>
           <div className="text-[11px] text-slate-400 mt-2 num">
-            Costs: {formatPence(before.baselineSquadCosts)}
+            Costs: <AnimatedNumber value={before.baselineSquadCosts} format={formatPenceNumber} />
           </div>
+          <div className="text-[11px] text-slate-500 mt-1.5">{baselineSubtitle}</div>
         </div>
-        <div className={cn('rounded-xl border p-5 border-l-4', colorMap[status])}>
+
+        {/* With this plan tile — violet ring when this scenario is currently
+            in the active plan (i.e. this number is what's driving the top-bar
+            SCR), neutral when it's hypothetical. Status border color (green/
+            amber/red) still indicates SCR compliance on the left edge. */}
+        <div
+          className={cn(
+            'rounded-xl border p-5 border-l-4 relative',
+            colorMap[status],
+            planState === 'included' && 'ring-2 ring-violet-400 ring-offset-2 ring-offset-white',
+          )}
+        >
           <div className="meta-label">With this plan</div>
-          <div className="num text-[28px] font-semibold leading-none mt-2">{projectedPct.toFixed(1)}%</div>
-          <div className="text-[11px] text-slate-500 mt-2 num">
-            Costs: {formatPence(after.baselineSquadCosts)}
+          <div className="mt-2">
+            <AnimatedNumber
+              value={projectedPct}
+              decimals={1}
+              suffix="%"
+              className="num text-[28px] font-semibold leading-none"
+            />
           </div>
-          <div className="mt-3">
+          <div className="text-[11px] text-slate-500 mt-2 num">
+            Costs: <AnimatedNumber value={after.baselineSquadCosts} format={formatPenceNumber} />
+          </div>
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
             <StatusBadge status={status}>
               {status === 'green' ? 'Compliant' : status === 'amber' ? 'Levy Zone' : 'Points Risk'}
             </StatusBadge>
+            {planState === 'included' && (
+              <span className="inline-flex items-center gap-1 text-[10.5px] font-medium text-violet-700">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 6 9 17l-5-5" />
+                </svg>
+                Currently driving SCR
+              </span>
+            )}
+            {planState === 'excluded' && (
+              <span className="text-[10.5px] text-slate-500">
+                Hypothetical — flip the switch to apply
+              </span>
+            )}
+            {planState === 'draft' && (
+              <span className="text-[10.5px] text-slate-500">
+                Save the scenario to add it to your active plan
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -905,6 +1032,63 @@ function ProjectionPanel({
         greenPct={greenPct}
         redPct={redPct}
       />
+    </div>
+  )
+}
+
+// Status chip + inline switch above the projection tiles. Communicates which
+// of three states the loaded scenario sits in, and lets the user flip the
+// include state from here without scrolling back to the saved-scenarios rail.
+function PlanStatusChip({
+  state,
+  canToggle,
+  onToggle,
+}: {
+  state: 'included' | 'excluded' | 'draft'
+  canToggle: boolean
+  onToggle: (next: boolean) => void
+}) {
+  if (state === 'included') {
+    return (
+      <div className="inline-flex items-center gap-2.5 rounded-full bg-violet-50 border border-violet-200 pl-3 pr-2 py-1">
+        <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-violet-700">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-600" />
+          In active plan
+        </span>
+        <Switch
+          checked={true}
+          onChange={onToggle}
+          disabled={!canToggle}
+          size="sm"
+          tooltip={canToggle ? 'Remove from active plan' : undefined}
+          aria-label="Remove from active plan"
+        />
+      </div>
+    )
+  }
+  if (state === 'excluded') {
+    return (
+      <div className="inline-flex items-center gap-2.5 rounded-full bg-slate-50 border border-slate-200 pl-3 pr-2 py-1">
+        <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-slate-600">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-400" />
+          Not in plan
+        </span>
+        <Switch
+          checked={false}
+          onChange={onToggle}
+          disabled={!canToggle}
+          size="sm"
+          tooltip={canToggle ? 'Include in active plan — applies this plan to your dashboard SCR' : undefined}
+          aria-label="Include in active plan"
+        />
+      </div>
+    )
+  }
+  // Draft state — no switch (nothing to toggle until saved)
+  return (
+    <div className="inline-flex items-center gap-2 rounded-full bg-slate-50 border border-slate-200 px-3 py-1.5">
+      <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-400" />
+      <span className="text-[12px] font-medium text-slate-600">Draft — save to include</span>
     </div>
   )
 }
@@ -945,13 +1129,23 @@ function CompareModal({
   const baseRatio = baselineNoScenarios.ratio * 100
 
   return (
-    <div
+    <motion.div
       role="dialog"
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-[2px]"
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl border border-slate-200 overflow-hidden">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0, transition: { duration: 0.12 } }}
+        transition={{ duration: 0.16, ease: 'easeOut' }}
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl border border-slate-200 overflow-hidden"
+      >
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
           <h2 className="text-[16px] font-semibold text-slate-900">Compare scenarios</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1 -m-1" aria-label="Close">
@@ -991,8 +1185,8 @@ function CompareModal({
             </Card>
           </div>
         )}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   )
 }
 

@@ -59,10 +59,10 @@ export const RosterRowSchema = z
   .refine((r) => {
     const start = new Date(r.contract_start)
     const maxEnd = new Date(start)
-    maxEnd.setFullYear(start.getFullYear() + 7)
+    maxEnd.setFullYear(start.getFullYear() + 10)
     return new Date(r.contract_end) <= maxEnd
   }, {
-    message: 'Contract cannot exceed 7 years',
+    message: 'Contract cannot exceed 10 years',
     path: ['contract_end'],
   })
   .refine((r) => {
@@ -97,10 +97,10 @@ export const ManualPlayerSchema = z
   .refine((r) => {
     const start = new Date(r.startDate)
     const maxEnd = new Date(start)
-    maxEnd.setFullYear(start.getFullYear() + 7)
+    maxEnd.setFullYear(start.getFullYear() + 10)
     return new Date(r.endDate) <= maxEnd
   }, {
-    message: 'Contract cannot exceed 7 years',
+    message: 'Contract cannot exceed 10 years',
     path: ['endDate'],
   })
   .refine((r) => {
