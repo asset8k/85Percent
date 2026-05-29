@@ -46,15 +46,15 @@ describe('calculateThresholds', () => {
     expect(t.greenThreshold).toBe(17_000_000_00) // £17M
   })
 
-  it('calculates red threshold as green × (1 + allowance)', () => {
+  it('calculates red threshold as revenue × (green + allowance)', () => {
     const t = calculateThresholds(BASE_FINANCIALS)
-    expect(t.redThreshold).toBe(22_100_000_00) // £17M × 1.30 = £22.1M
+    expect(t.redThreshold).toBe(23_000_000_00) // £20M × (0.85 + 0.30) = £20M × 1.15 = £23M
   })
 
   it('respects a reduced allowance from the feedback loop', () => {
     const t = calculateThresholds({ ...BASE_FINANCIALS, currentAllowanceRatio: 0.15 })
-    // £17M × 1.15 = £19.55M; JS float gives floor(1700000000 * 1.15) = 1954999999
-    expect(t.redThreshold).toBe(Math.floor(1_700_000_000 * 1.15))
+    // £20M × (0.85 + 0.15) = £20M × 1.00 = £20M
+    expect(t.redThreshold).toBe(20_000_000_00)
   })
 
   it('calculates correctly when allowance is 0', () => {
@@ -64,7 +64,7 @@ describe('calculateThresholds', () => {
 })
 
 describe('determineStatus', () => {
-  const thresholds = { greenThreshold: 17_000_000_00, redThreshold: 22_100_000_00 }
+  const thresholds = { greenThreshold: 17_000_000_00, redThreshold: 23_000_000_00 }
 
   it('returns green when costs are below green threshold', () => {
     expect(determineStatus(14_000_000_00, thresholds)).toBe('green')
@@ -79,12 +79,12 @@ describe('determineStatus', () => {
   })
 
   it('returns amber at exactly the red threshold', () => {
-    expect(determineStatus(22_100_000_00, thresholds)).toBe('amber')
+    expect(determineStatus(23_000_000_00, thresholds)).toBe('amber')
   })
 
   it('returns red when costs exceed the red threshold', () => {
-    // 2_210_000_001 = £22,100,000.01 — one pence above red threshold
-    expect(determineStatus(2_210_000_001, thresholds)).toBe('red')
+    // £23,000,000.01 — one pence above red threshold
+    expect(determineStatus(2_300_000_001, thresholds)).toBe('red')
   })
 })
 
@@ -126,19 +126,19 @@ describe('calculatePointsDeduction', () => {
   const basePoints = 6
 
   it('returns 0 when not above red threshold', () => {
-    expect(calculatePointsDeduction(20_000_000_00, 22_100_000_00, perUnit, basePoints)).toBe(0)
+    expect(calculatePointsDeduction(20_000_000_00, 23_000_000_00, perUnit, basePoints)).toBe(0)
   })
 
   it('returns minimum 6 points for any red zone breach', () => {
-    // 2_210_000_001 = £22,100,000.01 — one pence above red threshold
-    expect(calculatePointsDeduction(2_210_000_001, 2_210_000_000, perUnit, basePoints)).toBe(6)
+    // £23,000,000.01 — one pence above red threshold
+    expect(calculatePointsDeduction(2_300_000_001, 2_300_000_000, perUnit, basePoints)).toBe(6)
   })
 
   it('adds 1 point per £6.5M above red threshold', () => {
     // £13M above red threshold = 2 extra points → 8 total
     const pts = calculatePointsDeduction(
-      22_100_000_00 + 13_000_000_00,
-      22_100_000_00,
+      23_000_000_00 + 13_000_000_00,
+      23_000_000_00,
       perUnit,
       basePoints
     )
@@ -148,8 +148,8 @@ describe('calculatePointsDeduction', () => {
   it('floors the extra points (does not round up)', () => {
     // £6.49M above = 0 extra → 6 total
     const pts = calculatePointsDeduction(
-      22_100_000_00 + 6_490_000_00,
-      22_100_000_00,
+      23_000_000_00 + 6_490_000_00,
+      23_000_000_00,
       perUnit,
       basePoints
     )
@@ -278,7 +278,7 @@ describe('calculateSCR — full integration', () => {
   })
 
   it('turns red and calculates points when transfer exceeds red threshold', () => {
-    // Revenue £20M, Green £17M, Red £22.1M (30% allowance)
+    // Revenue £20M, Green £17M, Red £23M (30% allowance — additive)
     // Current costs £14M, add £10M annual costs → £24M / £20M = 120% → red
     const massiveTransfer: TransferInput = {
       transferFee: 0,

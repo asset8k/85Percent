@@ -45,12 +45,12 @@ export function actionToEngineInput(action: ScenarioAction): ScenarioActionInput
 // ---------------------------------------------------------------------------
 // SCR status from a ratio + allowance
 // ---------------------------------------------------------------------------
-// EFL: Red Threshold = Green Threshold × (1 + allowance) — multiplicative.
-// For 30% allowance: red = 0.85 × 1.30 = 1.105 (110.5%), not 1.15.
+// EFL/PL: Red Threshold ratio = green ratio + allowance ratio (additive).
+// For 30% allowance: red ratio = 0.85 + 0.30 = 1.15 (115% of revenue).
 
 export function statusFromRatio(ratio: number, allowanceRatio: number): ComplianceStatus {
   const greenRatio = 0.85
-  const redRatio = greenRatio * (1 + allowanceRatio)
+  const redRatio = greenRatio + allowanceRatio
   if (ratio > redRatio) return 'red'
   if (ratio > greenRatio) return 'amber'
   return 'green'
@@ -194,7 +194,9 @@ export function computeDryRun(
 // Replaces inline math in pages so the gauge always renders consistently.
 // ---------------------------------------------------------------------------
 export function computeThresholds(adjustedRevenue: number, allowanceRatio: number) {
-  const green = Math.floor(adjustedRevenue * 0.85)
-  const red   = Math.floor(green * (1 + allowanceRatio))
+  const greenRatio = 0.85
+  const green = Math.floor(adjustedRevenue * greenRatio)
+  // Additive: Red = revenue × (85% + allowance%). For 30% allowance → 115% of revenue.
+  const red   = Math.floor(adjustedRevenue * (greenRatio + allowanceRatio))
   return { greenPence: green, redPence: red }
 }

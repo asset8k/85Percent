@@ -1,5 +1,6 @@
-import { useEffect, useMemo } from 'react'
-import { Outlet, useLocation } from 'react-router-dom'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Link, Outlet, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Sidebar } from './Sidebar'
 import { useClubStore } from '@/stores/club'
@@ -7,8 +8,9 @@ import { StatusBadge } from '@/components/ui/badge'
 import { AnimatedNumber } from '@/components/ui/animated-number'
 import { ProgressBar } from '@/components/ui/progress-bar'
 import { ToastHost } from '@/components/ui/toast'
-import { api } from '@/lib/api'
-import { computeActiveBaseline } from '@/lib/scr'
+import { api, type ClubFinancialsResponse, type ScenarioDetail } from '@/lib/api'
+import { computeActiveBaseline, type ActiveBaseline } from '@/lib/scr'
+import type { ComplianceStatus } from '@headroom/shared'
 
 const DISCLAIMER =
   'Headroom is a decision-support tool. It does not constitute legal or financial advice. Always verify against the official EFL Handbook.'
@@ -73,30 +75,17 @@ export function AppLayout() {
             <span className="capitalize">{pageTitle}</span>
           </div>
 
-          {scrPct !== null && (
-            <motion.div
-              layout
-              className="flex items-center gap-3 px-3 py-1.5 rounded-full bg-violet-50 border border-violet-100 whitespace-nowrap"
-            >
-              <span className="meta-label text-violet-700">{stackedOn ? 'Projected SCR' : 'Current SCR'}</span>
-              <AnimatedNumber
-                value={scrPct}
-                decimals={1}
-                suffix="%"
-                className="num text-[13px] text-slate-900 font-medium"
-              />
-              <span className="w-px h-3.5 bg-violet-200" />
-              <StatusBadge status={scrStatus}>
-                <motion.span
-                  layout
-                  initial={false}
-                  animate={{ backgroundColor: statusDot }}
-                  transition={{ duration: 0.35 }}
-                  className="inline-block w-1.5 h-1.5 rounded-full mr-1.5"
-                />
-                {statusText}
-              </StatusBadge>
-            </motion.div>
+          {scrPct !== null && financials && baseline && (
+            <SCRBadgePill
+              scrPct={scrPct}
+              scrStatus={scrStatus}
+              statusDot={statusDot}
+              statusText={statusText}
+              stackedOn={stackedOn}
+              financials={financials}
+              baseline={baseline}
+              scenarios={scenarios}
+            />
           )}
 
           <div className="flex-1 flex items-center justify-end gap-2.5 min-w-0">
@@ -136,6 +125,340 @@ export function AppLayout() {
           </div>
         </footer>
       </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// SCR pill + breakdown popover
+// ---------------------------------------------------------------------------
+// Pill is a button; on click a portal-anchored popover explains how the value
+// was computed — squad-cost source, revenue composition, and which scenarios
+// (if any) are stacked on top of the Settings baseline.
+
+function fmtGBP(pence: number): string {
+  const pounds = Math.round(pence / 100)
+  if (Math.abs(pounds) >= 1_000_000) return `£${(pounds / 1_000_000).toFixed(1)}M`
+  if (Math.abs(pounds) >= 1_000)     return `£${(pounds / 1_000).toFixed(0)}K`
+  return `£${pounds.toLocaleString('en-GB')}`
+}
+
+interface SCRBadgePillProps {
+  scrPct: number
+  scrStatus: ComplianceStatus
+  statusDot: string
+  statusText: string
+  stackedOn: boolean
+  financials: ClubFinancialsResponse
+  baseline: ActiveBaseline
+  scenarios: ScenarioDetail[]
+}
+
+function SCRBadgePill({
+  scrPct,
+  scrStatus,
+  statusDot,
+  statusText,
+  stackedOn,
+  financials,
+  baseline,
+  scenarios,
+}: SCRBadgePillProps) {
+  const [open, setOpen] = useState(false)
+  const btnRef = useRef<HTMLButtonElement | null>(null)
+  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null)
+
+  // Measure the pill so the popover can hang from its bottom-right edge.
+  useLayoutEffect(() => {
+    if (!open || !btnRef.current) return
+    const update = () => {
+      const r = btnRef.current!.getBoundingClientRect()
+      setAnchor({ top: r.bottom + 8, right: window.innerWidth - r.right })
+    }
+    update()
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+    }
+  }, [open])
+
+  // ESC + outside-click dismiss
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    const onClick = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (btnRef.current?.contains(t)) return
+      const pop = document.getElementById('scr-breakdown-popover')
+      if (pop?.contains(t)) return
+      setOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    document.addEventListener('mousedown', onClick)
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.removeEventListener('mousedown', onClick)
+    }
+  }, [open])
+
+  return (
+    <>
+      <motion.button
+        ref={btnRef}
+        layout
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className={`flex items-center gap-3 px-3 py-1.5 rounded-full bg-violet-50 border whitespace-nowrap transition-colors ${
+          open ? 'border-violet-300 ring-2 ring-violet-200/60' : 'border-violet-100 hover:border-violet-200'
+        }`}
+      >
+        <span className="meta-label text-violet-700">{stackedOn ? 'Projected SCR' : 'Current SCR'}</span>
+        <AnimatedNumber
+          value={scrPct}
+          decimals={1}
+          suffix="%"
+          className="num text-[13px] text-slate-900 font-medium"
+        />
+        <span className="w-px h-3.5 bg-violet-200" />
+        <StatusBadge status={scrStatus}>
+          <motion.span
+            layout
+            initial={false}
+            animate={{ backgroundColor: statusDot }}
+            transition={{ duration: 0.35 }}
+            className="inline-block w-1.5 h-1.5 rounded-full mr-1.5"
+          />
+          {statusText}
+        </StatusBadge>
+        <motion.svg
+          width={11}
+          height={11}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="text-violet-500"
+          animate={{ rotate: open ? 180 : 0 }}
+          transition={{ duration: 0.18 }}
+        >
+          <path d="M6 9l6 6 6-6" />
+        </motion.svg>
+      </motion.button>
+
+      <SCRBreakdownPopover
+        open={open}
+        anchor={anchor}
+        scrPct={scrPct}
+        scrStatus={scrStatus}
+        statusText={statusText}
+        stackedOn={stackedOn}
+        financials={financials}
+        baseline={baseline}
+        scenarios={scenarios}
+        onClose={() => setOpen(false)}
+      />
+    </>
+  )
+}
+
+interface SCRBreakdownPopoverProps {
+  open: boolean
+  anchor: { top: number; right: number } | null
+  scrPct: number
+  scrStatus: ComplianceStatus
+  statusText: string
+  stackedOn: boolean
+  financials: ClubFinancialsResponse
+  baseline: ActiveBaseline
+  scenarios: ScenarioDetail[]
+  onClose: () => void
+}
+
+function SCRBreakdownPopover({
+  open,
+  anchor,
+  scrPct,
+  scrStatus,
+  statusText,
+  stackedOn,
+  financials,
+  baseline,
+  scenarios,
+  onClose,
+}: SCRBreakdownPopoverProps) {
+  const included = useMemo(() => scenarios.filter((s) => s.isIncluded), [scenarios])
+
+  // "Settings-only" SCR — what the pill would read with no scenarios stacked.
+  // Lets the popover surface the delta the scenarios add.
+  const settingsOnly = useMemo(
+    () => computeActiveBaseline(financials, []),
+    [financials],
+  )
+  const settingsOnlyPct = settingsOnly.ratio * 100
+  const deltaPct = scrPct - settingsOnlyPct
+  const deltaAbs = Math.abs(deltaPct)
+  const deltaDir = deltaPct > 0.05 ? 'up' : deltaPct < -0.05 ? 'down' : 'flat'
+
+  const squadSrc = financials.squadCostsMode === 'manual'
+    ? 'Manual override'
+    : 'Derived from active roster'
+
+  const statusColor = scrStatus === 'green' ? '#16a34a' : scrStatus === 'amber' ? '#f59e0b' : '#dc2626'
+
+  if (!anchor) return null
+
+  return createPortal(
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          id="scr-breakdown-popover"
+          role="dialog"
+          aria-label="Projected SCR breakdown"
+          initial={{ opacity: 0, y: -4, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -4, scale: 0.98, transition: { duration: 0.12 } }}
+          transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+          style={{
+            position: 'fixed',
+            top: anchor.top,
+            right: anchor.right,
+            zIndex: 50,
+            width: 360,
+            transformOrigin: 'top right',
+          }}
+          className="rounded-xl bg-white shadow-[0_18px_40px_-12px_rgba(15,23,42,0.18),0_4px_10px_-6px_rgba(15,23,42,0.08)] ring-1 ring-slate-200/80 overflow-hidden"
+        >
+          {/* Header */}
+          <div className="px-4 pt-4 pb-3 border-b border-slate-100">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="meta-label text-violet-700">{stackedOn ? 'Projected SCR' : 'Current SCR'}</div>
+                <div className="flex items-baseline gap-2 mt-1">
+                  <span className="num text-[22px] font-semibold text-slate-900 tabular-nums">{scrPct.toFixed(1)}%</span>
+                  <span
+                    className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium"
+                    style={{ backgroundColor: `${statusColor}1a`, color: statusColor }}
+                  >
+                    <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ backgroundColor: statusColor }} />
+                    {statusText}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={onClose}
+                aria-label="Close breakdown"
+                className="text-slate-400 hover:text-slate-600 -mr-1 mt-0.5"
+              >
+                <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M18 6L6 18" /><path d="M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            {stackedOn && (
+              <div className="mt-2 flex items-center gap-1.5 text-[11.5px]">
+                <span className="text-slate-500">Settings only:</span>
+                <span className="num text-slate-700 font-medium tabular-nums">{settingsOnlyPct.toFixed(1)}%</span>
+                {deltaDir !== 'flat' && (
+                  <span
+                    className={`inline-flex items-center gap-0.5 num font-medium tabular-nums ${
+                      deltaDir === 'up' ? 'text-red-600' : 'text-emerald-600'
+                    }`}
+                  >
+                    {deltaDir === 'up' ? '↑' : '↓'}{deltaAbs.toFixed(1)} pp
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Inputs from Settings */}
+          <div className="px-4 py-3 border-b border-slate-100">
+            <div className="meta-label mb-2">From Settings</div>
+            <BreakdownRow label="Football-related revenue" value={fmtGBP(financials.footballRelatedRevenue)} />
+            {financials.ownerEquityUsed1yr != null && financials.ownerEquityUsed1yr > 0 && (
+              <BreakdownRow label="Owner-equity top-up (1yr)" value={`+ ${fmtGBP(financials.ownerEquityUsed1yr)}`} />
+            )}
+            <BreakdownRow
+              label="Squad costs"
+              value={fmtGBP(financials.currentSquadCosts)}
+              hint={squadSrc}
+            />
+            <BreakdownRow
+              label="Current allowance"
+              value={`${(financials.currentAllowanceRatio * 100).toFixed(0)}%`}
+            />
+          </div>
+
+          {/* Scenarios stacked */}
+          <div className="px-4 py-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="meta-label">Scenarios stacked</div>
+              <span className="text-[11px] text-slate-400">{included.length} of {scenarios.length}</span>
+            </div>
+            {included.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-slate-200 px-3 py-2.5">
+                <div className="text-[12.5px] text-slate-600">No scenarios included.</div>
+                <div className="text-[11px] text-slate-400 mt-0.5">
+                  SCR is calculated from Settings + your active roster.
+                </div>
+              </div>
+            ) : (
+              <ul className="space-y-1">
+                {included.map((s) => (
+                  <li
+                    key={s.id}
+                    className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 bg-violet-50/60 ring-1 ring-violet-100/70"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-500 flex-shrink-0" />
+                      <span className="text-[12.5px] text-slate-800 font-medium truncate">{s.name}</span>
+                    </div>
+                    <span className="text-[11px] text-slate-400 num flex-shrink-0">
+                      {s.actions.length} {s.actions.length === 1 ? 'action' : 'actions'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Footer link */}
+          <div className="px-4 pt-1 pb-3 border-t border-slate-100 bg-slate-50/40 flex items-center justify-between">
+            <span className="text-[11px] text-slate-400">
+              Adjusted revenue: <span className="num text-slate-600">{fmtGBP(baseline.adjustedRevenue)}</span>
+            </span>
+            <Link
+              to="/scenarios"
+              onClick={onClose}
+              className="text-[11.5px] font-medium text-violet-600 hover:text-violet-700 inline-flex items-center gap-0.5"
+            >
+              Manage scenarios
+              <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12h14" /><path d="M13 6l6 6-6 6" />
+              </svg>
+            </Link>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body,
+  )
+}
+
+function BreakdownRow({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-1">
+      <div className="min-w-0">
+        <div className="text-[12.5px] text-slate-600 truncate">{label}</div>
+        {hint && <div className="text-[10.5px] text-slate-400 mt-0.5">{hint}</div>}
+      </div>
+      <div className="num text-[12.5px] text-slate-900 font-medium tabular-nums">{value}</div>
     </div>
   )
 }

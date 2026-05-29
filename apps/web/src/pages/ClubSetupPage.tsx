@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
 import { Button } from '@/components/ui/button'
@@ -18,7 +19,6 @@ function formatPenceNumber(pence: number) {
 }
 import { Card } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/badge'
-import { formatPence } from '@headroom/shared'
 import { EFL_CHAMPIONSHIP_CONFIG } from '@headroom/shared'
 import { calculatePromotedClubRevenueUplift, PROMOTED_CLUB_DEFAULT_UPLIFT_FACTOR } from '@headroom/engine'
 import { cn } from '@/lib/utils'
@@ -54,8 +54,12 @@ export function ClubSetupPage() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
 
-  // League switch state
+  // League switch state — `pendingLeague` is the optimistic target. The sliding
+  // pill animates to it immediately on click; if the API call fails we revert.
   const [leagueSaving, setLeagueSaving] = useState(false)
+  const [pendingLeague, setPendingLeague] = useState<'efl-championship' | 'premier-league' | null>(null)
+  const effectiveLeague: 'efl-championship' | 'premier-league' =
+    pendingLeague ?? (leagueId === 'premier-league' ? 'premier-league' : 'efl-championship')
 
   // Promoted-club uplift state (only relevant when on Premier League)
   const [showUplift, setShowUplift] = useState(false)
@@ -111,14 +115,16 @@ export function ClubSetupPage() {
 
   if (watchRevenue && watchRevenue > 0 && watchAllowance >= 0) {
     const adjustedRevenuePounds = watchRevenue + (watchEquity ?? 0)
-    greenThreshold = Math.floor(adjustedRevenuePounds * 100 * EFL_CHAMPIONSHIP_CONFIG.greenThresholdRatio)
-    redThreshold = Math.floor(greenThreshold * (1 + watchAllowance))
+    const greenRatio = EFL_CHAMPIONSHIP_CONFIG.greenThresholdRatio
+    greenThreshold = Math.floor(adjustedRevenuePounds * 100 * greenRatio)
+    // Additive: Red = revenue × (green% + allowance%). 30% allowance → 115% of revenue.
+    redThreshold = Math.floor(adjustedRevenuePounds * 100 * (greenRatio + watchAllowance))
     if (effectiveSquadCostsPounds != null && effectiveSquadCostsPounds >= 0) {
       const squadPence = effectiveSquadCostsPounds * 100
       currentPct = (squadPence / (adjustedRevenuePounds * 100)) * 100
-      scrStatus = currentPct > EFL_CHAMPIONSHIP_CONFIG.greenThresholdRatio * (1 + watchAllowance) * 100
+      scrStatus = currentPct > (greenRatio + watchAllowance) * 100
         ? 'red'
-        : currentPct > EFL_CHAMPIONSHIP_CONFIG.greenThresholdRatio * 100
+        : currentPct > greenRatio * 100
         ? 'amber'
         : 'green'
       headroom = greenThreshold - squadPence
@@ -144,6 +150,7 @@ export function ClubSetupPage() {
   const switchLeague = async (next: 'efl-championship' | 'premier-league') => {
     if (leagueId === next || leagueSaving) return
     setLeagueSaving(true)
+    setPendingLeague(next)
     setError('')
     try {
       await api.club.setLeague(next)
@@ -155,6 +162,7 @@ export function ClubSetupPage() {
       toast.error('League change failed', msg)
     } finally {
       setLeagueSaving(false)
+      setPendingLeague(null)
     }
   }
 
@@ -187,93 +195,122 @@ export function ClubSetupPage() {
               Switches the regulatory framework. Premier League adds the three SSR solvency tests; Championship adds the £33M owner-equity top-up allowance.
             </p>
           </div>
-          <div className="inline-flex bg-slate-100 rounded-lg p-1">
-            <button
-              onClick={() => switchLeague('efl-championship')}
-              disabled={leagueSaving}
-              className={cn(
-                'px-4 py-1.5 text-[13px] font-medium rounded-md transition-colors',
-                leagueId === 'efl-championship'
-                  ? 'bg-white text-violet-700 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900',
-              )}
-            >
-              EFL Championship
-            </button>
-            <button
-              onClick={() => switchLeague('premier-league')}
-              disabled={leagueSaving}
-              className={cn(
-                'px-4 py-1.5 text-[13px] font-medium rounded-md transition-colors',
-                leagueId === 'premier-league'
-                  ? 'bg-white text-violet-700 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900',
-              )}
-            >
-              Premier League
-              {leagueSaving && leagueId !== 'premier-league' && <Spinner size={11} />}
-            </button>
-          </div>
+          <LeagueSwitch
+            value={effectiveLeague}
+            pending={pendingLeague}
+            disabled={leagueSaving}
+            onChange={switchLeague}
+          />
         </div>
 
         {/* Promoted-club uplift — only when on PL */}
         {leagueId === 'premier-league' && (
           <div className="mt-5 pt-5 border-t border-slate-100">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="meta-label">Just promoted from the Championship?</div>
-                <p className="text-[12px] text-slate-500 mt-1 max-w-md">
-                  Estimate Year-1 PL revenue from your last Championship season. Editable assumption.
-                </p>
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-md bg-violet-100 text-violet-600 flex-shrink-0">
+                  <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M7 17L17 7" />
+                    <path d="M8 7h9v9" />
+                  </svg>
+                </span>
+                <div>
+                  <div className="text-[13px] font-semibold text-slate-900">Just promoted from the Championship?</div>
+                  <p className="text-[12px] text-slate-500 mt-0.5 max-w-md">
+                    Estimate Year-1 PL revenue from your last Championship season. Editable assumption.
+                  </p>
+                </div>
               </div>
               <button
                 onClick={() => setShowUplift((v) => !v)}
-                className="text-[12px] font-medium text-violet-600 hover:text-violet-700"
+                className="text-[12px] font-medium text-violet-600 hover:text-violet-700 flex-shrink-0 whitespace-nowrap"
               >
-                {showUplift ? 'Hide' : 'Use uplift estimator'}
+                {showUplift ? 'Hide estimator' : 'Use uplift estimator'}
               </button>
             </div>
 
-            {showUplift && (
-              <div className="mt-4 rounded-lg border border-violet-100 bg-violet-50/40 p-4 grid grid-cols-3 gap-4 items-end">
-                <label className="block">
-                  <span className="meta-label block mb-1.5">Last Championship revenue (£)</span>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[14px]">£</span>
-                    <NumericInput
-                      value={championshipRevenuePounds}
-                      onChange={setChampionshipRevenuePounds}
-                      className="w-full pl-7 pr-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white num focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
-                    />
+            <AnimatePresence initial={false}>
+              {showUplift && (
+                <motion.div
+                  key="uplift"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                  className="overflow-hidden"
+                >
+                  <div className="mt-4 rounded-xl border border-violet-200/60 bg-gradient-to-br from-violet-50/60 via-white to-violet-50/30 p-5">
+                    <div className="grid items-end gap-3" style={{ gridTemplateColumns: '1fr auto 1fr auto 1.2fr' }}>
+                      <label className="block">
+                        <span className="meta-label block mb-1.5">Championship revenue</span>
+                        <div className="relative">
+                          <span className="num absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">£</span>
+                          <NumericInput
+                            value={championshipRevenuePounds}
+                            onChange={setChampionshipRevenuePounds}
+                            className="w-full pl-7 pr-3 py-2.5 text-[14px] rounded-lg border border-slate-200 bg-white num focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
+                          />
+                        </div>
+                      </label>
+
+                      <div className="self-end pb-3 text-slate-300 text-[20px] font-light leading-none select-none">×</div>
+
+                      <label className="block">
+                        <span className="meta-label block mb-1.5">Uplift factor</span>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="1"
+                            max="10"
+                            value={upliftFactor}
+                            onChange={(e) => setUpliftFactor(parseFloat(e.target.value) || PROMOTED_CLUB_DEFAULT_UPLIFT_FACTOR)}
+                            className="w-full pl-3 pr-7 py-2.5 text-[14px] rounded-lg border border-slate-200 bg-white num focus:outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
+                          />
+                          <span className="num absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">×</span>
+                        </div>
+                      </label>
+
+                      <div className="self-end pb-3 text-violet-400">
+                        <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M5 12h14" />
+                          <path d="M13 6l6 6-6 6" />
+                        </svg>
+                      </div>
+
+                      <div className="rounded-lg bg-white border border-violet-200/70 px-4 py-2.5 shadow-sm">
+                        <div className="meta-label">Estimated PL revenue</div>
+                        <div className="num text-[20px] font-semibold text-slate-900 leading-none mt-1.5 tabular-nums">
+                          {upliftPence > 0 ? (
+                            <AnimatedNumber value={upliftPence} format={formatPenceNumber} duration={0.45} />
+                          ) : (
+                            '—'
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between gap-3">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-violet-100/80 text-violet-700 text-[11px] font-medium">
+                        <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M7 17L17 7" />
+                          <path d="M8 7h9v9" />
+                        </svg>
+                        {upliftFactor.toFixed(1)}× revenue jump
+                      </span>
+                      <Button
+                        type="button"
+                        onClick={applyUplift}
+                        disabled={upliftPence <= 0}
+                        size="sm"
+                      >
+                        Apply to revenue
+                      </Button>
+                    </div>
                   </div>
-                </label>
-                <label className="block">
-                  <span className="meta-label block mb-1.5">Uplift factor (×)</span>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="1"
-                    max="10"
-                    value={upliftFactor}
-                    onChange={(e) => setUpliftFactor(parseFloat(e.target.value) || PROMOTED_CLUB_DEFAULT_UPLIFT_FACTOR)}
-                    className="w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white num focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
-                  />
-                </label>
-                <div>
-                  <div className="meta-label mb-1.5">Estimated PL revenue</div>
-                  <div className="num text-[20px] font-medium text-slate-900 leading-none mb-2">
-                    {upliftPence > 0 ? formatPence(upliftPence) : '—'}
-                  </div>
-                  <button
-                    onClick={applyUplift}
-                    disabled={upliftPence <= 0}
-                    className="text-[12px] font-medium text-violet-600 hover:text-violet-700 disabled:opacity-50"
-                  >
-                    Apply to revenue field →
-                  </button>
-                </div>
-              </div>
-            )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
       </Card>
@@ -1170,6 +1207,95 @@ function AllowanceInput({
         className={inputCls(hasError, 'pr-8')}
       />
       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 select-none pointer-events-none">%</span>
+    </div>
+  )
+}
+
+// Animated 2-way switch for league selection. The white pill slides via
+// `layoutId` (FLIP), giving a continuous transition rather than a colour
+// snap. While the API call is in flight we render the target option in a
+// "loading" state — pill slides immediately, then a thin progress bar
+// underlines the pending option until the server confirms.
+function LeagueSwitch({
+  value,
+  pending,
+  disabled,
+  onChange,
+}: {
+  value: 'efl-championship' | 'premier-league'
+  pending: 'efl-championship' | 'premier-league' | null
+  disabled: boolean
+  onChange: (next: 'efl-championship' | 'premier-league') => void
+}) {
+  const options: { id: 'efl-championship' | 'premier-league'; label: string }[] = [
+    { id: 'efl-championship', label: 'EFL Championship' },
+    { id: 'premier-league', label: 'Premier League' },
+  ]
+  return (
+    <div
+      role="tablist"
+      aria-label="League"
+      className="relative inline-flex items-center bg-slate-100 rounded-lg p-1 overflow-hidden"
+    >
+      {options.map((opt) => {
+        const isActive = value === opt.id
+        const isPending = pending === opt.id
+        return (
+          <button
+            key={opt.id}
+            type="button"
+            role="tab"
+            aria-selected={isActive}
+            disabled={disabled}
+            onClick={() => onChange(opt.id)}
+            className={cn(
+              'relative isolate px-4 py-1.5 text-[13px] font-medium rounded-md transition-colors duration-200',
+              isActive ? 'text-violet-700' : 'text-slate-500 hover:text-slate-800',
+              disabled && !isActive ? 'cursor-not-allowed opacity-60' : '',
+              disabled && isActive ? 'cursor-default' : '',
+            )}
+          >
+            {isActive && (
+              <motion.span
+                layoutId="league-pill"
+                className="absolute inset-0 -z-10 rounded-md bg-white shadow-sm ring-1 ring-slate-200/60"
+                transition={{ type: 'spring', stiffness: 480, damping: 38, mass: 0.6 }}
+              />
+            )}
+            <span className="relative z-10 inline-flex items-center gap-1.5">
+              {opt.label}
+              <AnimatePresence>
+                {isPending && (
+                  <motion.span
+                    key="spin"
+                    initial={{ opacity: 0, width: 0 }}
+                    animate={{ opacity: 1, width: 14 }}
+                    exit={{ opacity: 0, width: 0 }}
+                    transition={{ duration: 0.15 }}
+                    className="inline-flex overflow-hidden"
+                  >
+                    <Spinner size={11} />
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </span>
+            {/* Underline progress bar while the request is in flight */}
+            <AnimatePresence>
+              {isPending && (
+                <motion.span
+                  key="bar"
+                  initial={{ scaleX: 0 }}
+                  animate={{ scaleX: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
+                  style={{ transformOrigin: 'left' }}
+                  className="pointer-events-none absolute left-2 right-2 bottom-1 h-[2px] rounded-full bg-violet-500/70"
+                />
+              )}
+            </AnimatePresence>
+          </button>
+        )
+      })}
     </div>
   )
 }

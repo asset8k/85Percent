@@ -1775,3 +1775,75 @@ Installed `framer-motion` (~50KB gzip). Built a complete animation system:
 - Web production build: 1.81 MB / 539 KB gzipped (+49 KB for framer-motion, as estimated)
 - Manual checks: route transitions, modal fades, gauge sweep on scenario toggle, count-up on Dashboard / Scenarios / Settings, archive restore + delete flow, manual squad-costs mode end-to-end, invite signup flow with prefilled email, 8-digit OTP layout
 - DB migration **not yet applied** to live Supabase — user to run `pnpm --filter @headroom/api exec prisma migrate deploy` when ready
+
+---
+
+## Session 17 — Settings polish, SCR breakdown popover, and Red Threshold math fix (2026-05-29)
+
+Continuation of post-MVP 2.0 polish. Three focused asks plus a regulatory-math bug surfaced by the user.
+
+### Settings: League switch + promoted-club section
+
+- **League switch is now a magic-ink toggle.** Replaced the two-button colour swap with a `LeagueSwitch` component in [apps/web/src/pages/ClubSetupPage.tsx](apps/web/src/pages/ClubSetupPage.tsx#L1227-L1309). A single `motion.span` with `layoutId="league-pill"` slides between tabs via Framer FLIP (`spring stiffness 480, damping 38`) instead of cutting. No more snap; the pill feels physically continuous between EFL and PL.
+- **Loader actually works in both directions now.** Old code only showed the spinner when switching *to* PL (`leagueId !== 'premier-league'` happened to bias one way). New `pendingLeague` state drives an optimistic pill slide on click — the pill animates to the target *immediately*, and a width-animated spinner fades in inside the target tab. A thin violet underline grows left→right beneath the pending tab while the API call resolves. On failure, `pendingLeague` is cleared and the pill snaps back.
+- **Promoted-from-Championship redesign.** Old card was a flat `border-violet-100 bg-violet-50/40` 3-column grid that the user called "ugly and simple". Replaced with: violet-chip header with an uplift arrow icon, an `AnimatePresence` height+opacity collapse, a gradient card body (`from-violet-50/60 via-white to-violet-50/30`), and a 5-column visual equation (`revenue × factor → result`) where the `×` and `→` glyphs sit in their own dedicated columns. The result is a raised white tile with `AnimatedNumber` counting up the £. Footer row shows a pill-shaped "2.5× revenue jump" badge alongside a proper `Button` instead of an inline link.
+
+### DB migration applied
+
+- Production hit `500 Failed to save financials` on PUT `/club/financials` because the `squad_costs_mode` / `manual_squad_costs` columns added in Session 16 weren't actually deployed.
+- Prisma's history was out of sync (`P3005` from `migrate deploy` — pre-MVP-2.0 migrations had been applied via `db push` but not recorded). Resolved 3 prior migrations as `applied` to backfill the `_prisma_migrations` table, then `prisma migrate deploy` ran the one truly-pending migration and added both columns + the CHECK constraint to live Supabase. Migration status now: "Database schema is up to date."
+
+### SCR breakdown popover (top-bar pill)
+
+- The top-bar Projected/Current SCR pill is now clickable. Click opens a portal-rendered popover anchored to the pill's bottom-right ([apps/web/src/components/layout/AppLayout.tsx:131-373](apps/web/src/components/layout/AppLayout.tsx#L131-L373)) that explains how the number was assembled.
+- Sections:
+  1. **Header** — title (`Current SCR` if no scenarios stacked, `Projected SCR` otherwise), big SCR % with status chip; when stacked, an extra sub-line "Settings only: X% ↑ Y pp" makes the scenario delta obvious.
+  2. **From Settings** — football-related revenue, owner-equity top-up (1yr) if any, squad costs with a source hint ("Derived from active roster" / "Manual override"), current allowance.
+  3. **Scenarios stacked** — `N of M` counter and a violet-tinted list of each included scenario's **name** + action count. Empty state: dashed-border card explaining "SCR is calculated from Settings + your active roster."
+  4. **Footer** — adjusted-revenue line + "Manage scenarios →" link.
+- Dismiss on Esc, outside click, close ×, or footer link (auto-closes). Chevron on the pill rotates 180° via Framer when open. Position re-measures on `resize` and `scroll` so the popover stays glued to the pill in a sticky header.
+- Pulled `computeActiveBaseline(financials, [])` once at render to derive the "Settings-only" SCR for the delta line — settings-only is the same as current-baseline with `included.length === 0`.
+
+### Bug fix: Red Threshold math (regulatory-additive, not multiplicative)
+
+User flagged: UI showed "RED THRESHOLD (115%) £55,250,000" for revenue £50M / 30% allowance, but `0.85 × £50M = £42.5M` and `1.15 × £50M = £57.5M` — the £55.25M was `green × (1 + allowance) = £42.5M × 1.30 = £55.25M`, i.e. 110.5% of revenue, not 115%. **Label and value disagreed.**
+
+Root cause: three sites coded the threshold multiplicatively (`red = green × (1 + allowance)`) but the label was computed additively (`green% + allowance%`). The multiplicative formula was even commented as deliberate in [apps/web/src/lib/scr.ts](apps/web/src/lib/scr.ts#L46-L49).
+
+Per the regulatory framework (EFL/PL SCR rule), the allowance is **additive on top of the baseline cap**:
+
+```
+Red Threshold = Revenue × (greenRatio + allowanceRatio)
+              = Revenue × (0.85 + 0.30) = Revenue × 1.15
+```
+
+Fixed in three sources of truth:
+
+- [packages/engine/src/thresholds.ts:19](packages/engine/src/thresholds.ts#L19) — canonical engine: `red = floor(adjustedRevenue × (greenRatio + allowance))`. JSDoc rewritten to spell out the formula and give the £50M / 30% example as a counter-example to the old bug.
+- [apps/web/src/lib/scr.ts:53](apps/web/src/lib/scr.ts#L53) — `statusFromRatio`: `redRatio = greenRatio + allowance` (was `× (1 + allowance)`).
+- [apps/web/src/lib/scr.ts:198-199](apps/web/src/lib/scr.ts#L198-L199) — `computeThresholds`: red is computed direct from revenue, not from green.
+- [apps/web/src/pages/ClubSetupPage.tsx:121-126](apps/web/src/pages/ClubSetupPage.tsx#L121-L126) — Settings right-rail computation + amber/red zone classifier both switched to additive.
+
+Engine tests (95 total) updated for the new BASE_FINANCIALS fixture math:
+
+- BASE: revenue £20M, 30% allowance → red was £22.1M, **now £23M** (1.15 × £20M).
+- Reduced-allowance test (15%): red was `floor(£17M × 1.15) = £19,549,999`, **now £20M** (1.00 × £20M).
+- Zero-allowance test: red === green still holds under additive ✓.
+- `determineStatus` thresholds object + 4 `calculatePointsDeduction` tests + 1 `calculateSCR` comment all updated to the new red value.
+
+Verification: engine tests 95/95 passing, web typecheck 0 errors. The amber zone is now slightly wider under any positive allowance — a previously-red squad-cost figure may now classify as amber, which is the intended regulatory meaning. The Dashboard gauge, Scenarios projection, SSR projections, PDF exports, comparison PDF, and the new SCR breakdown popover all consume the fixed helpers, so they inherit the correction with no further changes.
+
+### Files changed
+
+- `apps/web/src/components/layout/AppLayout.tsx`
+- `apps/web/src/lib/scr.ts`
+- `apps/web/src/pages/ClubSetupPage.tsx`
+- `packages/engine/src/thresholds.ts`
+- `packages/engine/tests/engine.test.ts`
+- `BUILD_LOG.md`
+
+### Verification
+
+- Engine tests: 95/95 passing
+- Web typecheck: 0 errors
+- DB migration `20260528000001_squad_costs_mode` applied to live Supabase (status: "Database schema is up to date")
