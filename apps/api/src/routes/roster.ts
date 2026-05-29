@@ -27,10 +27,16 @@ import {
   RosterRowSchema,
   ManualPlayerSchema,
   ContractPatchSchema,
+  ManagerInputSchema,
+  ManagerPatchSchema,
+  PhasePatchSchema,
+  ExtendContractSchema,
   type RosterStagingRow,
   type PlayerWithContract,
+  type ManagerWithContract,
+  type ContractPhase,
 } from '@headroom/shared'
-import { currentBookValuePence } from '@headroom/engine'
+import { currentBookValuePence, calculateRemainingBookValue } from '@headroom/engine'
 
 // Roles permitted to mutate the roster (Phase 5 §5.2 role matrix).
 function canMutateRoster(role: string): boolean {
@@ -207,6 +213,57 @@ function buildPlayerResponse(
     createdAt: String(player['created_at']),
     contract: contractOut,
     monthsToExpiry,
+  }
+}
+
+// Months from now until an ISO date (negative if already past).
+function monthsUntil(endISO: string): number {
+  const now = new Date()
+  const end = new Date(endISO + 'T00:00:00Z')
+  return (end.getUTCFullYear() - now.getUTCFullYear()) * 12 + (end.getUTCMonth() - now.getUTCMonth())
+}
+
+// Normalise a `contracts` or `manager_contracts` row into the wire-format
+// ContractPhase. `feePence` is read from the table-specific fee column by the
+// caller (transfer_fee for players, compensation_fee for managers). Book value
+// is recomputed live (capped at 5 years) rather than trusting the stored snapshot.
+function buildPhase(row: Record<string, unknown>, feePence: number): ContractPhase {
+  const startDate = String(row['start_date']).slice(0, 10)
+  const endDate   = String(row['end_date']).slice(0, 10)
+  const startObj  = new Date(startDate + 'T00:00:00Z')
+  const endObj    = new Date(endDate   + 'T00:00:00Z')
+  return {
+    id: String(row['id']),
+    phaseType: row['phase_type'] === 'EXTENSION' ? 'EXTENSION' : 'INITIAL',
+    isCurrent: Boolean(row['is_current']),
+    feePence,
+    annualWagePence: Number(row['annual_wage']),
+    agentFeePence:   Number(row['agent_fee']),
+    startDate,
+    endDate,
+    contractLengthYears: Number(row['contract_length_years']),
+    bookValuePence: currentBookValuePence(feePence, startObj, endObj, new Date()),
+    supersededAt: row['superseded_at'] == null ? null : String(row['superseded_at']),
+    createdAt: String(row['created_at']),
+  }
+}
+
+// Assemble a ManagerWithContract from a manager row + its contract phases.
+// Phases are expected sorted newest-first; the current phase drives expiry.
+function buildManagerResponse(
+  manager: Record<string, unknown>,
+  phases: ContractPhase[]
+): ManagerWithContract {
+  const current = phases.find((p) => p.isCurrent) ?? null
+  return {
+    id: String(manager['id']),
+    clubId: String(manager['club_id']),
+    name: String(manager['name']),
+    isActive: Boolean(manager['is_active']),
+    createdAt: String(manager['created_at']),
+    contract: current,
+    phases,
+    monthsToExpiry: current ? monthsUntil(current.endDate) : null,
   }
 }
 
@@ -889,6 +946,568 @@ export async function rosterRoutes(app: FastifyInstance) {
     } catch (err) {
       request.log.error({ err }, 'DELETE /roster/player/:id failed')
       return reply.status(500).send({ error: 'Failed to delete player' })
+    }
+  })
+
+  // -------------------------------------------------------------------- GET /roster/player/:id/phases
+  // Full contract ledger for a player (all phases, newest first) for the ledger UI.
+  app.get('/roster/player/:id/phases', async (request, reply) => {
+    const { id } = request.params as { id: string }
+    try {
+      const { data: player, error: pErr } = await supabase
+        .from('players')
+        .select('id')
+        .eq('id', id)
+        .eq('club_id', request.clubId)
+        .maybeSingle()
+      if (pErr) throw pErr
+      if (!player) return reply.status(404).send({ error: 'Player not found' })
+
+      const { data: rows, error } = await supabase
+        .from('contracts')
+        .select('*')
+        .eq('player_id', id)
+        .eq('club_id', request.clubId)
+        .order('start_date', { ascending: false })
+      if (error) throw error
+
+      const phases = (rows ?? []).map((r) => {
+        const row = r as Record<string, unknown>
+        return buildPhase(row, Number(row['transfer_fee']))
+      })
+      return reply.send({ phases })
+    } catch (err) {
+      request.log.error({ err }, 'GET /roster/player/:id/phases failed')
+      return reply.status(500).send({ error: 'Failed to load contract phases' })
+    }
+  })
+
+  // -------------------------------------------------------------------- POST /roster/player/:id/extend
+  // Log a contract extension. Transactionally supersedes the current phase and
+  // inserts a new EXTENSION phase whose principal is the carried book value of
+  // the old deal on the effective date. (No REST transactions — we clear
+  // is_current on the old row first to respect the one-current partial unique
+  // index, then insert; on insert failure we revert the supersede.)
+  app.post('/roster/player/:id/extend', async (request, reply) => {
+    if (!canMutateRoster(request.userRole)) {
+      return reply.status(403).send({ error: 'Insufficient permissions' })
+    }
+    const { id } = request.params as { id: string }
+    const parsed = ExtendContractSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.flatten() })
+    }
+    const { effectiveDate, newEndDate, newWeeklyWagePence, newAgentFeePence } = parsed.data
+
+    try {
+      const { data: player, error: pErr } = await supabase
+        .from('players')
+        .select('id, is_active')
+        .eq('id', id)
+        .eq('club_id', request.clubId)
+        .maybeSingle()
+      if (pErr) throw pErr
+      if (!player) return reply.status(404).send({ error: 'Player not found' })
+
+      const { data: current, error: curErr } = await supabase
+        .from('contracts')
+        .select('*')
+        .eq('player_id', id)
+        .eq('club_id', request.clubId)
+        .eq('is_current', true)
+        .maybeSingle()
+      if (curErr) throw curErr
+      if (!current) return reply.status(409).send({ error: 'Player has no current contract to extend' })
+
+      const oldStart = new Date(String(current.start_date).slice(0, 10) + 'T00:00:00Z')
+      const oldEnd   = new Date(String(current.end_date).slice(0, 10) + 'T00:00:00Z')
+      const effObj   = new Date(effectiveDate + 'T00:00:00Z')
+      const carried  = calculateRemainingBookValue(
+        { feePence: Number(current.transfer_fee), startDate: oldStart, endDate: oldEnd },
+        effObj
+      )
+
+      const annualWage = newWeeklyWagePence * 52
+      const newEndObj  = new Date(newEndDate + 'T00:00:00Z')
+      const newBookValue = currentBookValuePence(carried, effObj, newEndObj, new Date())
+      const nowISO = new Date().toISOString()
+      const newId  = randomUUID()
+
+      // 1. Supersede the old phase (clear is_current before inserting the new one).
+      const { error: supErr } = await supabase
+        .from('contracts')
+        .update({ is_current: false, is_active: false, superseded_at: nowISO, updated_at: nowISO })
+        .eq('id', current.id)
+        .eq('club_id', request.clubId)
+      if (supErr) throw supErr
+
+      // 2. Insert the new EXTENSION phase carrying the old book value as principal.
+      const { error: insErr } = await supabase.from('contracts').insert({
+        id: newId,
+        player_id: id,
+        club_id: request.clubId,
+        transfer_fee: carried,
+        annual_wage: annualWage,
+        agent_fee: newAgentFeePence,
+        start_date: effectiveDate,
+        end_date: newEndDate,
+        contract_length_years: yearsBetween(effectiveDate, newEndDate),
+        book_value: newBookValue,
+        is_active: true,
+        phase_type: 'EXTENSION',
+        is_current: true,
+        created_at: nowISO,
+        updated_at: nowISO,
+      })
+      if (insErr) {
+        // Revert the supersede so we don't leave the player with no current phase.
+        await supabase
+          .from('contracts')
+          .update({ is_current: true, is_active: true, superseded_at: null, updated_at: nowISO })
+          .eq('id', current.id)
+          .eq('club_id', request.clubId)
+        throw insErr
+      }
+
+      await writeAuditLog(request, 'contracts', newId, 'create', {
+        extension: true,
+        playerId: id,
+        carriedBookValuePence: carried,
+        supersededContractId: current.id,
+      })
+
+      return reply.status(201).send({ contractId: newId, carriedBookValuePence: carried, bookValuePence: newBookValue })
+    } catch (err) {
+      request.log.error({ err }, 'POST /roster/player/:id/extend failed')
+      return reply.status(500).send({ error: 'Failed to extend contract' })
+    }
+  })
+
+  // -------------------------------------------------------------------- DELETE /roster/contract/:id
+  // Delete a single contract phase. Deleting an archived phase just removes it
+  // from history. Deleting the current (live) phase "undoes" an extension: the
+  // most recent remaining phase is promoted back to current/active. Contracts
+  // have no inbound FKs (scenario_actions key off player_id), so the row delete
+  // is safe.
+  app.delete('/roster/contract/:id', async (request, reply) => {
+    if (!canMutateRoster(request.userRole)) {
+      return reply.status(403).send({ error: 'Insufficient permissions' })
+    }
+    const { id } = request.params as { id: string }
+    try {
+      const { data: phase, error: findErr } = await supabase
+        .from('contracts')
+        .select('id, player_id, is_current')
+        .eq('id', id)
+        .eq('club_id', request.clubId)
+        .maybeSingle()
+      if (findErr) throw findErr
+      if (!phase) return reply.status(404).send({ error: 'Contract phase not found' })
+
+      const wasCurrent = Boolean(phase.is_current)
+      const playerId = String(phase.player_id)
+      const nowISO = new Date().toISOString()
+
+      // Audit before the delete so the trail survives.
+      await writeAuditLog(request, 'contracts', id, 'delete', { phaseDelete: true, playerId, wasCurrent })
+
+      const { error: delErr } = await supabase
+        .from('contracts')
+        .delete()
+        .eq('id', id)
+        .eq('club_id', request.clubId)
+      if (delErr) throw delErr
+
+      // Promote the most recent remaining phase if we removed the live one.
+      let promotedContractId: string | null = null
+      if (wasCurrent) {
+        const { data: remaining } = await supabase
+          .from('contracts')
+          .select('id')
+          .eq('player_id', playerId)
+          .eq('club_id', request.clubId)
+          .order('start_date', { ascending: false })
+          .limit(1)
+        const next = remaining?.[0]
+        if (next) {
+          await supabase
+            .from('contracts')
+            .update({ is_current: true, is_active: true, superseded_at: null, updated_at: nowISO })
+            .eq('id', next.id)
+            .eq('club_id', request.clubId)
+          promotedContractId = String(next.id)
+        }
+      }
+
+      return reply.send({ success: true, promotedContractId })
+    } catch (err) {
+      request.log.error({ err }, 'DELETE /roster/contract/:id failed')
+      return reply.status(500).send({ error: 'Failed to delete contract phase' })
+    }
+  })
+
+  // ==================================================================== MANAGER
+  // The Head Coach / Manager mirrors the player+contract model. One active
+  // manager per club; their wages + amortised compensation fee + amortised
+  // agent fee feed the SCR via deriveSquadCostsForClub in club.ts.
+
+  // -------------------------------------------------------------------- GET /roster/manager
+  app.get('/roster/manager', async (request, reply) => {
+    try {
+      const { data: mgr, error } = await supabase
+        .from('managers')
+        .select('*')
+        .eq('club_id', request.clubId)
+        .eq('is_active', true)
+        .maybeSingle()
+      if (error) throw error
+      if (!mgr) return reply.send({ manager: null })
+
+      const { data: rows, error: cErr } = await supabase
+        .from('manager_contracts')
+        .select('*')
+        .eq('manager_id', mgr.id)
+        .eq('club_id', request.clubId)
+        .order('start_date', { ascending: false })
+      if (cErr) throw cErr
+
+      const phases = (rows ?? []).map((r) => {
+        const row = r as Record<string, unknown>
+        return buildPhase(row, Number(row['compensation_fee']))
+      })
+      return reply.send({ manager: buildManagerResponse(mgr as Record<string, unknown>, phases) })
+    } catch (err) {
+      request.log.error({ err }, 'GET /roster/manager failed')
+      return reply.status(500).send({ error: 'Failed to load manager' })
+    }
+  })
+
+  // -------------------------------------------------------------------- POST /roster/manager
+  // Create the Head Coach + their INITIAL contract phase.
+  app.post('/roster/manager', async (request, reply) => {
+    if (!canMutateRoster(request.userRole)) {
+      return reply.status(403).send({ error: 'Insufficient permissions' })
+    }
+    const parsed = ManagerInputSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.flatten() })
+    }
+    const r = parsed.data
+
+    try {
+      const { data: existing, error: exErr } = await supabase
+        .from('managers')
+        .select('id')
+        .eq('club_id', request.clubId)
+        .eq('is_active', true)
+        .maybeSingle()
+      if (exErr) throw exErr
+      if (existing) {
+        return reply.status(409).send({ error: 'An active manager already exists. Edit the current Head Coach instead.' })
+      }
+
+      const nowISO = new Date().toISOString()
+      const managerId  = randomUUID()
+      const contractId = randomUUID()
+      const startObj = new Date(r.startDate + 'T00:00:00Z')
+      const endObj   = new Date(r.endDate   + 'T00:00:00Z')
+      const bookVal  = currentBookValuePence(r.compensationFeePence, startObj, endObj, new Date())
+
+      const { error: mErr } = await supabase.from('managers').insert({
+        id: managerId,
+        club_id: request.clubId,
+        name: r.name,
+        is_active: true,
+        created_at: nowISO,
+        updated_at: nowISO,
+      })
+      if (mErr) throw mErr
+
+      const { error: cErr } = await supabase.from('manager_contracts').insert({
+        id: contractId,
+        manager_id: managerId,
+        club_id: request.clubId,
+        compensation_fee: r.compensationFeePence,
+        annual_wage: r.annualWagePence,
+        agent_fee: r.agentFeePence,
+        start_date: r.startDate,
+        end_date: r.endDate,
+        contract_length_years: yearsBetween(r.startDate, r.endDate),
+        book_value: bookVal,
+        phase_type: 'INITIAL',
+        is_current: true,
+        created_at: nowISO,
+        updated_at: nowISO,
+      })
+      if (cErr) {
+        await supabase.from('managers').delete().eq('id', managerId)
+        throw cErr
+      }
+
+      await writeAuditLog(request, 'managers', managerId, 'create', { name: r.name })
+
+      return reply.status(201).send({ managerId, contractId })
+    } catch (err) {
+      request.log.error({ err }, 'POST /roster/manager failed')
+      return reply.status(500).send({ error: 'Failed to create manager' })
+    }
+  })
+
+  // -------------------------------------------------------------------- PATCH /roster/manager/:id
+  // Update identity fields (name / active flag). Archiving sets is_active=false.
+  app.patch('/roster/manager/:id', async (request, reply) => {
+    if (!canMutateRoster(request.userRole)) {
+      return reply.status(403).send({ error: 'Insufficient permissions' })
+    }
+    const { id } = request.params as { id: string }
+    const parsed = ManagerPatchSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const { data: existing, error: findErr } = await supabase
+        .from('managers')
+        .select('id, name, is_active')
+        .eq('id', id)
+        .eq('club_id', request.clubId)
+        .maybeSingle()
+      if (findErr) throw findErr
+      if (!existing) return reply.status(404).send({ error: 'Manager not found' })
+
+      const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
+      if (parsed.data.name     !== undefined) patch['name']      = parsed.data.name
+      if (parsed.data.isActive !== undefined) patch['is_active'] = parsed.data.isActive
+
+      const { error: updErr } = await supabase
+        .from('managers')
+        .update(patch)
+        .eq('id', id)
+        .eq('club_id', request.clubId)
+      if (updErr) throw updErr
+
+      await writeAuditLog(request, 'managers', id, 'update', parsed.data, existing)
+      return reply.send({ success: true })
+    } catch (err) {
+      request.log.error({ err }, 'PATCH /roster/manager/:id failed')
+      return reply.status(500).send({ error: 'Failed to update manager' })
+    }
+  })
+
+  // -------------------------------------------------------------------- PATCH /roster/manager-contract/:id
+  // Correct the current manager contract phase in place (NOT an extension).
+  app.patch('/roster/manager-contract/:id', async (request, reply) => {
+    if (!canMutateRoster(request.userRole)) {
+      return reply.status(403).send({ error: 'Insufficient permissions' })
+    }
+    const { id } = request.params as { id: string }
+    const parsed = PhasePatchSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.flatten() })
+    }
+
+    try {
+      const { data: existing, error: findErr } = await supabase
+        .from('manager_contracts')
+        .select('id, compensation_fee, annual_wage, agent_fee, start_date, end_date')
+        .eq('id', id)
+        .eq('club_id', request.clubId)
+        .maybeSingle()
+      if (findErr) throw findErr
+      if (!existing) return reply.status(404).send({ error: 'Manager contract not found' })
+
+      const next = {
+        compensationFeePence: parsed.data.feePence        ?? Number(existing.compensation_fee),
+        annualWagePence:      parsed.data.annualWagePence  ?? Number(existing.annual_wage),
+        agentFeePence:        parsed.data.agentFeePence    ?? Number(existing.agent_fee),
+        startDate:            parsed.data.startDate        ?? String(existing.start_date).slice(0, 10),
+        endDate:              parsed.data.endDate          ?? String(existing.end_date).slice(0, 10),
+      }
+      if (new Date(next.endDate) <= new Date(next.startDate)) {
+        return reply.status(400).send({ error: 'End date must be after start date' })
+      }
+      const maxEnd = new Date(next.startDate)
+      maxEnd.setFullYear(maxEnd.getFullYear() + 10)
+      if (new Date(next.endDate) > maxEnd) {
+        return reply.status(400).send({ error: 'Contract cannot exceed 10 years' })
+      }
+
+      const startObj = new Date(next.startDate + 'T00:00:00Z')
+      const endObj   = new Date(next.endDate   + 'T00:00:00Z')
+      const bookVal  = currentBookValuePence(next.compensationFeePence, startObj, endObj, new Date())
+
+      const { error: updErr } = await supabase
+        .from('manager_contracts')
+        .update({
+          compensation_fee: next.compensationFeePence,
+          annual_wage: next.annualWagePence,
+          agent_fee: next.agentFeePence,
+          start_date: next.startDate,
+          end_date: next.endDate,
+          contract_length_years: yearsBetween(next.startDate, next.endDate),
+          book_value: bookVal,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+        .eq('club_id', request.clubId)
+      if (updErr) throw updErr
+
+      await writeAuditLog(request, 'manager_contracts', id, 'update', parsed.data, existing)
+      return reply.send({ success: true, bookValuePence: bookVal })
+    } catch (err) {
+      request.log.error({ err }, 'PATCH /roster/manager-contract/:id failed')
+      return reply.status(500).send({ error: 'Failed to update manager contract' })
+    }
+  })
+
+  // -------------------------------------------------------------------- POST /roster/manager/:id/extend
+  // Manager equivalent of the player extension transaction.
+  app.post('/roster/manager/:id/extend', async (request, reply) => {
+    if (!canMutateRoster(request.userRole)) {
+      return reply.status(403).send({ error: 'Insufficient permissions' })
+    }
+    const { id } = request.params as { id: string }
+    const parsed = ExtendContractSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.flatten() })
+    }
+    const { effectiveDate, newEndDate, newWeeklyWagePence, newAgentFeePence } = parsed.data
+
+    try {
+      const { data: mgr, error: mErr } = await supabase
+        .from('managers')
+        .select('id')
+        .eq('id', id)
+        .eq('club_id', request.clubId)
+        .maybeSingle()
+      if (mErr) throw mErr
+      if (!mgr) return reply.status(404).send({ error: 'Manager not found' })
+
+      const { data: current, error: curErr } = await supabase
+        .from('manager_contracts')
+        .select('*')
+        .eq('manager_id', id)
+        .eq('club_id', request.clubId)
+        .eq('is_current', true)
+        .maybeSingle()
+      if (curErr) throw curErr
+      if (!current) return reply.status(409).send({ error: 'Manager has no current contract to extend' })
+
+      const oldStart = new Date(String(current.start_date).slice(0, 10) + 'T00:00:00Z')
+      const oldEnd   = new Date(String(current.end_date).slice(0, 10) + 'T00:00:00Z')
+      const effObj   = new Date(effectiveDate + 'T00:00:00Z')
+      const carried  = calculateRemainingBookValue(
+        { feePence: Number(current.compensation_fee), startDate: oldStart, endDate: oldEnd },
+        effObj
+      )
+
+      const annualWage = newWeeklyWagePence * 52
+      const newEndObj  = new Date(newEndDate + 'T00:00:00Z')
+      const newBookValue = currentBookValuePence(carried, effObj, newEndObj, new Date())
+      const nowISO = new Date().toISOString()
+      const newId  = randomUUID()
+
+      const { error: supErr } = await supabase
+        .from('manager_contracts')
+        .update({ is_current: false, superseded_at: nowISO, updated_at: nowISO })
+        .eq('id', current.id)
+        .eq('club_id', request.clubId)
+      if (supErr) throw supErr
+
+      const { error: insErr } = await supabase.from('manager_contracts').insert({
+        id: newId,
+        manager_id: id,
+        club_id: request.clubId,
+        compensation_fee: carried,
+        annual_wage: annualWage,
+        agent_fee: newAgentFeePence,
+        start_date: effectiveDate,
+        end_date: newEndDate,
+        contract_length_years: yearsBetween(effectiveDate, newEndDate),
+        book_value: newBookValue,
+        phase_type: 'EXTENSION',
+        is_current: true,
+        created_at: nowISO,
+        updated_at: nowISO,
+      })
+      if (insErr) {
+        await supabase
+          .from('manager_contracts')
+          .update({ is_current: true, superseded_at: null, updated_at: nowISO })
+          .eq('id', current.id)
+          .eq('club_id', request.clubId)
+        throw insErr
+      }
+
+      await writeAuditLog(request, 'manager_contracts', newId, 'create', {
+        extension: true,
+        managerId: id,
+        carriedBookValuePence: carried,
+        supersededContractId: current.id,
+      })
+
+      return reply.status(201).send({ contractId: newId, carriedBookValuePence: carried, bookValuePence: newBookValue })
+    } catch (err) {
+      request.log.error({ err }, 'POST /roster/manager/:id/extend failed')
+      return reply.status(500).send({ error: 'Failed to extend manager contract' })
+    }
+  })
+
+  // -------------------------------------------------------------------- DELETE /roster/manager-contract/:id
+  // Manager equivalent of contract-phase deletion. Promotes the most recent
+  // remaining phase to current when the live phase is removed.
+  app.delete('/roster/manager-contract/:id', async (request, reply) => {
+    if (!canMutateRoster(request.userRole)) {
+      return reply.status(403).send({ error: 'Insufficient permissions' })
+    }
+    const { id } = request.params as { id: string }
+    try {
+      const { data: phase, error: findErr } = await supabase
+        .from('manager_contracts')
+        .select('id, manager_id, is_current')
+        .eq('id', id)
+        .eq('club_id', request.clubId)
+        .maybeSingle()
+      if (findErr) throw findErr
+      if (!phase) return reply.status(404).send({ error: 'Manager contract phase not found' })
+
+      const wasCurrent = Boolean(phase.is_current)
+      const managerId = String(phase.manager_id)
+      const nowISO = new Date().toISOString()
+
+      await writeAuditLog(request, 'manager_contracts', id, 'delete', { phaseDelete: true, managerId, wasCurrent })
+
+      const { error: delErr } = await supabase
+        .from('manager_contracts')
+        .delete()
+        .eq('id', id)
+        .eq('club_id', request.clubId)
+      if (delErr) throw delErr
+
+      let promotedContractId: string | null = null
+      if (wasCurrent) {
+        const { data: remaining } = await supabase
+          .from('manager_contracts')
+          .select('id')
+          .eq('manager_id', managerId)
+          .eq('club_id', request.clubId)
+          .order('start_date', { ascending: false })
+          .limit(1)
+        const next = remaining?.[0]
+        if (next) {
+          await supabase
+            .from('manager_contracts')
+            .update({ is_current: true, superseded_at: null, updated_at: nowISO })
+            .eq('id', next.id)
+            .eq('club_id', request.clubId)
+          promotedContractId = String(next.id)
+        }
+      }
+
+      return reply.send({ success: true, promotedContractId })
+    } catch (err) {
+      request.log.error({ err }, 'DELETE /roster/manager-contract/:id failed')
+      return reply.status(500).send({ error: 'Failed to delete manager contract phase' })
     }
   })
 }

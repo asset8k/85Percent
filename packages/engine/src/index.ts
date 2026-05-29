@@ -4,11 +4,19 @@ export { determineStatus } from './status.js'
 export { calculateLevy } from './levy.js'
 export { calculatePointsDeduction } from './points.js'
 export { calculateAllowanceUpdate } from './allowance.js'
-export { generateAmortisationSchedule, currentBookValuePence } from './amortisation.js'
+export {
+  generateAmortisationSchedule,
+  currentBookValuePence,
+  calculateRemainingBookValue,
+  amortisationPeriodYears,
+  AMORTISATION_CAP_YEARS,
+  type AmortisableContract,
+} from './amortisation.js'
 export {
   calculateSquadCosts,
   applyScenarioActions,
   type ContractInput,
+  type ManagerCostInput,
   type PlayerCostBreakdown,
   type SquadCostsResult,
   type ScenarioActionInput,

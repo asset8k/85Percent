@@ -9,10 +9,16 @@
  * - All monetary values in pence.
  * - Agent fees are spread evenly across the contract length (regulatory).
  * - Transfer fees are also spread (straight-line amortisation).
+ * - Both fees are amortised over min(contractLength, 5) years — the UEFA/PSR
+ *   cap (the "Chelsea Rule"). See AMORTISATION_CAP_YEARS in amortisation.ts.
  * - We compute `contractLengthYears` from the date range when the caller
  *   supplies one; this is the SCR-correct denominator (not whatever decimal
  *   was stored at insert time).
+ * - SCR squad costs include the Head Coach / Manager: their wage, amortised
+ *   compensation fee, and amortised agent fee are added to the player totals.
  */
+
+import { amortisationPeriodYears } from './amortisation.js'
 
 export interface ContractInput {
   /** Application-level identifier — typically the player id (for breakdown rows). */
@@ -27,18 +33,35 @@ export interface ContractInput {
   contractLengthYears: number
 }
 
+/**
+ * The active Head Coach / Manager. Their compensation fee (the fee paid to
+ * another club to release them) is the manager's equivalent of a transfer fee
+ * and is amortised the same way — capped at 5 years.
+ */
+export interface ManagerCostInput {
+  /** Manager id (used as the breakdown row identifier). */
+  managerId: string
+  /** Compensation fee paid to poach the manager, in pence (0 if a free hire). */
+  compensationFeePence: number
+  annualWagePence: number
+  agentFeePence: number
+  contractLengthYears: number
+}
+
 export interface PlayerCostBreakdown {
   playerId: string
   wagePence: number
   amortisationPence: number
   /**
-   * Annualised agent fee — agentFee / contractLengthYears.
+   * Annualised agent fee — agentFee / min(contractLength, 5).
    * UI must surface this as "Annualised Agent Fee" with a tooltip, NOT
    * "Agent Fee", because the user's own books may show the fee paid 100%
    * up-front. The SCR engine amortises by regulation.
    */
   annualisedAgentFeePence: number
   totalAnnualCostPence: number
+  /** True for the Head Coach / Manager row so the UI can label it distinctly. */
+  isManager?: boolean
 }
 
 export interface SquadCostsResult {
@@ -46,29 +69,40 @@ export interface SquadCostsResult {
   breakdown: PlayerCostBreakdown[]
 }
 
+// Annual SCR cost of a single capitalised registration: wage + amortised fee
+// + amortised agent fee, with both fees spread over the capped period.
+function annualCost(input: {
+  feePence: number
+  annualWagePence: number
+  agentFeePence: number
+  contractLengthYears: number
+}): { amortisationPence: number; annualisedAgentFeePence: number; totalAnnualCostPence: number } {
+  const amortYears = amortisationPeriodYears(input.contractLengthYears)
+  const amortisationPence = input.feePence > 0 ? Math.floor(input.feePence / amortYears) : 0
+  const annualisedAgentFeePence = input.agentFeePence > 0 ? Math.floor(input.agentFeePence / amortYears) : 0
+  const totalAnnualCostPence = input.annualWagePence + amortisationPence + annualisedAgentFeePence
+  return { amortisationPence, annualisedAgentFeePence, totalAnnualCostPence }
+}
+
 /**
- * Sum per-player annual SCR cost across all supplied contracts.
+ * Sum per-player annual SCR cost across all supplied contracts, plus the active
+ * Manager when one is supplied.
  *
- * Returns the aggregate plus a row per player so the Dashboard table can
- * render without recomputing. Order of breakdown rows is preserved from input.
+ * Returns the aggregate plus a row per player (and a final manager row, flagged
+ * with isManager) so the Dashboard table can render without recomputing. Order
+ * of player breakdown rows is preserved from input; the manager row is appended.
  */
-export function calculateSquadCosts(contracts: ContractInput[]): SquadCostsResult {
+export function calculateSquadCosts(
+  contracts: ContractInput[],
+  manager?: ManagerCostInput | null
+): SquadCostsResult {
   const breakdown: PlayerCostBreakdown[] = contracts.map((c) => {
-    // Defensive: a zero-length contract shouldn't divide-by-zero. If the input
-    // is invalid, fall back to a single-year amortisation so the player is
-    // visible in the breakdown rather than silently corrupting the total.
-    const years = c.contractLengthYears > 0 ? c.contractLengthYears : 1
-
-    const amortisationPence = c.transferFeePence > 0
-      ? Math.floor(c.transferFeePence / years)
-      : 0
-
-    const annualisedAgentFeePence = c.agentFeePence > 0
-      ? Math.floor(c.agentFeePence / years)
-      : 0
-
-    const totalAnnualCostPence = c.annualWagePence + amortisationPence + annualisedAgentFeePence
-
+    const { amortisationPence, annualisedAgentFeePence, totalAnnualCostPence } = annualCost({
+      feePence: c.transferFeePence,
+      annualWagePence: c.annualWagePence,
+      agentFeePence: c.agentFeePence,
+      contractLengthYears: c.contractLengthYears,
+    })
     return {
       playerId: c.playerId,
       wagePence: c.annualWagePence,
@@ -77,6 +111,23 @@ export function calculateSquadCosts(contracts: ContractInput[]): SquadCostsResul
       totalAnnualCostPence,
     }
   })
+
+  if (manager) {
+    const { amortisationPence, annualisedAgentFeePence, totalAnnualCostPence } = annualCost({
+      feePence: manager.compensationFeePence,
+      annualWagePence: manager.annualWagePence,
+      agentFeePence: manager.agentFeePence,
+      contractLengthYears: manager.contractLengthYears,
+    })
+    breakdown.push({
+      playerId: manager.managerId,
+      wagePence: manager.annualWagePence,
+      amortisationPence,
+      annualisedAgentFeePence,
+      totalAnnualCostPence,
+      isManager: true,
+    })
+  }
 
   const totalSquadCostsPence = breakdown.reduce((s, row) => s + row.totalAnnualCostPence, 0)
   return { totalSquadCostsPence, breakdown }
@@ -152,11 +203,13 @@ export function applyScenarioActions(
     const years = a.contractLengthYears && a.contractLengthYears > 0 ? a.contractLengthYears : 1
 
     if (a.actionType === 'buy') {
+      // Registration fees amortise over the capped period (min(length, 5)).
+      const amortYears = amortisationPeriodYears(years)
       const amort = a.transferFeePence && a.transferFeePence > 0
-        ? Math.floor(a.transferFeePence / years)
+        ? Math.floor(a.transferFeePence / amortYears)
         : 0
       const agent = a.agentFeePence && a.agentFeePence > 0
-        ? Math.floor(a.agentFeePence / years)
+        ? Math.floor(a.agentFeePence / amortYears)
         : 0
       costDelta += amort + (a.annualWagePence ?? 0) + agent
     }

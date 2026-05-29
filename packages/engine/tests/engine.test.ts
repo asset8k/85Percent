@@ -9,8 +9,12 @@ import {
   calculateAllowanceUpdate,
   generateAmortisationSchedule,
   currentBookValuePence,
+  calculateRemainingBookValue,
+  amortisationPeriodYears,
+  AMORTISATION_CAP_YEARS,
   calculateSquadCosts,
   applyScenarioActions,
+  type ManagerCostInput,
   evaluateWorkingCapital,
   evaluateWorkingCapitalMonth,
   evaluateLiquidity,
@@ -944,5 +948,178 @@ describe('calculatePromotedClubRevenueUplift', () => {
     expect(calculatePromotedClubRevenueUplift(0)).toBe(0)
     expect(calculatePromotedClubRevenueUplift(-1_000_000_00)).toBe(0)
     expect(calculatePromotedClubRevenueUplift(10_000_000_00, 0)).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Multi-phase contract architecture + 5-year amortisation cap (Chelsea Rule)
+// + Manager SCR inclusion
+// ---------------------------------------------------------------------------
+
+describe('amortisationPeriodYears (5-year cap)', () => {
+  it('exposes the cap as 5 years', () => {
+    expect(AMORTISATION_CAP_YEARS).toBe(5)
+  })
+
+  it('returns the contract length when ≤ 5 years', () => {
+    expect(amortisationPeriodYears(3)).toBe(3)
+    expect(amortisationPeriodYears(5)).toBe(5)
+    expect(amortisationPeriodYears(3.5)).toBe(3.5)
+  })
+
+  it('caps at 5 years for longer contracts', () => {
+    expect(amortisationPeriodYears(8)).toBe(5)
+    expect(amortisationPeriodYears(8.5)).toBe(5)
+    expect(amortisationPeriodYears(10)).toBe(5)
+  })
+
+  it('floors a zero/negative length at 1 year (no divide-by-zero)', () => {
+    expect(amortisationPeriodYears(0)).toBe(1)
+    expect(amortisationPeriodYears(-2)).toBe(1)
+  })
+})
+
+describe('The Chelsea Rule — £100M over 8 years amortises at £20M/yr', () => {
+  it('caps the amortisation denominator at 5 years in calculateSquadCosts', () => {
+    const { totalSquadCostsPence, breakdown } = calculateSquadCosts([
+      {
+        playerId: 'enzo',
+        transferFeePence: 100_000_000_00, // £100M
+        annualWagePence: 0,
+        agentFeePence: 0,
+        contractLengthYears: 8,
+      },
+    ])
+    // £100M / min(8,5) = £100M / 5 = £20M
+    expect(breakdown[0]?.amortisationPence).toBe(20_000_000_00)
+    expect(totalSquadCostsPence).toBe(20_000_000_00)
+  })
+
+  it('caps the displayed amortisation schedule at 5 entries of £20M', () => {
+    const schedule = generateAmortisationSchedule(100_000_000_00, 8, '2026-27')
+    expect(schedule).toHaveLength(5)
+    expect(schedule.every((e) => e.amortisationAmount === 20_000_000_00)).toBe(true)
+    expect(schedule[4]?.remainingBookValue).toBe(0)
+  })
+
+  it('amortises agent fees over the capped period too', () => {
+    const { breakdown } = calculateSquadCosts([
+      {
+        playerId: 'caicedo',
+        transferFeePence: 0,
+        annualWagePence: 0,
+        agentFeePence: 50_000_000_00, // £50M agent fee on an 8-year deal
+        contractLengthYears: 8,
+      },
+    ])
+    // £50M / 5 = £10M/yr (not £6.25M over 8)
+    expect(breakdown[0]?.annualisedAgentFeePence).toBe(10_000_000_00)
+  })
+
+  it('book value of an £100M/8yr deal hits zero at the 5-year mark', () => {
+    const start = new Date('2023-07-01T00:00:00Z')
+    const end = new Date('2031-07-01T00:00:00Z') // 8-year deal
+    // At signing: full fee
+    expect(currentBookValuePence(100_000_000_00, start, end, start)).toBe(100_000_000_00)
+    // Halfway through the capped 5-year window (2.5y) → ~£50M
+    expect(currentBookValuePence(100_000_000_00, start, end, new Date('2026-01-01T00:00:00Z'))).toBe(50_000_000_00)
+    // At the 5-year cap (2028-07): fully amortised
+    expect(currentBookValuePence(100_000_000_00, start, end, new Date('2028-07-01T00:00:00Z'))).toBe(0)
+    // Year 6 (still under contract but registration is fully amortised): 0
+    expect(currentBookValuePence(100_000_000_00, start, end, new Date('2029-07-01T00:00:00Z'))).toBe(0)
+  })
+})
+
+describe('The Ledger Transition — carried book value on extension', () => {
+  // INITIAL: £70M, 5 years, 2017-07-01 → 2022-07-01. £14M/yr straight-line.
+  const initial = {
+    feePence: 70_000_000_00,
+    startDate: new Date('2017-07-01T00:00:00Z'),
+    endDate: new Date('2022-07-01T00:00:00Z'),
+  }
+
+  it('calculates the remaining book value 3 years in as exactly £28M', () => {
+    // Extension signed 2020-07-01 (3 years elapsed of 5). 2 years remain.
+    // £70M × (24 / 60 months) = £28M
+    const carried = calculateRemainingBookValue(initial, new Date('2020-07-01T00:00:00Z'))
+    expect(carried).toBe(28_000_000_00)
+  })
+
+  it('re-amortises the carried £28M principal over the new extension duration', () => {
+    const carried = calculateRemainingBookValue(initial, new Date('2020-07-01T00:00:00Z'))
+    expect(carried).toBe(28_000_000_00)
+
+    // New EXTENSION phase: £28M principal, 2020-07-01 → 2024-07-01 (4 years).
+    const { breakdown } = calculateSquadCosts([
+      {
+        playerId: 'hazard',
+        transferFeePence: carried, // carried book value becomes the new principal
+        annualWagePence: 0,
+        agentFeePence: 0,
+        contractLengthYears: 4,
+      },
+    ])
+    // £28M / min(4,5) = £7M/yr
+    expect(breakdown[0]?.amortisationPence).toBe(7_000_000_00)
+  })
+
+  it('carried value is the full fee before the deal starts and zero once amortised', () => {
+    expect(calculateRemainingBookValue(initial, new Date('2016-01-01T00:00:00Z'))).toBe(70_000_000_00)
+    expect(calculateRemainingBookValue(initial, new Date('2022-07-01T00:00:00Z'))).toBe(0)
+  })
+})
+
+describe('Manager SCR inclusion', () => {
+  it('adds a manager with £5M comp (5yr) + £2M wage as £3M to squad costs', () => {
+    const manager: ManagerCostInput = {
+      managerId: 'mgr-1',
+      compensationFeePence: 5_000_000_00, // £5M, amortised over 5 = £1M/yr
+      annualWagePence: 2_000_000_00,      // £2M
+      agentFeePence: 0,
+      contractLengthYears: 5,
+    }
+    const { totalSquadCostsPence, breakdown } = calculateSquadCosts([], manager)
+    // £1M amortised comp + £2M wage = £3M
+    expect(totalSquadCostsPence).toBe(3_000_000_00)
+    const mgrRow = breakdown.find((b) => b.isManager)
+    expect(mgrRow?.amortisationPence).toBe(1_000_000_00)
+    expect(mgrRow?.totalAnnualCostPence).toBe(3_000_000_00)
+  })
+
+  it('adds the manager total on top of the player totals', () => {
+    const players = [
+      { playerId: 'p1', transferFeePence: 0, annualWagePence: 10_000_000_00, agentFeePence: 0, contractLengthYears: 3 },
+    ]
+    const manager: ManagerCostInput = {
+      managerId: 'mgr-1',
+      compensationFeePence: 5_000_000_00,
+      annualWagePence: 2_000_000_00,
+      agentFeePence: 0,
+      contractLengthYears: 5,
+    }
+    const withoutManager = calculateSquadCosts(players)
+    const withManager = calculateSquadCosts(players, manager)
+    expect(withoutManager.totalSquadCostsPence).toBe(10_000_000_00)
+    expect(withManager.totalSquadCostsPence).toBe(13_000_000_00) // +£3M manager
+    expect(withManager.breakdown).toHaveLength(2)
+    expect(withManager.breakdown[1]?.isManager).toBe(true)
+  })
+
+  it('caps a manager compensation fee at 5 years like a player', () => {
+    const manager: ManagerCostInput = {
+      managerId: 'mgr-long',
+      compensationFeePence: 40_000_000_00, // £40M over an 8-year deal
+      annualWagePence: 0,
+      agentFeePence: 0,
+      contractLengthYears: 8,
+    }
+    const { totalSquadCostsPence } = calculateSquadCosts([], manager)
+    // £40M / 5 = £8M/yr (not £5M over 8)
+    expect(totalSquadCostsPence).toBe(8_000_000_00)
+  })
+
+  it('treats a null/absent manager as no addition', () => {
+    expect(calculateSquadCosts([], null).totalSquadCostsPence).toBe(0)
+    expect(calculateSquadCosts([]).totalSquadCostsPence).toBe(0)
   })
 })

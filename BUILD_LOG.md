@@ -1847,3 +1847,77 @@ Verification: engine tests 95/95 passing, web typecheck 0 errors. The amber zone
 - Engine tests: 95/95 passing
 - Web typecheck: 0 errors
 - DB migration `20260528000001_squad_costs_mode` applied to live Supabase (status: "Database schema is up to date")
+
+---
+
+## Session 18 — Multi-phase contract ledger + Manager (Head Coach) + 5-year amortisation cap (2026-05-29)
+
+Implemented the multi-phase contract architecture and the Manager entity end-to-end (DB → engine → API → UI → tests), plus the UEFA/PSR 5-year amortisation cap.
+
+### Engine — 5-year cap (the "Chelsea Rule") + carried book value
+
+- New `AMORTISATION_CAP_YEARS = 5` and `amortisationPeriodYears(len) = min(max(len,…),5)` in [packages/engine/src/amortisation.ts](packages/engine/src/amortisation.ts). Any fee now amortises over `min(contractLength, 5)`.
+- `currentBookValuePence` now amortises over the **capped** window (book value reaches zero at start+5y for 6+ year deals).
+- New pure `calculateRemainingBookValue(contract, targetDate)` — the carried book value of a deal on the day an extension is signed; this becomes the new EXTENSION phase's principal.
+- `generateAmortisationSchedule` capped (an £100M/8yr deal → a 5-entry £20M schedule).
+- `calculateSquadCosts(contracts, manager?)` extended: registration (transfer/comp + agent fee) denominators capped, and the active Manager's wage + amortised compensation fee + amortised agent fee are added (breakdown row flagged `isManager`).
+- The single-transfer simulator (`calculate.ts`) and scenario `buy` branch (`applyScenarioActions`) also cap registration amortisation, keeping every SCR path consistent.
+
+### Engine tests — 110 total (95 → 110)
+
+Added: `amortisationPeriodYears` cap behaviour; **Chelsea Rule** (£100M/8yr → £20M/yr, agent-fee cap, book value hits zero at year 5); **Ledger Transition** (£70M/5yr INITIAL, extension at 3 years → carried book value exactly **£28M**, re-amortised over the new phase); **Manager SCR inclusion** (£5M comp /5yr + £2M wage = **£3M** added; +manager on top of players; manager comp capped at 5yr; null manager = no addition).
+
+### Shared
+
+- New wire types: `ContractPhaseType`, `ContractPhase` (normalised — `feePence` is transfer or compensation fee), `ManagerWithContract`.
+- New Zod schemas: `ManagerInputSchema`, `ManagerPatchSchema`, `PhasePatchSchema` (in-place correction), `ExtendContractSchema` (effectiveDate / newEndDate / newWeeklyWagePence / newAgentFeePence, ≤10y signing cap).
+
+### Database — migration `20260529000001_manager_and_contract_ledger` (applied to live Supabase)
+
+- `contracts`: added `phase_type` (`INITIAL`|`EXTENSION`, CHECK), `is_current` (backfilled from `is_active`), `superseded_at`; partial unique index `contracts_one_current_per_player` (one current phase per player).
+- New `managers` table (one active per club via partial unique `managers_one_active_per_club`).
+- New `manager_contracts` table — mirror of `contracts` with `compensation_fee` instead of `transfer_fee`, same ledger columns + partial unique `manager_contracts_one_current_per_manager`.
+- Decision: **mirrored** manager_contracts (not a polymorphic Employee refactor) — avoids rewriting every existing players/contracts query. Prisma can't express partial uniques in-schema, so they're raw SQL in the migration.
+
+### API ([apps/api/src/routes/roster.ts](apps/api/src/routes/roster.ts), [club.ts](apps/api/src/routes/club.ts))
+
+- `deriveSquadCostsForClub` now folds in the active manager's current contract via `deriveActiveManager` → SCR everywhere includes the Head Coach automatically.
+- New endpoints: `GET /roster/player/:id/phases`, `POST /roster/player/:id/extend`, `GET /roster/manager`, `POST /roster/manager`, `PATCH /roster/manager/:id`, `PATCH /roster/manager-contract/:id`, `POST /roster/manager/:id/extend`.
+- Extension transaction (no REST transactions): fetch current phase → `calculateRemainingBookValue` on the effective date → supersede old (`is_current=false`, `superseded_at=now`, players also `is_active=false`) **before** inserting the new EXTENSION phase (respects the one-current partial unique) → on insert failure, revert the supersede. New phase's fee = carried book value.
+
+### UI ([apps/web/src/pages/RosterPage.tsx](apps/web/src/pages/RosterPage.tsx))
+
+- **Head Coach card** above the player table: name, annual wage, annualised (capped) compensation amortisation, contract expiry + chip; phase pill; Add/Edit. Empty state when unset.
+- **ManagerDrawer**: edit current-phase fields, contract-phases ledger, "Log contract extension", remove (archive).
+- **ContractLedger**: vertical timeline — current phase = green "Active" dot/badge, past = grey "Archived", with INITIAL/EXTENSION pills and per-phase fee/wage/book value.
+- **ExtendContractWizard** (shared by player + manager): Effective date, New end date (+ InfoIcon tooltip: "…remaining book value spread over the new duration, strictly capped at 5 years"), New weekly wage, New agent fees; shows the carried book value up front.
+- Player edit drawer gained the same phases ledger + "Log contract extension".
+- `api.ts` client: `playerPhases`, `extendPlayer`, `getManager`, `createManager`, `updateManager`, `updateManagerContract`, `extendManager`.
+
+### Files changed
+
+- `packages/engine/src/{amortisation,squadCosts,calculate,index}.ts`
+- `packages/engine/tests/engine.test.ts`
+- `packages/shared/src/{types,schemas}.ts`
+- `apps/api/prisma/schema.prisma` + `prisma/migrations/20260529000001_manager_and_contract_ledger/migration.sql`
+- `apps/api/src/routes/{roster,club}.ts`
+- `apps/web/src/lib/api.ts`, `apps/web/src/pages/RosterPage.tsx`
+- `BUILD_LOG.md`
+
+### Verification
+
+- Engine tests: **110/110 passing**
+- API + web typecheck: 0 errors · web production build: clean
+- Migration applied to live Supabase (status: "Database schema is up to date")
+
+### Behavioural note
+
+The 5-year cap is regulatorily correct but **changes SCR for existing players on 6+ year deals** (e.g. an 8-year £100M signing now charges £20M/yr, not £12.5M/yr) — squad costs for such clubs will rise. Intended.
+
+### Follow-up refinements (same session)
+
+- **Extension effective date is auto-derived, not picked.** `ExtendContractWizard` now sets `effectiveDate = currentEndDate` (read-only field, "at expiry" tag) — a new deal begins exactly when the current one ends. Fixes a bug where you could log a 2026 extension on a deal that expired in 2023. New end-date picker gets `min={effectiveDate}`.
+- **Editable contract phases (incl. archived).** `ContractLedger` gained an inline `PhaseEditor` per phase (fee / weekly wage / agent fee / start / end), routed to `PATCH /roster/contract/:id` (player) or `/roster/manager-contract/:id` (manager) — both already patch any phase by id. Saves reload the ledger in place via a new `onChanged`/`reloadPhases` (player drawer re-fetches phases; manager drawer keeps local `phases` state).
+- **Deletable phases.** New `DELETE /roster/contract/:id` + `DELETE /roster/manager-contract/:id` (audit-before-delete; deleting a current phase promotes the most recent remaining one back to current/active). Client: `deleteContract`, `deleteManagerContract`. UI: trash action with inline two-step confirm; delete is **shown on every row but disabled on the live/active phase** (managed via the form/extension flow).
+- **Icon + layout polish.** Edit/Save/Cancel in the ledger became `IconButton`s (pencil `EditIcon`, ✓ `CheckIcon`, ✕ `CloseIcon`). Empty "No Head Coach" state swapped the odd grey whistle for a clean violet `CoachIcon` (unified with the populated card). Phase card restructured: pills + date range stacked on the left, edit+delete fixed top-right, a divider above the FEE/WAGE/BOOK VALUE grid — every row now aligns.
+- Verification: web typecheck 0 errors, production build clean.

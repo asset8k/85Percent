@@ -130,4 +130,88 @@ export const ContractPatchSchema = z
 
 export type ContractPatchInput = z.infer<typeof ContractPatchSchema>
 
+// ---------------------------------------------------------------------------
+// Manager (Head Coach) + multi-phase contract extension
+// ---------------------------------------------------------------------------
+
+// Note: the 10-year cap below is the *signing* limit (catches typos while
+// allowing real ultra-long deals). The engine separately caps fee amortisation
+// at 5 years.
+
+// Manual single-manager add (UI form). Mirrors ManualPlayerSchema but the
+// fee is a "compensation fee" (paid to release them from their old club).
+export const ManagerInputSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80),
+    compensationFeePence: z.number().int().min(0),
+    annualWagePence: z.number().int().positive(),
+    agentFeePence: z.number().int().min(0),
+    startDate: ISODateString,
+    endDate: ISODateString,
+  })
+  .refine((r) => new Date(r.endDate) > new Date(r.startDate), {
+    message: 'End date must be after start date',
+    path: ['endDate'],
+  })
+  .refine((r) => {
+    const start = new Date(r.startDate)
+    const maxEnd = new Date(start)
+    maxEnd.setFullYear(start.getFullYear() + 10)
+    return new Date(r.endDate) <= maxEnd
+  }, { message: 'Contract cannot exceed 10 years', path: ['endDate'] })
+
+export type ManagerInput = z.infer<typeof ManagerInputSchema>
+
+// Patch manager identity fields (name / active flag).
+export const ManagerPatchSchema = z
+  .object({
+    name: z.string().trim().min(1).max(80).optional(),
+    isActive: z.boolean().optional(),
+  })
+  .refine((r) => Object.values(r).some((v) => v !== undefined), {
+    message: 'At least one field must be provided',
+  })
+
+export type ManagerPatchInput = z.infer<typeof ManagerPatchSchema>
+
+// Patch the current contract phase (player or manager) in place — used for
+// corrections, NOT extensions. `feePence` is the transfer/compensation fee.
+export const PhasePatchSchema = z
+  .object({
+    feePence:        z.number().int().min(0).optional(),
+    annualWagePence: z.number().int().positive().optional(),
+    agentFeePence:   z.number().int().min(0).optional(),
+    startDate: ISODateString.optional(),
+    endDate:   ISODateString.optional(),
+  })
+  .refine((r) => Object.values(r).some((v) => v !== undefined), {
+    message: 'At least one field must be provided',
+  })
+
+export type PhasePatchInput = z.infer<typeof PhasePatchSchema>
+
+// Log a contract extension. Supersedes the current phase: the server computes
+// the carried book value of the existing deal on `effectiveDate` and uses it
+// as the new EXTENSION phase's principal. `newWeeklyWagePence` is stored as an
+// annual wage (× 52) to match the rest of the roster.
+export const ExtendContractSchema = z
+  .object({
+    effectiveDate: ISODateString,
+    newEndDate:    ISODateString,
+    newWeeklyWagePence: z.number().int().positive(),
+    newAgentFeePence:   z.number().int().min(0),
+  })
+  .refine((r) => new Date(r.newEndDate) > new Date(r.effectiveDate), {
+    message: 'New end date must be after the effective date',
+    path: ['newEndDate'],
+  })
+  .refine((r) => {
+    const start = new Date(r.effectiveDate)
+    const maxEnd = new Date(start)
+    maxEnd.setFullYear(start.getFullYear() + 10)
+    return new Date(r.newEndDate) <= maxEnd
+  }, { message: 'Extension cannot exceed 10 years', path: ['newEndDate'] })
+
+export type ExtendContractInput = z.infer<typeof ExtendContractSchema>
+
 export type LeagueConfigInput = z.infer<typeof LeagueConfigSchema>

@@ -3,7 +3,7 @@ import { calculateThresholds } from './thresholds.js'
 import { determineStatus } from './status.js'
 import { calculateLevy } from './levy.js'
 import { calculatePointsDeduction } from './points.js'
-import { generateAmortisationSchedule } from './amortisation.js'
+import { generateAmortisationSchedule, amortisationPeriodYears } from './amortisation.js'
 
 /**
  * Core SCR calculation engine.
@@ -39,11 +39,13 @@ export function calculateSCR(
   let rawRevenueDelta = 0       // change to footballRelatedRevenue (before equity)
 
   if (type === 'buy') {
+    // Registration fees amortise over min(contractLength, 5) — the Chelsea Rule.
+    const amortYears = amortisationPeriodYears(transfer.contractLengthYears)
     annualAmortisation = transfer.transferFee > 0
-      ? Math.floor(transfer.transferFee / transfer.contractLengthYears)
+      ? Math.floor(transfer.transferFee / amortYears)
       : 0
     annualAgentFeeImpact = transfer.agentFee > 0
-      ? Math.floor(transfer.agentFee / transfer.contractLengthYears)
+      ? Math.floor(transfer.agentFee / amortYears)
       : 0
     totalAnnualCostImpact = annualAmortisation + transfer.annualWage + annualAgentFeeImpact
     if (hasLegacySale) {

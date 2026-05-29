@@ -6,7 +6,7 @@ import { authMiddleware } from '../middleware/auth.js'
 import { requireRole } from '../middleware/roles.js'
 import { writeAuditLog } from '../lib/audit.js'
 import { LEAGUE_CONFIGS } from '@headroom/shared'
-import { calculateSquadCosts, type ContractInput } from '@headroom/engine'
+import { calculateSquadCosts, type ContractInput, type ManagerCostInput } from '@headroom/engine'
 
 const UpdateFinancialsBody = z
   .object({
@@ -28,8 +28,39 @@ const UpdateFinancialsBody = z
     { message: 'Manual squad costs are required when mode = manual', path: ['manualSquadCostsPounds'] },
   )
 
-// Sum active contracts for a club into a single squad-cost pence total.
-// Pure engine call — DB I/O is here, not in @headroom/engine.
+// Resolve the active manager's current contract into a ManagerCostInput, or
+// null when the club has no active manager / current contract. Pure DB I/O.
+async function deriveActiveManager(clubId: string): Promise<ManagerCostInput | null> {
+  const { data: mgr, error: mgrErr } = await supabase
+    .from('managers')
+    .select('id')
+    .eq('club_id', clubId)
+    .eq('is_active', true)
+    .maybeSingle()
+  if (mgrErr) throw mgrErr
+  if (!mgr) return null
+
+  const { data: mc, error: mcErr } = await supabase
+    .from('manager_contracts')
+    .select('compensation_fee, annual_wage, agent_fee, contract_length_years')
+    .eq('manager_id', mgr.id)
+    .eq('is_current', true)
+    .maybeSingle()
+  if (mcErr) throw mcErr
+  if (!mc) return null
+
+  return {
+    managerId: String(mgr.id),
+    compensationFeePence: Number(mc.compensation_fee),
+    annualWagePence:      Number(mc.annual_wage),
+    agentFeePence:        Number(mc.agent_fee),
+    contractLengthYears:  Number(mc.contract_length_years),
+  }
+}
+
+// Sum active contracts for a club into a single squad-cost pence total. The
+// active Head Coach / Manager is included per SCR rules. Pure engine call —
+// DB I/O is here, not in @headroom/engine.
 async function deriveSquadCostsForClub(clubId: string): Promise<{
   totalPence: number
   contractCount: number
@@ -50,7 +81,9 @@ async function deriveSquadCostsForClub(clubId: string): Promise<{
     contractLengthYears: Number(c.contract_length_years),
   }))
 
-  const { totalSquadCostsPence } = calculateSquadCosts(inputs)
+  const manager = await deriveActiveManager(clubId)
+
+  const { totalSquadCostsPence } = calculateSquadCosts(inputs, manager)
   return { totalPence: totalSquadCostsPence, contractCount: inputs.length }
 }
 

@@ -6,6 +6,11 @@ import type {
   ManualPlayerInput,
   ContractPatchInput,
   ScenarioActionType,
+  ManagerWithContract,
+  ManagerInput,
+  ExtendContractInput,
+  PhasePatchInput,
+  ContractPhase,
 } from '@headroom/shared'
 
 const BASE = '/api'
@@ -311,6 +316,47 @@ export const api = {
       ),
     deletePlayer: (id: string) =>
       apiFetch<{ success: boolean }>(`/roster/player/${id}`, {
+        method: 'DELETE',
+      }),
+    // Full contract ledger (all phases) for a player.
+    playerPhases: (id: string) =>
+      apiFetch<{ phases: ContractPhase[] }>(`/roster/player/${id}/phases`),
+    // Log a contract extension — supersedes the current phase, carries book value.
+    extendPlayer: (id: string, input: ExtendContractInput) =>
+      apiFetch<{ contractId: string; carriedBookValuePence: number; bookValuePence: number }>(
+        `/roster/player/${id}/extend`,
+        { method: 'POST', body: JSON.stringify(input) }
+      ),
+    // Delete a single contract phase (archived, or current → promotes the prior phase).
+    deleteContract: (id: string) =>
+      apiFetch<{ success: boolean; promotedContractId: string | null }>(`/roster/contract/${id}`, {
+        method: 'DELETE',
+      }),
+
+    // ---- Manager (Head Coach) ----
+    getManager: () => apiFetch<{ manager: ManagerWithContract | null }>('/roster/manager'),
+    createManager: (input: ManagerInput) =>
+      apiFetch<{ managerId: string; contractId: string }>('/roster/manager', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
+    updateManager: (id: string, patch: { name?: string; isActive?: boolean }) =>
+      apiFetch<{ success: boolean }>(`/roster/manager/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      }),
+    updateManagerContract: (id: string, patch: PhasePatchInput) =>
+      apiFetch<{ success: boolean; bookValuePence: number }>(`/roster/manager-contract/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      }),
+    extendManager: (id: string, input: ExtendContractInput) =>
+      apiFetch<{ contractId: string; carriedBookValuePence: number; bookValuePence: number }>(
+        `/roster/manager/${id}/extend`,
+        { method: 'POST', body: JSON.stringify(input) }
+      ),
+    deleteManagerContract: (id: string) =>
+      apiFetch<{ success: boolean; promotedContractId: string | null }>(`/roster/manager-contract/${id}`, {
         method: 'DELETE',
       }),
   },

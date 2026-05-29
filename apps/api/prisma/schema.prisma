@@ -22,6 +22,8 @@ model Club {
   financials ClubFinancials[]
   players    Player[]
   contracts  Contract[]
+  managers          Manager[]
+  managerContracts  ManagerContract[]
   scenarios  Scenario[]
   auditLogs  AuditLog[]
   ssrWorkingCapital SsrWorkingCapital[]
@@ -106,6 +108,13 @@ model Contract {
   contractLengthYears Decimal  @map("contract_length_years") // computed at insert from dates
   bookValue           BigInt   @map("book_value")            // amortised remaining value, pence
   isActive            Boolean  @default(true) @map("is_active")
+  // Contract ledger (multi-phase history). `phaseType` distinguishes the
+  // original signing from later extensions. `isCurrent` marks the single live
+  // phase for the player (a partial unique index enforces one-per-player).
+  // `supersededAt` is set on the old phase when an extension replaces it.
+  phaseType           String    @default("INITIAL") @map("phase_type") // 'INITIAL' | 'EXTENSION'
+  isCurrent           Boolean   @default(true) @map("is_current")
+  supersededAt        DateTime? @map("superseded_at")
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
@@ -114,7 +123,53 @@ model Contract {
 
   @@index([clubId, isActive])
   @@index([playerId, isActive])
+  @@index([playerId, isCurrent])
   @@map("contracts")
+}
+
+// Head Coach / Manager. Their wages, compensation fee, and agent fees count
+// toward the club's Squad Cost Ratio. A club has at most one active manager.
+model Manager {
+  id        String   @id @default(uuid())
+  clubId    String   @map("club_id")
+  name      String
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  club      Club              @relation(fields: [clubId], references: [id])
+  contracts ManagerContract[]
+
+  @@index([clubId, isActive])
+  @@map("managers")
+}
+
+// Mirror of Contract for managers. The capitalised fee is a "compensation fee"
+// (paid to release them from a previous club) rather than a transfer fee.
+// Same multi-phase ledger semantics as Contract.
+model ManagerContract {
+  id                  String    @id @default(uuid())
+  managerId           String    @map("manager_id")
+  clubId              String    @map("club_id")
+  compensationFee     BigInt    @map("compensation_fee")
+  annualWage          BigInt    @map("annual_wage")
+  agentFee            BigInt    @map("agent_fee")
+  startDate           DateTime  @map("start_date")
+  endDate             DateTime  @map("end_date")
+  contractLengthYears Decimal   @map("contract_length_years")
+  bookValue           BigInt    @map("book_value")
+  phaseType           String    @default("INITIAL") @map("phase_type") // 'INITIAL' | 'EXTENSION'
+  isCurrent           Boolean   @default(true) @map("is_current")
+  supersededAt        DateTime? @map("superseded_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  manager Manager @relation(fields: [managerId], references: [id])
+  club    Club    @relation(fields: [clubId], references: [id])
+
+  @@index([clubId])
+  @@index([managerId, isCurrent])
+  @@map("manager_contracts")
 }
 
 // Named multi-action scenario — replaces flat simulations table

@@ -33,7 +33,19 @@ import type {
   PlayerPosition,
   RosterStagingRow,
   ManualPlayerInput,
+  ManagerWithContract,
+  ManagerInput,
+  ContractPhase,
+  ExtendContractInput,
 } from '@headroom/shared'
+
+// Annualised amortisation of a capitalised fee under the 5-year regulatory cap
+// (the Chelsea Rule). Mirrors amortisationPeriodYears in @headroom/engine.
+function annualAmortisation(feePence: number, contractLengthYears: number): number {
+  if (feePence <= 0) return 0
+  const years = contractLengthYears > 0 ? contractLengthYears : 1
+  return Math.floor(feePence / Math.min(years, 5))
+}
 
 const POSITIONS: PlayerPosition[] = ['GK', 'DEF', 'MID', 'FWD']
 
@@ -46,6 +58,7 @@ export function RosterPage() {
   const [tab, setTab] = useState<'squad' | 'archived'>('squad')
   const [active, setActive] = useState<PlayerWithContract[]>([])
   const [archived, setArchived] = useState<PlayerWithContract[]>([])
+  const [manager, setManager] = useState<ManagerWithContract | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -53,6 +66,8 @@ export function RosterPage() {
   const [csvOpen, setCsvOpen] = useState(false)
   const [manualOpen, setManualOpen] = useState(false)
   const [editPlayer, setEditPlayer] = useState<PlayerWithContract | null>(null)
+  const [managerAddOpen, setManagerAddOpen] = useState(false)
+  const [managerEditOpen, setManagerEditOpen] = useState(false)
 
   // Archived-row action state — null when no row has confirm UI open. Only
   // one player can be in confirm-delete mode at a time so the user can't fan
@@ -73,13 +88,15 @@ export function RosterPage() {
     setError('')
     const season = financials?.season ?? '2026-27'
     try {
-      const [a, b, f] = await Promise.all([
+      const [a, b, m, f] = await Promise.all([
         api.roster.list(),
         api.roster.listArchived(),
+        api.roster.getManager().catch(() => ({ manager: null })),
         api.club.getFinancials(season).catch(() => null),
       ])
       setActive(a.players)
       setArchived(b.players)
+      setManager(m.manager)
       if (f) setFinancials(f)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load roster')
@@ -186,6 +203,15 @@ export function RosterPage() {
 
       {tab === 'squad' ? (
         <>
+          {/* Head Coach / Manager — sits above the player table; their wages,
+              amortised compensation fee and agent fees count toward the SCR. */}
+          <ManagerCard
+            manager={manager}
+            canMutate={can.mutateRoster}
+            onAdd={() => setManagerAddOpen(true)}
+            onEdit={() => setManagerEditOpen(true)}
+          />
+
           {/* Filter chips */}
           <div className="flex items-center gap-2 mb-4 flex-wrap">
             <FilterChip active={filter === 'all'} onClick={() => setFilter('all')}>
@@ -273,6 +299,27 @@ export function RosterPage() {
             onClose={() => setEditPlayer(null)}
             onSaved={async () => {
               setEditPlayer(null)
+              await refresh()
+            }}
+          />
+        )}
+        {managerAddOpen && (
+          <ManagerAddModal
+            key="manager-add"
+            onClose={() => setManagerAddOpen(false)}
+            onCreated={async () => {
+              setManagerAddOpen(false)
+              await refresh()
+            }}
+          />
+        )}
+        {managerEditOpen && manager && (
+          <ManagerDrawer
+            key={`manager-edit-${manager.id}`}
+            manager={manager}
+            onClose={() => setManagerEditOpen(false)}
+            onSaved={async () => {
+              setManagerEditOpen(false)
               await refresh()
             }}
           />
@@ -535,6 +582,15 @@ function CloseIcon() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M18 6 6 18" />
       <path d="M6 6l12 12" />
+    </svg>
+  )
+}
+
+function EditIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
     </svg>
   )
 }
@@ -1156,6 +1212,27 @@ function PlayerEditDrawer({
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [error, setError] = useState('')
 
+  // Contract ledger (all phases) + extension wizard state.
+  const [phases, setPhases] = useState<ContractPhase[]>([])
+  const [extendOpen, setExtendOpen] = useState(false)
+
+  const reloadPhases = () => {
+    api.roster
+      .playerPhases(player.id)
+      .then((r) => setPhases(r.phases))
+      .catch(() => { /* ledger is supplementary — silent on failure */ })
+  }
+
+  useEffect(() => {
+    if (!c) return
+    let cancelled = false
+    api.roster
+      .playerPhases(player.id)
+      .then((r) => { if (!cancelled) setPhases(r.phases) })
+      .catch(() => { /* ledger is supplementary — silent on failure */ })
+    return () => { cancelled = true }
+  }, [player.id, c])
+
   const computedAge = useMemo(() => ageFromDob(dateOfBirth), [dateOfBirth])
   const todayISO = new Date().toISOString().slice(0, 10)
   const sixtyYearsAgoISO = (() => {
@@ -1226,6 +1303,7 @@ function PlayerEditDrawer({
   }
 
   return (
+    <>
     <ModalShell onClose={onClose} title={`Edit ${player.name}`}>
       <form onSubmit={save} className="px-5 pb-5 space-y-4 max-h-[80vh] overflow-y-auto overflow-x-visible">
         <Field label="Name">
@@ -1296,6 +1374,23 @@ function PlayerEditDrawer({
               <p className="mt-2 text-[12px] text-slate-500">
                 Current book value: <span className="num text-slate-700">{formatPence(c.bookValuePence)}</span>
               </p>
+
+              {/* Contract ledger — only meaningful once there's history beyond
+                  the initial signing. The current phase is always shown above. */}
+              {phases.length > 1 && (
+                <div className="mt-4">
+                  <div className="meta-label mb-2">Contract phases</div>
+                  <ContractLedger phases={phases} kind="player" canEdit={can.mutateRoster} onChanged={reloadPhases} />
+                </div>
+              )}
+
+              {can.mutateRoster && (
+                <div className="mt-4">
+                  <Button type="button" variant="outline" onClick={() => setExtendOpen(true)}>
+                    <ExtendIcon /> Log contract extension
+                  </Button>
+                </div>
+              )}
             </div>
           </>
         )}
@@ -1339,6 +1434,770 @@ function PlayerEditDrawer({
         </div>
       </form>
     </ModalShell>
+
+    {extendOpen && c && (
+      <ExtendContractWizard
+        subjectLabel={player.name}
+        currentEndDate={c.endDate}
+        currentWeeklyWagePence={Math.round(c.annualWagePence / 52)}
+        onClose={() => setExtendOpen(false)}
+        submit={(input) => api.roster.extendPlayer(player.id, input)}
+        onExtended={onSaved}
+      />
+    )}
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Manager (Head Coach)
+// ---------------------------------------------------------------------------
+
+function ManagerCard({
+  manager,
+  canMutate,
+  onAdd,
+  onEdit,
+}: {
+  manager: ManagerWithContract | null
+  canMutate: boolean
+  onAdd: () => void
+  onEdit: () => void
+}) {
+  if (!manager) {
+    return (
+      <Card className="mb-5 p-5 border-dashed">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-violet-50 text-violet-400 flex-shrink-0">
+              <CoachIcon />
+            </span>
+            <div>
+              <div className="text-[14px] font-semibold text-slate-900">No Head Coach set</div>
+              <div className="text-[12px] text-slate-500 mt-0.5">
+                The manager's wages, compensation fee and agent fees count toward your Squad Cost Ratio.
+              </div>
+            </div>
+          </div>
+          {canMutate && <Button onClick={onAdd}>Add Head Coach</Button>}
+        </div>
+      </Card>
+    )
+  }
+
+  const c = manager.contract
+  const amortPence = c ? annualAmortisation(c.feePence, c.contractLengthYears) : 0
+
+  return (
+    <Card className="mb-5 p-5">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-violet-100 text-violet-600 flex-shrink-0">
+            <CoachIcon />
+          </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="meta-label text-violet-700">Head Coach</span>
+              {c && <PhaseTypePill phaseType={c.phaseType} />}
+            </div>
+            <div className="text-[16px] font-semibold text-slate-900 truncate">{manager.name}</div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-6">
+          <ManagerStat label="Annual wage" value={c ? formatPence(c.annualWagePence) : '—'} />
+          <ManagerStat
+            label="Amort. compensation"
+            value={c ? formatPence(amortPence) + '/yr' : '—'}
+            hint={c && c.feePence > 0 ? `${formatPence(c.feePence)} over ${Math.min(c.contractLengthYears, 5).toFixed(c.contractLengthYears % 1 === 0 ? 0 : 1)}y (capped)` : undefined}
+          />
+          <ManagerStat
+            label="Contract end"
+            value={c ? formatDate(c.endDate) : '—'}
+            sub={c ? <ExpiryChip months={manager.monthsToExpiry} /> : undefined}
+          />
+          {canMutate && (
+            <Button variant="secondary" onClick={onEdit}>Edit</Button>
+          )}
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+function ManagerStat({
+  label,
+  value,
+  hint,
+  sub,
+}: {
+  label: string
+  value: string
+  hint?: string
+  sub?: React.ReactNode
+}) {
+  return (
+    <div className="text-right">
+      <div className="meta-label">{label}</div>
+      <div className="num text-[14px] font-medium text-slate-900 mt-0.5 whitespace-nowrap">{value}</div>
+      {hint && <div className="text-[10.5px] text-slate-400 mt-0.5 whitespace-nowrap">{hint}</div>}
+      {sub && <div className="mt-1 flex justify-end">{sub}</div>}
+    </div>
+  )
+}
+
+// Create the Head Coach + their INITIAL contract phase.
+function ManagerAddModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void
+  onCreated: () => void
+}) {
+  const [name, setName] = useState('')
+  const [compPounds, setCompPounds] = useState(NaN)
+  const [weeklyWagePounds, setWeeklyWagePounds] = useState(NaN)
+  const [agentPounds, setAgentPounds] = useState(NaN)
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+    try {
+      const payload: ManagerInput = {
+        name: name.trim(),
+        compensationFeePence: (isFinite(compPounds) ? compPounds : 0) * 100,
+        annualWagePence: (isFinite(weeklyWagePounds) ? weeklyWagePounds : 0) * 52 * 100,
+        agentFeePence: (isFinite(agentPounds) ? agentPounds : 0) * 100,
+        startDate,
+        endDate,
+      }
+      await api.roster.createManager(payload)
+      onCreated()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add manager')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <ModalShell onClose={onClose} title="Add Head Coach">
+      <form onSubmit={submit} className="px-5 pb-5 space-y-4 max-h-[80vh] overflow-y-auto overflow-x-visible">
+        <Field label="Name">
+          <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={80} className={fieldClass} />
+        </Field>
+        <div className="grid grid-cols-3 gap-4">
+          <Field label="Compensation fee (£)">
+            <PoundInput value={compPounds} onChange={setCompPounds} />
+          </Field>
+          <Field label="Weekly wage (£)">
+            <PoundInput value={weeklyWagePounds} onChange={setWeeklyWagePounds} />
+          </Field>
+          <Field label="Agent fee (£)">
+            <PoundInput value={agentPounds} onChange={setAgentPounds} />
+          </Field>
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Contract start">
+            <DatePicker value={startDate} onChange={setStartDate} required placeholder="Select start date" />
+          </Field>
+          <Field label="Contract end">
+            <DatePicker value={endDate} onChange={setEndDate} required placeholder="Select end date" />
+          </Field>
+        </div>
+        {error && (
+          <div className="border border-red-200 bg-red-50 rounded-lg px-4 py-3 text-[13px] text-red-700">{error}</div>
+        )}
+        <div className="flex items-center justify-end gap-3 pt-2">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button type="submit" disabled={saving}>
+            {saving ? <Spinner size={14} /> : null}
+            {saving ? 'Saving…' : 'Add Head Coach'}
+          </Button>
+        </div>
+      </form>
+    </ModalShell>
+  )
+}
+
+// Edit the Head Coach: correct current-phase fields, view the contract ledger,
+// log an extension, or remove (archive) them.
+function ManagerDrawer({
+  manager,
+  onClose,
+  onSaved,
+}: {
+  manager: ManagerWithContract
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const can = useCan()
+  const c = manager.contract
+  const [name, setName] = useState(manager.name)
+  const [compPounds, setCompPounds] = useState(c ? c.feePence / 100 : NaN)
+  const [weeklyWagePounds, setWeeklyWagePounds] = useState(c ? Math.round(c.annualWagePence / 52 / 100) : NaN)
+  const [agentPounds, setAgentPounds] = useState(c ? c.agentFeePence / 100 : NaN)
+  const [startDate, setStartDate] = useState(c?.startDate ?? '')
+  const [endDate, setEndDate] = useState(c?.endDate ?? '')
+  const [saving, setSaving] = useState(false)
+  const [removing, setRemoving] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const [extendOpen, setExtendOpen] = useState(false)
+  const [phases, setPhases] = useState<ContractPhase[]>(manager.phases)
+  const [error, setError] = useState('')
+
+  // Re-fetch phases in place after editing one (without closing the drawer).
+  const reloadPhases = () => {
+    api.roster
+      .getManager()
+      .then((r) => setPhases(r.manager?.phases ?? []))
+      .catch(() => { /* ledger is supplementary — silent on failure */ })
+  }
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+    try {
+      if (name.trim() !== manager.name) {
+        await api.roster.updateManager(manager.id, { name: name.trim() })
+      }
+      if (c) {
+        const patch: Parameters<typeof api.roster.updateManagerContract>[1] = {}
+        const compPence = (isFinite(compPounds) ? compPounds : 0) * 100
+        const annualWagePence = (isFinite(weeklyWagePounds) ? weeklyWagePounds : 0) * 52 * 100
+        const agentPence = (isFinite(agentPounds) ? agentPounds : 0) * 100
+        if (compPence !== c.feePence) patch.feePence = compPence
+        if (annualWagePence !== c.annualWagePence) patch.annualWagePence = annualWagePence
+        if (agentPence !== c.agentFeePence) patch.agentFeePence = agentPence
+        if (startDate !== c.startDate) patch.startDate = startDate
+        if (endDate !== c.endDate) patch.endDate = endDate
+        if (Object.keys(patch).length > 0) {
+          await api.roster.updateManagerContract(c.id, patch)
+        }
+      }
+      onSaved()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save')
+      setSaving(false)
+    }
+  }
+
+  const remove = async () => {
+    setRemoving(true)
+    setError('')
+    try {
+      await api.roster.updateManager(manager.id, { isActive: false })
+      onSaved()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove manager')
+      setRemoving(false)
+      setConfirmRemove(false)
+    }
+  }
+
+  return (
+    <>
+    <ModalShell onClose={onClose} title={`Edit ${manager.name}`}>
+      <form onSubmit={save} className="px-5 pb-5 space-y-4 max-h-[80vh] overflow-y-auto overflow-x-visible">
+        <Field label="Name">
+          <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={80} className={fieldClass} />
+        </Field>
+
+        {c && (
+          <div className="border-t border-slate-100 pt-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="meta-label">Current contract</span>
+              <PhaseTypePill phaseType={c.phaseType} />
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <Field label="Compensation fee (£)">
+                <PoundInput value={compPounds} onChange={setCompPounds} />
+              </Field>
+              <Field label="Weekly wage (£)">
+                <PoundInput value={weeklyWagePounds} onChange={setWeeklyWagePounds} />
+              </Field>
+              <Field label="Agent fee (£)">
+                <PoundInput value={agentPounds} onChange={setAgentPounds} />
+              </Field>
+            </div>
+            <div className="grid grid-cols-2 gap-4 mt-4">
+              <Field label="Contract start">
+                <DatePicker value={startDate} onChange={setStartDate} required placeholder="Select start date" />
+              </Field>
+              <Field label="Contract end">
+                <DatePicker value={endDate} onChange={setEndDate} required placeholder="Select end date" />
+              </Field>
+            </div>
+            <p className="mt-2 text-[12px] text-slate-500">
+              Current book value: <span className="num text-slate-700">{formatPence(c.bookValuePence)}</span>
+              {c.feePence > 0 && (
+                <> · Amortised <span className="num text-slate-700">{formatPence(annualAmortisation(c.feePence, c.contractLengthYears))}/yr</span></>
+              )}
+            </p>
+
+            {phases.length > 1 && (
+              <div className="mt-4">
+                <div className="meta-label mb-2">Contract phases</div>
+                <ContractLedger phases={phases} kind="manager" canEdit={can.mutateRoster} onChanged={reloadPhases} />
+              </div>
+            )}
+
+            {can.mutateRoster && (
+              <div className="mt-4">
+                <Button type="button" variant="outline" onClick={() => setExtendOpen(true)}>
+                  <ExtendIcon /> Log contract extension
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {error && (
+          <div className="border border-red-200 bg-red-50 rounded-lg px-4 py-3 text-[13px] text-red-700">{error}</div>
+        )}
+
+        <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-100">
+          {can.mutateRoster ? (
+            confirmRemove ? (
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] text-slate-700">Remove {manager.name}?</span>
+                <Button type="button" variant="destructive" onClick={remove} disabled={removing}>
+                  {removing ? <Spinner size={14} /> : null}
+                  {removing ? 'Removing…' : 'Confirm'}
+                </Button>
+                <Button type="button" variant="ghost" onClick={() => setConfirmRemove(false)} disabled={removing}>Cancel</Button>
+              </div>
+            ) : (
+              <Button type="button" variant="ghost" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => setConfirmRemove(true)}>
+                Remove Head Coach
+              </Button>
+            )
+          ) : <div />}
+          <div className="flex items-center gap-3">
+            <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Close</Button>
+            {can.mutateRoster && (
+              <Button type="submit" disabled={saving}>
+                {saving ? <Spinner size={14} /> : null}
+                {saving ? 'Saving…' : 'Save changes'}
+              </Button>
+            )}
+          </div>
+        </div>
+      </form>
+    </ModalShell>
+
+    {extendOpen && c && (
+      <ExtendContractWizard
+        subjectLabel={manager.name}
+        currentEndDate={c.endDate}
+        currentWeeklyWagePence={Math.round(c.annualWagePence / 52)}
+        onClose={() => setExtendOpen(false)}
+        submit={(input) => api.roster.extendManager(manager.id, input)}
+        onExtended={onSaved}
+      />
+    )}
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Contract ledger — vertical timeline of phases (current = green, past = grey).
+// Any phase can be edited in place, including archived ones (e.g. to correct a
+// historical fee/date). `kind` routes the save to the player or manager
+// endpoint; `onChanged` lets the parent re-fetch the ledger after a save.
+// ---------------------------------------------------------------------------
+function ContractLedger({
+  phases,
+  kind,
+  canEdit = false,
+  onChanged,
+}: {
+  phases: ContractPhase[]
+  kind: 'player' | 'manager'
+  canEdit?: boolean
+  onChanged?: () => void
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState('')
+
+  const doDelete = async (phaseId: string) => {
+    setDeletingId(phaseId)
+    setDeleteError('')
+    try {
+      if (kind === 'player') await api.roster.deleteContract(phaseId)
+      else await api.roster.deleteManagerContract(phaseId)
+      setConfirmDeleteId(null)
+      onChanged?.()
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'Failed to delete phase')
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
+  return (
+    <ol className="relative border-l border-slate-200 ml-1.5 space-y-3">
+      {phases.map((p) => {
+        const editing = editingId === p.id
+        const confirming = confirmDeleteId === p.id
+        const deleting = deletingId === p.id
+        return (
+        <li key={p.id} className="ml-4">
+          <span
+            className={cn(
+              'absolute -left-[5px] mt-1.5 h-2.5 w-2.5 rounded-full ring-2 ring-white',
+              p.isCurrent ? 'bg-emerald-500' : 'bg-slate-300'
+            )}
+          />
+          <div className="rounded-lg border border-slate-200 bg-white px-3.5 py-3">
+            <div className="flex items-start justify-between gap-3">
+              {/* Left: phase type + status pills, with the contract window
+                  beneath them. Keeping dates here (not inline with the icons)
+                  declutters the right edge and aligns every row. */}
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <PhaseTypePill phaseType={p.phaseType} />
+                  {p.isCurrent ? (
+                    <span className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">Active</span>
+                  ) : (
+                    <span className="inline-block text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">Archived</span>
+                  )}
+                </div>
+                <div className="num tabular-nums text-[12px] text-slate-500 mt-1.5 whitespace-nowrap">
+                  {formatDate(p.startDate)} → {formatDate(p.endDate)}
+                </div>
+              </div>
+
+              {/* Right: actions, always in the same two slots. Edit + Delete on
+                  every row; Delete is disabled on the live phase (managed via the
+                  form / extension flow above) rather than hidden, so the columns
+                  line up across rows. */}
+              {canEdit && !editing && (
+                confirming ? (
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <span className="text-[11px] text-slate-600 whitespace-nowrap">Delete?</span>
+                    <IconButton label={deleting ? 'Deleting…' : 'Confirm delete'} tone="danger" disabled={deleting} onClick={() => doDelete(p.id)}>
+                      {deleting ? <Spinner size={14} /> : <CheckIcon />}
+                    </IconButton>
+                    <IconButton label="Cancel" tone="neutral" disabled={deleting} onClick={() => setConfirmDeleteId(null)}>
+                      <CloseIcon />
+                    </IconButton>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <IconButton label="Edit phase" tone="violet" onClick={() => setEditingId(p.id)}>
+                      <EditIcon />
+                    </IconButton>
+                    <IconButton
+                      label={p.isCurrent ? "The live phase can't be deleted" : 'Delete phase'}
+                      tone="danger"
+                      disabled={p.isCurrent}
+                      onClick={() => setConfirmDeleteId(p.id)}
+                    >
+                      <TrashIcon />
+                    </IconButton>
+                  </div>
+                )
+              )}
+            </div>
+
+            {editing ? (
+              <PhaseEditor
+                phase={p}
+                kind={kind}
+                onCancel={() => setEditingId(null)}
+                onSaved={() => {
+                  setEditingId(null)
+                  onChanged?.()
+                }}
+              />
+            ) : (
+              <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-3 gap-2 text-[12px]">
+                <LedgerCell label="Fee" value={formatPence(p.feePence)} />
+                <LedgerCell label="Wage/yr" value={formatPence(p.annualWagePence)} />
+                <LedgerCell label={p.isCurrent ? 'Book value' : 'Carried out'} value={formatPence(p.bookValuePence)} />
+              </div>
+            )}
+          </div>
+        </li>
+        )
+      })}
+      {deleteError && <li className="ml-4 text-[12px] text-red-600">{deleteError}</li>}
+    </ol>
+  )
+}
+
+function LedgerCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="meta-label">{label}</div>
+      <div className="num text-slate-800 mt-0.5">{value}</div>
+    </div>
+  )
+}
+
+// Inline editor for a single contract phase. Patches by phase id via the
+// player or manager endpoint (both accept any phase, current or archived).
+function PhaseEditor({
+  phase,
+  kind,
+  onCancel,
+  onSaved,
+}: {
+  phase: ContractPhase
+  kind: 'player' | 'manager'
+  onCancel: () => void
+  onSaved: () => void
+}) {
+  const [feePounds, setFeePounds] = useState(phase.feePence / 100)
+  const [weeklyWagePounds, setWeeklyWagePounds] = useState(Math.round(phase.annualWagePence / 52 / 100))
+  const [agentPounds, setAgentPounds] = useState(phase.agentFeePence / 100)
+  const [startDate, setStartDate] = useState(phase.startDate)
+  const [endDate, setEndDate] = useState(phase.endDate)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const save = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      const feePence = (isFinite(feePounds) ? feePounds : 0) * 100
+      const annualWagePence = (isFinite(weeklyWagePounds) ? weeklyWagePounds : 0) * 52 * 100
+      const agentFeePence = (isFinite(agentPounds) ? agentPounds : 0) * 100
+      if (kind === 'player') {
+        await api.roster.updateContract(phase.id, {
+          transferFeePence: feePence,
+          annualWagePence,
+          agentFeePence,
+          startDate,
+          endDate,
+        })
+      } else {
+        await api.roster.updateManagerContract(phase.id, {
+          feePence,
+          annualWagePence,
+          agentFeePence,
+          startDate,
+          endDate,
+        })
+      }
+      onSaved()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save phase')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="mt-3 space-y-3">
+      <div className="grid grid-cols-3 gap-3">
+        <Field label="Fee (£)">
+          <PoundInput value={feePounds} onChange={setFeePounds} />
+        </Field>
+        <Field label="Weekly wage (£)">
+          <PoundInput value={weeklyWagePounds} onChange={setWeeklyWagePounds} />
+        </Field>
+        <Field label="Agent fee (£)">
+          <PoundInput value={agentPounds} onChange={setAgentPounds} />
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Start">
+          <DatePicker value={startDate} onChange={setStartDate} required placeholder="Start date" />
+        </Field>
+        <Field label="End">
+          <DatePicker value={endDate} onChange={setEndDate} required placeholder="End date" />
+        </Field>
+      </div>
+      {error && <div className="text-[12px] text-red-600">{error}</div>}
+      <div className="flex items-center justify-end gap-1.5">
+        <IconButton label="Cancel" tone="neutral" disabled={saving} onClick={onCancel}>
+          <CloseIcon />
+        </IconButton>
+        <IconButton label={saving ? 'Saving…' : 'Save phase'} tone="violet" disabled={saving} onClick={save}>
+          {saving ? <Spinner size={14} /> : <CheckIcon />}
+        </IconButton>
+      </div>
+    </div>
+  )
+}
+
+function PhaseTypePill({ phaseType }: { phaseType: ContractPhase['phaseType'] }) {
+  const isExt = phaseType === 'EXTENSION'
+  return (
+    <span
+      className={cn(
+        'inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide',
+        isExt ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-600'
+      )}
+    >
+      {isExt ? 'Extension' : 'Initial'}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Extend Contract wizard — supersedes the current phase. Shared by player +
+// manager (the `submit` callback targets the right endpoint).
+// ---------------------------------------------------------------------------
+function ExtendContractWizard({
+  subjectLabel,
+  currentEndDate,
+  currentWeeklyWagePence,
+  onClose,
+  submit,
+  onExtended,
+}: {
+  subjectLabel: string
+  currentEndDate: string
+  currentWeeklyWagePence: number
+  onClose: () => void
+  submit: (input: ExtendContractInput) => Promise<unknown>
+  onExtended: () => void
+}) {
+  // The extension begins exactly when the current deal expires — it's derived
+  // from the current contract's end date, never picked by hand. (Previously a
+  // free date field let you "extend" a deal from an arbitrary, even already-
+  // past, date.) New wage seeds from the current wage so a "same terms, longer
+  // deal" renewal is a one-field change.
+  const effectiveDate = currentEndDate
+  const [newEndDate, setNewEndDate] = useState('')
+  const [weeklyWagePounds, setWeeklyWagePounds] = useState(Math.round(currentWeeklyWagePence / 100))
+  const [agentPounds, setAgentPounds] = useState(NaN)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+
+  const go = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSubmitting(true)
+    setError('')
+    try {
+      const input: ExtendContractInput = {
+        effectiveDate,
+        newEndDate,
+        newWeeklyWagePence: (isFinite(weeklyWagePounds) ? weeklyWagePounds : 0) * 100,
+        newAgentFeePence: (isFinite(agentPounds) ? agentPounds : 0) * 100,
+      }
+      await submit(input)
+      onExtended()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to log extension')
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <ModalShell onClose={onClose} title={`Extend ${subjectLabel}`}>
+      <form onSubmit={go} className="px-5 pb-5 space-y-4">
+        <div className="rounded-lg bg-violet-50/70 border border-violet-100 px-4 py-3 text-[12.5px] text-slate-600">
+          The new deal picks up exactly where the current one ends —{' '}
+          <span className="num font-medium text-slate-800">{formatDate(effectiveDate)}</span>. The terms below
+          apply from that date.
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Effective date of extension">
+            {/* Auto-set to the current contract's expiry — not editable. */}
+            <div className="w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-slate-50 text-slate-500 num cursor-not-allowed flex items-center justify-between">
+              <span>{formatDate(effectiveDate)}</span>
+              <span className="text-[10.5px] uppercase tracking-wide text-slate-400 not-italic">at expiry</span>
+            </div>
+          </Field>
+          <Field
+            label={
+              <span className="flex items-center gap-1.5">
+                <span>New contract end date</span>
+                <InfoTooltip text="For compliance calculations, the remaining book value will be spread over the new duration, strictly capped at a maximum of 5 years." />
+              </span>
+            }
+          >
+            <DatePicker value={newEndDate} onChange={setNewEndDate} required min={effectiveDate} placeholder="Select end date" />
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="New weekly wage (£)">
+            <PoundInput value={weeklyWagePounds} onChange={setWeeklyWagePounds} />
+          </Field>
+          <Field label="New agent fees (£)">
+            <PoundInput value={agentPounds} onChange={setAgentPounds} />
+          </Field>
+        </div>
+
+        {error && (
+          <div className="border border-red-200 bg-red-50 rounded-lg px-4 py-3 text-[13px] text-red-700">{error}</div>
+        )}
+
+        <div className="flex items-center justify-end gap-3 pt-2">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={submitting}>Cancel</Button>
+          <Button type="submit" disabled={submitting}>
+            {submitting ? <Spinner size={14} /> : null}
+            {submitting ? 'Logging…' : 'Log extension'}
+          </Button>
+        </div>
+      </form>
+    </ModalShell>
+  )
+}
+
+// Small hover/focus tooltip for an info icon. Bubble is absolutely positioned
+// above the icon with a high z-index so it escapes the field row; the wizard
+// modal has enough headroom that it won't clip.
+function InfoTooltip({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        aria-label="More information"
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-slate-200 text-slate-600 text-[10px] font-semibold hover:bg-slate-300 transition-colors"
+      >
+        i
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.span
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            transition={{ duration: 0.12 }}
+            role="tooltip"
+            className="absolute left-1/2 bottom-full z-50 mb-2 w-56 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-[11.5px] leading-snug text-white shadow-lg normal-case tracking-normal font-normal"
+          >
+            {text}
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </span>
+  )
+}
+
+function ExtendIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 12h14" />
+      <path d="M13 6l6 6-6 6" />
+    </svg>
+  )
+}
+
+function CoachIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 20a8 8 0 0 1 16 0" />
+    </svg>
   )
 }
 

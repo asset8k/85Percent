@@ -122,6 +122,47 @@ export interface PlayerWithContract {
   monthsToExpiry: number | null       // null if no active contract; can be negative if expired
 }
 
+// ---------------------------------------------------------------------------
+// Multi-phase contract ledger + Manager (Head Coach)
+// ---------------------------------------------------------------------------
+// A contract is a ledger of phases. INITIAL is the original signing; each
+// EXTENSION supersedes the prior phase mid-deal, carrying the remaining book
+// value forward as its new principal. Exactly one phase per individual is
+// `isCurrent` at a time. Players and managers share this normalised shape —
+// `feePence` is a player's transfer fee or a manager's compensation fee.
+
+export type ContractPhaseType = 'INITIAL' | 'EXTENSION'
+
+export interface ContractPhase {
+  id: string
+  phaseType: ContractPhaseType
+  isCurrent: boolean
+  /** Transfer fee (player) or compensation fee (manager), in pence. */
+  feePence: number
+  annualWagePence: number
+  agentFeePence: number
+  startDate: string                 // ISO YYYY-MM-DD
+  endDate: string
+  contractLengthYears: number
+  bookValuePence: number            // live, capped at 5 years, recomputed at read time
+  supersededAt: string | null       // set when an extension replaced this phase
+  createdAt: string
+}
+
+// The Head Coach / Manager. Their wages, compensation fee, and agent fees are
+// included in the club's Squad Cost Ratio. A club has at most one active
+// manager; their `contract` is the current phase, `phases` the full ledger.
+export interface ManagerWithContract {
+  id: string
+  clubId: string
+  name: string
+  isActive: boolean
+  createdAt: string
+  contract: ContractPhase | null
+  phases: ContractPhase[]
+  monthsToExpiry: number | null
+}
+
 // CSV staging — one entry per row. `parsed` is set iff `issues` is empty.
 export interface RosterStagingRow {
   rowIndex: number                    // 1-based row number from the CSV (excluding header)
