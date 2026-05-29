@@ -54,7 +54,7 @@ const EXPECTED_COLUMNS = [
 ] as const
 
 // Optional CSV columns — accepted when present, ignored otherwise.
-const OPTIONAL_COLUMNS = ['nationality', 'date_of_birth'] as const
+const OPTIONAL_COLUMNS = ['squad_number', 'nationality', 'date_of_birth'] as const
 
 type CsvRow = Record<string, string | number | undefined>
 
@@ -76,6 +76,16 @@ function parsePoundsCell(v: unknown): number {
   return Math.round(n) // accept "1500.00" by rounding; ban silent fractional pence at the parse layer
 }
 
+// Parse an optional integer cell (e.g. squad number). Blank → undefined (the
+// column is optional); a non-numeric value → NaN (flagged as an error upstream).
+function parseOptionalIntCell(v: unknown): number | undefined {
+  const s = normaliseCell(v)
+  if (s === undefined) return undefined
+  const n = Number(s)
+  if (!Number.isFinite(n)) return NaN
+  return Math.round(n)
+}
+
 // Compute decimal contract years between two ISO date strings.
 // Used purely for human readability in the breakdown table; engine math uses
 // the actual Date objects, not this value, so float drift is harmless here.
@@ -95,6 +105,9 @@ function buildStagingRow(rowIndex: number, rawRow: CsvRow): RosterStagingRow {
   const candidate = {
     name:                normaliseCell(rawRow['name']),
     position:            normaliseCell(rawRow['position']),
+    // Optional shirt number — blank stays undefined; a bad value becomes NaN
+    // and is flagged below.
+    squad_number:        parseOptionalIntCell(rawRow['squad_number']),
     nationality:         normaliseCell(rawRow['nationality']),
     date_of_birth:       normaliseCell(rawRow['date_of_birth']),
     transfer_fee_pounds: parsePoundsCell(rawRow['transfer_fee_pounds']),
@@ -106,6 +119,7 @@ function buildStagingRow(rowIndex: number, rawRow: CsvRow): RosterStagingRow {
 
   // Catch number parse failures with a friendlier message than Zod would give
   for (const [field, label] of [
+    ['squad_number',        'Squad number'],
     ['transfer_fee_pounds', 'Transfer fee'],
     ['weekly_wage_pounds',  'Weekly wage'],
     ['agent_fee_pounds',    'Agent fee'],
@@ -142,6 +156,7 @@ function buildStagingRow(rowIndex: number, rawRow: CsvRow): RosterStagingRow {
         parsed: {
           name: r.name,
           position: r.position,
+          ...(r.squad_number !== undefined ? { squadNumber: r.squad_number } : {}),
           ...(r.nationality !== undefined ? { nationality: r.nationality } : {}),
           ...(r.date_of_birth !== undefined ? { dateOfBirth: r.date_of_birth } : {}),
           transferFeePence,
@@ -206,6 +221,7 @@ function buildPlayerResponse(
     clubId: String(player['club_id']),
     name: String(player['name']),
     position: (player['position'] as PlayerWithContract['position']) ?? null,
+    squadNumber: player['squad_number'] == null ? null : Number(player['squad_number']),
     nationality: (player['nationality'] as string | null) ?? null,
     dateOfBirth,
     isActive: Boolean(player['is_active']),
@@ -283,6 +299,7 @@ const CommitBody = z.object({
     z.object({
       name: z.string().min(1),
       position: z.enum(['GK', 'DEF', 'MID', 'FWD']),
+      squadNumber: z.number().int().min(1).max(99).optional(),
       nationality: z.string().max(60).optional(),
       dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date of birth must be YYYY-MM-DD').optional(),
       transferFeePence: z.number().int().min(0),
@@ -297,6 +314,8 @@ const CommitBody = z.object({
 const PlayerPatchBody = z.object({
   name:        z.string().trim().min(1).max(80).optional(),
   position:    z.enum(['GK', 'DEF', 'MID', 'FWD']).optional(),
+  // Pass null to clear the shirt number; 1–99 to set it.
+  squadNumber: z.number().int().min(1).max(99).nullable().optional(),
   nationality: z.string().trim().max(60).nullable().optional(),
   // Pass null to clear; pass YYYY-MM-DD to set.
   dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD').nullable().optional(),
@@ -313,7 +332,7 @@ export async function rosterRoutes(app: FastifyInstance) {
     try {
       const { data: players, error: playersErr } = await supabase
         .from('players')
-        .select('id, club_id, name, position, nationality, date_of_birth, is_active, archived_at, created_at')
+        .select('id, club_id, name, position, squad_number, nationality, date_of_birth, is_active, archived_at, created_at')
         .eq('club_id', request.clubId)
         .eq('is_active', true)
         .order('name', { ascending: true })
@@ -354,7 +373,7 @@ export async function rosterRoutes(app: FastifyInstance) {
     try {
       const { data: players, error } = await supabase
         .from('players')
-        .select('id, club_id, name, position, nationality, date_of_birth, is_active, archived_at, created_at')
+        .select('id, club_id, name, position, squad_number, nationality, date_of_birth, is_active, archived_at, created_at')
         .eq('club_id', request.clubId)
         .eq('is_active', false)
         .order('archived_at', { ascending: false })
@@ -456,6 +475,7 @@ export async function rosterRoutes(app: FastifyInstance) {
       const candidate = {
         name: r.name,
         position: r.position,
+        ...(r.squadNumber !== undefined ? { squad_number: r.squadNumber } : {}),
         nationality: r.nationality ?? '',
         date_of_birth: r.dateOfBirth ?? '',
         transfer_fee_pounds: Math.floor(r.transferFeePence / 100),
@@ -499,6 +519,7 @@ export async function rosterRoutes(app: FastifyInstance) {
           club_id: request.clubId,
           name: r.name,
           position: r.position,
+          squad_number: r.squadNumber ?? null,
           nationality: r.nationality ?? null,
           date_of_birth: r.dateOfBirth ?? null,
           is_active: true,
@@ -580,6 +601,7 @@ export async function rosterRoutes(app: FastifyInstance) {
         club_id: request.clubId,
         name: r.name,
         position: r.position,
+        squad_number: r.squadNumber ?? null,
         nationality: r.nationality ?? null,
         date_of_birth: r.dateOfBirth ?? null,
         is_active: true,
@@ -643,6 +665,7 @@ export async function rosterRoutes(app: FastifyInstance) {
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
       if (parsed.data.name        !== undefined) patch['name']        = parsed.data.name
       if (parsed.data.position    !== undefined) patch['position']    = parsed.data.position
+      if (parsed.data.squadNumber !== undefined) patch['squad_number'] = parsed.data.squadNumber
       if (parsed.data.nationality !== undefined) patch['nationality'] = parsed.data.nationality
       if (parsed.data.dateOfBirth !== undefined) patch['date_of_birth'] = parsed.data.dateOfBirth
 

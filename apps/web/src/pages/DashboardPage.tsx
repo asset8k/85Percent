@@ -40,7 +40,7 @@ function formatPenceNumber(pence: number) {
   return '£' + Math.round(pence / 100).toLocaleString('en-GB')
 }
 
-type SortKey = 'name' | 'position' | 'wage' | 'amortisation' | 'agentFee' | 'total' | 'expiry'
+type SortKey = 'squadNumber' | 'name' | 'position' | 'wage' | 'amortisation' | 'agentFee' | 'total' | 'expiry'
 type SortDir = 'asc' | 'desc'
 
 export function DashboardPage() {
@@ -65,11 +65,12 @@ export function DashboardPage() {
 
   // Per-player breakdown via the engine — same math the API uses to derive the total.
   const { totalSquadCostsPence, breakdownByPlayer } = useMemo(() => {
-    const inputs: Array<ContractInput & { playerName: string; position: string | null; nationality: string | null; monthsToExpiry: number | null }> = players
+    const inputs: Array<ContractInput & { playerName: string; squadNumber: number | null; position: string | null; nationality: string | null; monthsToExpiry: number | null }> = players
       .filter((p) => p.contract)
       .map((p) => ({
         playerId: p.id,
         playerName: p.name,
+        squadNumber: p.squadNumber,
         position: p.position,
         nationality: p.nationality,
         monthsToExpiry: p.monthsToExpiry,
@@ -101,6 +102,7 @@ export function DashboardPage() {
     const cmp = (a: typeof rows[number], b: typeof rows[number]) => {
       const dir = sortDir === 'asc' ? 1 : -1
       switch (sortKey) {
+        case 'squadNumber': return ((a.squadNumber ?? Infinity) - (b.squadNumber ?? Infinity)) * dir
         case 'name':     return a.playerName.localeCompare(b.playerName) * dir
         case 'position': return (a.position ?? '').localeCompare(b.position ?? '') * dir
         case 'wage':     return (a.wagePence - b.wagePence) * dir
@@ -306,6 +308,7 @@ export function DashboardPage() {
         <table className="w-full">
           <thead className="border-b border-slate-100 bg-slate-50/40">
             <tr>
+              <SortableTh field="squadNumber"  label="#"             align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
               <SortableTh field="name"         label="Name"          align="left"  sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
               <SortableTh field="position"     label="Position"      align="left"  sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
               <SortableTh field="wage"         label="Annual Wage"   align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
@@ -320,6 +323,7 @@ export function DashboardPage() {
           <tbody>
             {filteredBreakdown.map((row) => (
               <tr key={row.playerId} className="border-b border-slate-100 last:border-0 hover:bg-violet-50/40 transition-colors">
+                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-500 tabular-nums w-12">{row.squadNumber ?? '—'}</td>
                 <td className="px-6 py-3.5 text-[14px] text-slate-900 font-medium">
                   <span className="inline-flex items-center gap-2 align-middle">
                     <NationalityFlag nationality={row.nationality} />
@@ -341,7 +345,7 @@ export function DashboardPage() {
           </tbody>
           <tfoot className="bg-slate-50/60 border-t border-slate-200">
             <tr>
-              <td className="px-6 py-3.5 text-[12px] meta-label" colSpan={5}>Total — {filteredBreakdown.length} {filteredBreakdown.length === 1 ? 'player' : 'players'}</td>
+              <td className="px-6 py-3.5 text-[12px] meta-label" colSpan={6}>Total — {filteredBreakdown.length} {filteredBreakdown.length === 1 ? 'player' : 'players'}</td>
               <td className="px-6 py-3.5 text-[14px] num text-right text-slate-900 font-semibold">
                 {formatPence(filteredBreakdown.reduce((s, r) => s + r.totalAnnualCostPence, 0))}
               </td>

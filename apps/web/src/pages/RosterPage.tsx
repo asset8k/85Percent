@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui/card'
@@ -54,6 +55,7 @@ const POSITIONS: PlayerPosition[] = ['GK', 'DEF', 'MID', 'FWD']
 // ---------------------------------------------------------------------------
 export function RosterPage() {
   const can = useCan()
+  const navigate = useNavigate()
   const { clubName, financials, setFinancials } = useClubStore()
   const [tab, setTab] = useState<'squad' | 'archived'>('squad')
   const [active, setActive] = useState<PlayerWithContract[]>([])
@@ -137,12 +139,29 @@ export function RosterPage() {
   }
 
   const filteredActive = useMemo(() => {
-    if (filter === 'all') return active
-    if (filter === 'expiring') {
-      return active.filter((p) => p.monthsToExpiry != null && p.monthsToExpiry <= 6)
-    }
-    return active.filter((p) => p.position === filter)
+    const base =
+      filter === 'all'
+        ? active
+        : filter === 'expiring'
+          ? active.filter((p) => p.monthsToExpiry != null && p.monthsToExpiry <= 6)
+          : active.filter((p) => p.position === filter)
+    // Sort by shirt number ascending (unassigned last), then name — the order
+    // sporting directors expect when scanning a squad list.
+    return [...base].sort((a, b) => {
+      const an = a.squadNumber ?? Infinity
+      const bn = b.squadNumber ?? Infinity
+      if (an !== bn) return an - bn
+      return a.name.localeCompare(b.name)
+    })
   }, [active, filter])
+
+  // Post-onboarding "redout": template hydration leaves every contract on a £0
+  // wage. Surface those rows as validation errors (red wage cells + a banner)
+  // until the CFO enters real payroll, so the SCR isn't silently understated.
+  const zeroWageCount = useMemo(
+    () => active.filter((p) => p.contract && p.contract.annualWagePence === 0).length,
+    [active],
+  )
 
   if (loading) return <RosterSkeleton />
 
@@ -203,6 +222,55 @@ export function RosterPage() {
 
       {tab === 'squad' ? (
         <>
+          {/* Pre-fill redout banner — shown while any active contract still has
+              a £0 wage (the state template hydration lands you in). Leads with
+              the "imported" success, then guides the user to the wage step with
+              a progress bar. */}
+          {zeroWageCount > 0 && (() => {
+            const withContract = active.filter((p) => p.contract).length
+            const filled = Math.max(0, withContract - zeroWageCount)
+            const pct = withContract > 0 ? Math.round((filled / withContract) * 100) : 0
+            return (
+              <Card className="p-4 mb-5 border-amber-300 bg-amber-50">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-400 text-white">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13px] text-amber-900 font-semibold">
+                      Squad imported — add wages to finish setup
+                    </p>
+                    <p className="text-[12.5px] text-amber-800 mt-1 leading-relaxed">
+                      We pre-filled {active.length} {active.length === 1 ? 'player' : 'players'} with positions,
+                      numbers and contracts. Wages aren’t part of the pre-fill, so enter each player’s weekly
+                      payroll (tap a row) — or upload your club’s CSV — for an accurate Squad Cost Ratio.
+                    </p>
+
+                    {/* Wage-entry progress */}
+                    <div className="mt-3 flex items-center gap-3">
+                      <div className="h-1.5 flex-1 max-w-[260px] rounded-full bg-amber-200 overflow-hidden">
+                        <div className="h-full rounded-full bg-amber-500 transition-all" style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-[11.5px] font-medium text-amber-800 num whitespace-nowrap">
+                        {filled}/{withContract} wages added
+                      </span>
+                    </div>
+
+                    {can.mutateRoster && (
+                      <div className="mt-3 flex items-center gap-2">
+                        <Button size="sm" variant="secondary" onClick={() => setCsvOpen(true)}>
+                          Upload wages CSV
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            )
+          })()}
+
           {/* Head Coach / Manager — sits above the player table; their wages,
               amortised compensation fee and agent fees count toward the SCR. */}
           <ManagerCard
@@ -236,14 +304,20 @@ export function RosterPage() {
               title={active.length === 0 ? 'No players yet' : 'No players match this filter'}
               hint={
                 active.length === 0
-                  ? 'Upload a CSV roster or add players manually to get started.'
+                  ? 'Pre-fill your squad from our club library, upload a CSV, or add players manually.'
                   : 'Try clearing the filter to see all players.'
+              }
+              action={
+                active.length === 0 && can.switchLeague ? (
+                  <Button onClick={() => navigate('/onboarding')}>Pre-fill from a club</Button>
+                ) : undefined
               }
             />
           ) : (
             <PlayerTable
               players={filteredActive}
               onRowClick={(p) => setEditPlayer(p)}
+              flagZeroWage
             />
           )}
         </>
@@ -336,6 +410,7 @@ function PlayerTable({
   players,
   onRowClick,
   archived = false,
+  flagZeroWage = false,
   canMutate = false,
   confirmDeleteId = null,
   pendingActionId = null,
@@ -347,6 +422,8 @@ function PlayerTable({
   players: PlayerWithContract[]
   onRowClick: (p: PlayerWithContract) => void
   archived?: boolean
+  // Highlight £0 wages as validation errors (post-onboarding redout, squad tab).
+  flagZeroWage?: boolean
   // Archived-only props — required when `archived` is true and the caller
   // wants to expose restore/delete affordances. Kept optional so the squad
   // tab can still mount the table without ceremony.
@@ -364,6 +441,7 @@ function PlayerTable({
       <table className="w-full">
         <thead className="border-b border-slate-100">
           <tr>
+            <Th align="right">#</Th>
             <Th>Name</Th>
             <Th>Position</Th>
             <Th align="right">Annual Wage</Th>
@@ -383,6 +461,9 @@ function PlayerTable({
                 !archived && 'hover:bg-violet-50/60 cursor-pointer'
               )}
             >
+              <td className="px-5 py-3.5 text-right text-[13px] num text-slate-500 tabular-nums w-12">
+                {p.squadNumber ?? '—'}
+              </td>
               <td className="px-5 py-3.5 text-[14px] text-slate-900 font-medium">
                 <span className="inline-flex items-center gap-2 align-middle">
                   <NationalityFlag nationality={p.nationality} />
@@ -397,9 +478,30 @@ function PlayerTable({
               <td className="px-5 py-3.5">
                 <PositionPill position={p.position} />
               </td>
-              <td className="px-5 py-3.5 text-[13px] num text-right text-slate-900">
-                {p.contract ? formatPence(p.contract.annualWagePence) : '—'}
-              </td>
+              {(() => {
+                const zeroWage = flagZeroWage && !archived && !!p.contract && p.contract.annualWagePence === 0
+                return (
+                  <td
+                    className={cn(
+                      'px-5 py-3.5 text-[13px] num text-right',
+                      zeroWage ? 'bg-red-50' : 'text-slate-900',
+                    )}
+                  >
+                    {!p.contract ? (
+                      '—'
+                    ) : zeroWage ? (
+                      <span
+                        className="inline-flex items-center gap-1.5 rounded-md border border-red-300 bg-white px-2 py-0.5 text-red-600 font-medium"
+                        title="Wage required — enter the player’s weekly payroll to compute an accurate SCR"
+                      >
+                        £0 — set wage
+                      </span>
+                    ) : (
+                      formatPence(p.contract.annualWagePence)
+                    )}
+                  </td>
+                )
+              })()}
               <td className="px-5 py-3.5 text-[13px] num text-right text-slate-700">
                 {p.contract ? formatPence(p.contract.bookValuePence) : '—'}
               </td>
@@ -721,11 +823,12 @@ function FilterChip({
   )
 }
 
-function EmptyState({ title, hint }: { title: string; hint: string }) {
+function EmptyState({ title, hint, action }: { title: string; hint: string; action?: React.ReactNode }) {
   return (
     <Card className="p-12 text-center">
       <p className="text-[15px] font-medium text-slate-900">{title}</p>
       <p className="text-[13px] text-slate-500 mt-2">{hint}</p>
+      {action && <div className="mt-5 flex justify-center">{action}</div>}
     </Card>
   )
 }
@@ -789,7 +892,7 @@ function CSVUploadModal({
               name, position, transfer_fee_pounds, weekly_wage_pounds, agent_fee_pounds, contract_start, contract_end
             </code>
             . Optional:{' '}
-            <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded">nationality, date_of_birth</code>
+            <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded">squad_number, nationality, date_of_birth</code>
             . Dates as <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded">YYYY-MM-DD</code>.
           </p>
           <div className="flex items-center gap-3 mt-4">
@@ -838,6 +941,7 @@ function CSVUploadModal({
                   <Th>#</Th>
                   <Th>Name</Th>
                   <Th>Pos</Th>
+                  <Th align="right">Shirt</Th>
                   <Th>DOB</Th>
                   <Th align="right">Fee (£)</Th>
                   <Th align="right">Wage £/wk</Th>
@@ -900,6 +1004,7 @@ function StagingRowDisplay({
       <td className="px-5 py-3 text-[12px] text-slate-400 num">{row.rowIndex}</td>
       <td className="px-5 py-3 text-[13px] text-slate-900">{p?.name ?? '—'}</td>
       <td className="px-5 py-3"><PositionPill position={p?.position ?? null} /></td>
+      <td className="px-5 py-3 text-[13px] num text-right text-slate-600">{p?.squadNumber ?? '—'}</td>
       <td className="px-5 py-3 text-[13px] text-slate-500 num">{p?.dateOfBirth ?? '—'}</td>
       <td className="px-5 py-3 text-[13px] num text-right">{p ? formatPence(p.transferFeePence) : '—'}</td>
       <td className="px-5 py-3 text-[13px] num text-right">{p ? formatPence(Math.floor(p.annualWagePence / 52)) : '—'}</td>
@@ -939,6 +1044,7 @@ function StagingRowEditor({
   // Editor seeds from existing parsed data or empty defaults
   const [name, setName] = useState(row.parsed?.name ?? '')
   const [position, setPosition] = useState<PlayerPosition>(row.parsed?.position ?? 'MID')
+  const [squadNumber, setSquadNumber] = useState(row.parsed?.squadNumber ?? NaN)
   const [dateOfBirth, setDateOfBirth] = useState(row.parsed?.dateOfBirth ?? '')
   const [transferPounds, setTransferPounds] = useState(row.parsed ? row.parsed.transferFeePence / 100 : NaN)
   const [weeklyWagePounds, setWeeklyWagePounds] = useState(
@@ -963,10 +1069,11 @@ function StagingRowEditor({
       // Re-validate via the /roster/parse endpoint to ensure server-side rules apply.
       // Synthesize a one-row CSV and ask the server to validate.
       const csvText = [
-        'name,position,date_of_birth,transfer_fee_pounds,weekly_wage_pounds,agent_fee_pounds,contract_start,contract_end',
+        'name,position,squad_number,date_of_birth,transfer_fee_pounds,weekly_wage_pounds,agent_fee_pounds,contract_start,contract_end',
         [
           csvEscape(name),
           position,
+          isFinite(squadNumber) ? squadNumber : '',
           dateOfBirth,
           isFinite(transferPounds) ? transferPounds : '',
           isFinite(weeklyWagePounds) ? weeklyWagePounds : '',
@@ -999,6 +1106,9 @@ function StagingRowEditor({
         <select value={position} onChange={(e) => setPosition(e.target.value as PlayerPosition)} className={cellInput}>
           {POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
         </select>
+      </td>
+      <td className="px-2 py-2">
+        <NumericInput value={squadNumber} onChange={setSquadNumber} className={cellNumeric} placeholder="—" />
       </td>
       <td className="px-2 py-2 align-top">
         <DatePicker
@@ -1053,6 +1163,7 @@ function ManualPlayerModal({
 }) {
   const [name, setName] = useState('')
   const [position, setPosition] = useState<PlayerPosition>('MID')
+  const [squadNumber, setSquadNumber] = useState(NaN)
   const [nationality, setNationality] = useState<string | null>(null)
   const [dateOfBirth, setDateOfBirth] = useState('')
   const [transferPounds, setTransferPounds] = useState(NaN)
@@ -1082,6 +1193,7 @@ function ManualPlayerModal({
       const payload: ManualPlayerInput = {
         name: name.trim(),
         position,
+        ...(Number.isFinite(squadNumber) && squadNumber >= 1 ? { squadNumber } : {}),
         ...(cleanNationality ? { nationality: cleanNationality } : {}),
         ...(dateOfBirth ? { dateOfBirth } : {}),
         transferFeePence: (isFinite(transferPounds) ? transferPounds : 0) * 100,
@@ -1111,16 +1223,19 @@ function ManualPlayerModal({
           />
         </Field>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-[1fr_1fr] gap-4">
           <Field label="Position">
             <select value={position} onChange={(e) => setPosition(e.target.value as PlayerPosition)} className={fieldClass}>
               {POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           </Field>
-          <Field label="Nationality (optional)">
-            <CountryPicker value={nationality} onChange={setNationality} placeholder="Select country" />
+          <Field label="Squad number (optional)">
+            <NumericInput value={squadNumber} onChange={setSquadNumber} className={fieldClass} placeholder="e.g. 9" />
           </Field>
         </div>
+        <Field label="Nationality (optional)">
+          <CountryPicker value={nationality} onChange={setNationality} placeholder="Select country" />
+        </Field>
 
         <Field
           label={
@@ -1200,6 +1315,7 @@ function PlayerEditDrawer({
   const c = player.contract
   const [name, setName] = useState(player.name)
   const [position, setPosition] = useState<PlayerPosition>(player.position ?? 'MID')
+  const [squadNumber, setSquadNumber] = useState(player.squadNumber ?? NaN)
   const [nationality, setNationality] = useState<string | null>(player.nationality)
   const [dateOfBirth, setDateOfBirth] = useState(player.dateOfBirth ?? '')
   const [transferPounds, setTransferPounds] = useState(c ? c.transferFeePence / 100 : NaN)
@@ -1250,11 +1366,14 @@ function PlayerEditDrawer({
       const playerPatch: {
         name?: string
         position?: PlayerPosition
+        squadNumber?: number | null
         nationality?: string | null
         dateOfBirth?: string | null
       } = {}
       if (name.trim() !== player.name) playerPatch.name = name.trim()
       if (position !== player.position) playerPatch.position = position
+      const cleanSquadNumber = Number.isFinite(squadNumber) && squadNumber >= 1 ? squadNumber : null
+      if (cleanSquadNumber !== (player.squadNumber ?? null)) playerPatch.squadNumber = cleanSquadNumber
       const cleanNationality = !nationality || nationality.trim() === '' ? null : nationality.trim()
       if (cleanNationality !== player.nationality) playerPatch.nationality = cleanNationality
       const cleanDob = dateOfBirth.trim() === '' ? null : dateOfBirth.trim()
@@ -1322,10 +1441,13 @@ function PlayerEditDrawer({
               {POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
             </select>
           </Field>
-          <Field label="Nationality">
-            <CountryPicker value={nationality} onChange={setNationality} placeholder="Select country" />
+          <Field label="Squad number">
+            <NumericInput value={squadNumber} onChange={setSquadNumber} className={fieldClass} placeholder="e.g. 9" />
           </Field>
         </div>
+        <Field label="Nationality">
+          <CountryPicker value={nationality} onChange={setNationality} placeholder="Select country" />
+        </Field>
 
         <Field
           label={
@@ -1357,7 +1479,11 @@ function PlayerEditDrawer({
                   <PoundInput value={transferPounds} onChange={setTransferPounds} />
                 </Field>
                 <Field label="Weekly wage (£)">
-                  <PoundInput value={weeklyWagePounds} onChange={setWeeklyWagePounds} />
+                  <PoundInput
+                    value={weeklyWagePounds}
+                    onChange={setWeeklyWagePounds}
+                    invalid={!Number.isFinite(weeklyWagePounds) || weeklyWagePounds === 0}
+                  />
                 </Field>
                 <Field label="Agent fee (£)">
                   <PoundInput value={agentPounds} onChange={setAgentPounds} />
@@ -2269,14 +2395,23 @@ function Field({ label, children }: { label: React.ReactNode; children: React.Re
   )
 }
 
-function PoundInput({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+function PoundInput({
+  value,
+  onChange,
+  invalid = false,
+}: {
+  value: number
+  onChange: (n: number) => void
+  // Red-rings the field — used to flag a £0 wage as a validation error.
+  invalid?: boolean
+}) {
   return (
     <div className="relative">
       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[14px]">£</span>
       <NumericInput
         value={value}
         onChange={onChange}
-        className={fieldClass + ' pl-7 num'}
+        className={cn(fieldClass, 'pl-7 num', invalid && 'border-red-300 ring-1 ring-red-200 focus-visible:ring-red-400')}
         placeholder="0"
       />
     </div>

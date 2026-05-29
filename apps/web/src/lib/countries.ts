@@ -210,20 +210,78 @@ export const COUNTRIES: Country[] = [
   { code: 'YE', name: 'Yemen' },
   { code: 'ZM', name: 'Zambia' },
   { code: 'ZW', name: 'Zimbabwe' },
+
+  // Football "home nations" — not ISO 3166-1 countries, but each fields its own
+  // national team and has a distinct flag. `country-flag-icons` ships the
+  // GB-ENG/SCT/WLS/NIR SVGs, exported from the React module as GB_ENG etc., so
+  // the existing <Flag> component renders them by code with no special-casing.
+  { code: 'GB_ENG', name: 'England' },
+  { code: 'GB_SCT', name: 'Scotland' },
+  { code: 'GB_WLS', name: 'Wales' },
+  { code: 'GB_NIR', name: 'Northern Ireland' },
 ]
 
-// Match historical free-text nationality values back to a Country entry.
-// Tries exact name match first, then code match, then lowercase contains.
-// Returns null when nothing fits — UI falls back to displaying the raw string.
+// Common football-nationality spellings that differ from the canonical names
+// above (imported data and free-text both vary). Maps a lowercased alias to a
+// canonical COUNTRIES name so findCountry can resolve it. Keys are lowercase.
+const NATIONALITY_ALIASES: Record<string, string> = {
+  // UK / Ireland
+  'great britain': 'United Kingdom',
+  'republic of ireland': 'Ireland',
+  'eire': 'Ireland',
+  // USA
+  'usa': 'United States',
+  'united states of america': 'United States',
+  // Côte d’Ivoire (accents/apostrophes vary)
+  'ivory coast': 'Côte d’Ivoire',
+  "cote d'ivoire": 'Côte d’Ivoire',
+  'cote d’ivoire': 'Côte d’Ivoire',
+  "côte d'ivoire": 'Côte d’Ivoire',
+  // Congo
+  'dr congo': 'Congo (DRC)',
+  'democratic republic of the congo': 'Congo (DRC)',
+  'democratic republic of congo': 'Congo (DRC)',
+  'congo dr': 'Congo (DRC)',
+  // Korea
+  'korea, south': 'South Korea',
+  'korea republic': 'South Korea',
+  'korea, north': 'North Korea',
+  // Türkiye
+  'turkey': 'Türkiye',
+  'turkiye': 'Türkiye',
+  // Czechia / Cabo Verde / Bosnia / Netherlands / Macedonia
+  'czechia': 'Czech Republic',
+  'cape verde': 'Cabo Verde',
+  'bosnia-herzegovina': 'Bosnia and Herzegovina',
+  'bosnia': 'Bosnia and Herzegovina',
+  'holland': 'Netherlands',
+  'macedonia': 'North Macedonia',
+  'fyr macedonia': 'North Macedonia',
+  'the gambia': 'Gambia',
+}
+
+// Match a free-text nationality value back to a Country entry. Tries an exact
+// code match (2-letter ISO, or our GB_ENG-style home-nation keys), then an
+// exact name match, then the football-spelling alias table. Returns null when
+// nothing fits — the UI falls back to displaying the raw string.
 export function findCountry(value: string | null | undefined): Country | null {
   if (!value) return null
   const v = value.trim()
   if (!v) return null
+
   const upper = v.toUpperCase()
-  if (upper.length === 2) {
-    const byCode = COUNTRIES.find((c) => c.code === upper)
-    if (byCode) return byCode
-  }
+  const byCode = COUNTRIES.find((c) => c.code.toUpperCase() === upper)
+  if (byCode) return byCode
+
   const lower = v.toLowerCase()
-  return COUNTRIES.find((c) => c.name.toLowerCase() === lower) ?? null
+  const byName = COUNTRIES.find((c) => c.name.toLowerCase() === lower)
+  if (byName) return byName
+
+  const aliasName = NATIONALITY_ALIASES[lower]
+  if (aliasName) {
+    const byAlias = COUNTRIES.find((c) => c.name.toLowerCase() === aliasName.toLowerCase())
+    if (byAlias) return byAlias
+  }
+
+  return null
 }

@@ -99,6 +99,7 @@ export interface PlayerWithContract {
   clubId: string
   name: string
   position: PlayerPosition | null
+  squadNumber: number | null          // shirt number (1–99); null = unassigned
   nationality: string | null
   dateOfBirth: string | null          // ISO YYYY-MM-DD; null = unknown (age UI hides)
   isActive: boolean
@@ -171,6 +172,7 @@ export interface RosterStagingRow {
   parsed?: {
     name: string
     position: PlayerPosition
+    squadNumber?: number              // shirt number 1–99, optional CSV column
     nationality?: string
     dateOfBirth?: string              // ISO YYYY-MM-DD, optional CSV column
     transferFeePence: number

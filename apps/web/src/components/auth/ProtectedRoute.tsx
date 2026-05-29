@@ -47,7 +47,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     if (session && !clubId) {
       Promise.all([api.club.get(), api.club.getFinancials('2026-27').catch(() => null)])
         .then(([club, financials]) => {
-          setClub(club.id, club.name, club.leagueId)
+          setClub(club.id, club.name, club.leagueId, club.logoUrl)
           if (financials) setFinancials(financials)
         })
         .catch((err) => {

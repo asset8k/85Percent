@@ -61,10 +61,11 @@ export function CountryPicker({
 
   const filtered = useMemo<Country[]>(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return COUNTRIES
-    return COUNTRIES.filter(
-      (c) => c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q)
-    )
+    const list = q
+      ? COUNTRIES.filter((c) => c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q))
+      : COUNTRIES
+    // Sort by name so the appended home nations slot in alphabetically.
+    return [...list].sort((a, b) => a.name.localeCompare(b.name))
   }, [query])
 
   const triggerLabel = matched ? (
@@ -172,7 +173,7 @@ export function CountryPicker({
                     >
                       <Flag code={c.code} title={c.name} width={20} />
                       <span className="flex-1 truncate">{c.name}</span>
-                      <span className="text-[11px] text-slate-400 num">{c.code}</span>
+                      <span className="text-[11px] text-slate-400 num">{c.code.replace(/^GB_/, '')}</span>
                     </button>
                   </li>
                 )

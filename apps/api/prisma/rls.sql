@@ -181,3 +181,44 @@ CREATE POLICY "audit_logs: own club only"
   FOR ALL
   USING  (club_id = public.current_club_id())
   WITH CHECK (club_id = public.current_club_id());
+
+-- ============================================================================
+-- Manager (Head Coach) tables + Template dictionary + Prisma internals
+-- Added after the multi-phase ledger / Manager migration and the MVP 2.0
+-- onboarding template tables, which shipped without RLS and tripped Supabase's
+-- "RLS Disabled in Public" advisor (CRITICAL).
+-- ============================================================================
+
+-- ── managers / manager_contracts — tenant-scoped, same pattern as players ──
+ALTER TABLE public.managers          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.manager_contracts ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "managers: own club only"          ON public.managers;
+DROP POLICY IF EXISTS "manager_contracts: own club only" ON public.manager_contracts;
+
+CREATE POLICY "managers: own club only"
+  ON public.managers
+  FOR ALL
+  USING  (club_id = public.current_club_id())
+  WITH CHECK (club_id = public.current_club_id());
+
+CREATE POLICY "manager_contracts: own club only"
+  ON public.manager_contracts
+  FOR ALL
+  USING  (club_id = public.current_club_id())
+  WITH CHECK (club_id = public.current_club_id());
+
+-- ── template_clubs / template_roster_items ─────────────────────────────────
+-- These are a club-agnostic static dictionary read ONLY by the API (service
+-- role, which bypasses RLS). No anon/authenticated client ever queries them
+-- directly, so we enable RLS with NO policy: that denies all key-based access
+-- while the service role still reads/writes freely. This silences the advisor
+-- without inventing a tenant scope these rows don't have.
+ALTER TABLE public.template_clubs        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.template_roster_items ENABLE ROW LEVEL SECURITY;
+
+-- ── _prisma_migrations — Prisma's internal bookkeeping ─────────────────────
+-- Only touched by the migration engine over the privileged direct connection
+-- (table owner / postgres role, which bypasses RLS). Enable RLS with no policy
+-- so it isn't exposed via the anon/auth PostgREST surface.
+ALTER TABLE public._prisma_migrations ENABLE ROW LEVEL SECURITY;

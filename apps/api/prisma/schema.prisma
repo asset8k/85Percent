@@ -15,6 +15,7 @@ model Club {
   name      String
   shortName String   @map("short_name")
   leagueId  String   @map("league_id")
+  logoUrl   String?  @map("logo_url") // crest URL adopted from the onboarding template
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -80,6 +81,7 @@ model Player {
   clubId      String    @map("club_id")
   name        String
   position    String?   // 'GK' | 'DEF' | 'MID' | 'FWD'
+  squadNumber Int?      @map("squad_number") // shirt number (1–99); null = unassigned
   nationality String?
   dateOfBirth DateTime? @map("date_of_birth")
   isActive    Boolean   @default(true) @map("is_active")   // false = archived (departed)
@@ -276,6 +278,66 @@ model Invite {
 
   @@index([email, acceptedAt])
   @@map("invites")
+}
+
+// ── Template roster dictionary (MVP 2.0 onboarding) ─────────────────────────
+// These tables are a STATIC, club-agnostic dictionary scraped on a controlled
+// monthly background schedule from the felipeall/transfermarkt-api. They sit
+// completely separate from the live multi-tenant tables above — nothing here
+// is club_id-scoped or RLS-isolated, because the data is the same for everyone
+// and is only read during onboarding to pre-fill a tenant's starting roster.
+
+enum TemplateLeague {
+  PREMIER_LEAGUE
+  CHAMPIONSHIP
+}
+
+// A manager carries no playing position, hence position is nullable on the
+// roster item — these are the only valid values for players.
+enum TemplatePosition {
+  GK
+  DEF
+  MID
+  FWD
+}
+
+model TemplateClub {
+  id        String         @id @default(uuid())
+  name      String         @unique // e.g. "Chelsea FC"
+  league    TemplateLeague
+  logoUrl   String?        @map("logo_url")
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+
+  rosterItems TemplateRosterItem[]
+
+  @@map("template_clubs")
+}
+
+model TemplateRosterItem {
+  id                   String            @id @default(uuid())
+  templateClubId       String            @map("template_club_id")
+  name                 String
+  dateOfBirth          DateTime?         @map("date_of_birth")
+  nationality          String?
+  // Null for managers (isManager = true); set to a playing position otherwise.
+  position             TemplatePosition?
+  // Shirt number (1–99) scraped from the player's Transfermarkt profile; null
+  // when unknown or for managers.
+  squadNumber          Int?              @map("squad_number")
+  isManager            Boolean           @default(false) @map("is_manager")
+  // Transfermarkt market value, stored in integer pence (GBP). Estimate only —
+  // used to seed the initial transfer fee on hydration. Null when unknown.
+  estimatedTransferFee BigInt?           @map("estimated_transfer_fee")
+  contractStart        DateTime?         @map("contract_start")
+  contractEnd          DateTime?         @map("contract_end")
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
+
+  templateClub TemplateClub @relation(fields: [templateClubId], references: [id], onDelete: Cascade)
+
+  @@index([templateClubId])
+  @@map("template_roster_items")
 }
 
 // Append-only audit log — never delete rows

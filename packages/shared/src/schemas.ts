@@ -42,6 +42,8 @@ export const RosterRowSchema = z
   .object({
     name: z.string().trim().min(1, 'Name is required').max(80, 'Name too long'),
     position: z.string().transform((s) => s.trim().toUpperCase()).pipe(POSITION),
+    // Optional CSV column — shirt number 1–99 (blank / missing allowed).
+    squad_number: z.number({ invalid_type_error: 'Squad number must be a number' }).int().min(1, 'Squad number must be 1–99').max(99, 'Squad number must be 1–99').optional(),
     nationality: z.string().trim().max(60).optional().or(z.literal('').transform(() => undefined)),
     // Optional CSV column — accepts blank / missing. Same realism refine as the
     // manual-add path (must be in the past, within the last 70 years).
@@ -81,6 +83,8 @@ export const ManualPlayerSchema = z
   .object({
     name: z.string().trim().min(1).max(80),
     position: POSITION,
+    // Optional shirt number 1–99. Sporting directors sort the roster by it.
+    squadNumber: z.number().int().min(1).max(99).optional(),
     nationality: z.string().trim().max(60).optional(),
     // Optional date of birth — drives the age display only; not used in compliance math.
     dateOfBirth: ISODateString.optional(),

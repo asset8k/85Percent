@@ -117,7 +117,7 @@ export async function clubRoutes(app: FastifyInstance) {
     try {
       const { data: club, error } = await supabase
         .from('clubs')
-        .select('id, name, short_name, league_id')
+        .select('id, name, short_name, league_id, logo_url')
         .eq('id', request.clubId)
         .maybeSingle()
 
@@ -129,6 +129,7 @@ export async function clubRoutes(app: FastifyInstance) {
         name: club.name,
         shortName: club.short_name,
         leagueId: club.league_id,
+        logoUrl: (club.logo_url as string | null) ?? null,
       })
     } catch (err) {
       request.log.error({ err }, 'GET /club failed')

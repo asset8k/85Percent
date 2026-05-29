@@ -1921,3 +1921,94 @@ The 5-year cap is regulatorily correct but **changes SCR for existing players on
 - **Deletable phases.** New `DELETE /roster/contract/:id` + `DELETE /roster/manager-contract/:id` (audit-before-delete; deleting a current phase promotes the most recent remaining one back to current/active). Client: `deleteContract`, `deleteManagerContract`. UI: trash action with inline two-step confirm; delete is **shown on every row but disabled on the live/active phase** (managed via the form/extension flow).
 - **Icon + layout polish.** Edit/Save/Cancel in the ledger became `IconButton`s (pencil `EditIcon`, ✓ `CheckIcon`, ✕ `CloseIcon`). Empty "No Head Coach" state swapped the odd grey whistle for a clean violet `CoachIcon` (unified with the populated card). Phase card restructured: pills + date range stacked on the left, edit+delete fixed top-right, a divider above the FEE/WAGE/BOOK VALUE grid — every row now aligns.
 - Verification: web typecheck 0 errors, production build clean.
+
+---
+
+## Session 19 — Onboarding templates: schema + background sync worker (Phases 1–2) (2026-05-30)
+
+**Goal:** Friction-free onboarding. Instead of scraping the unofficial felipeall/transfermarkt-api live during signup (fragile, Cloudflare-bannable), cache all 44 PL + Championship squads locally on a controlled monthly background schedule, then hydrate a tenant's roster from that cache. This session covers **Phase 1 (template schema)** and **Phase 2 (the sync worker)** only — UI/onboarding/hydration (Phases 3–5) are gated on user verification.
+
+### Phase 1 — Template schema (isolated dictionary, NOT RLS/tenant-scoped)
+
+- `apps/api/prisma/schema.prisma`: two new models + two native Postgres enums.
+  - `enum TemplateLeague { PREMIER_LEAGUE | CHAMPIONSHIP }`, `enum TemplatePosition { GK | DEF | MID | FWD }`.
+  - `TemplateClub` — `id`, `name` (unique), `league`, `logoUrl`, timestamps; has many `TemplateRosterItem`.
+  - `TemplateRosterItem` — `id`, `templateClubId` (FK, onDelete Cascade), `name`, `dateOfBirth?`, `nationality?`, `position?` (**nullable — managers have no playing position**), `isManager` (default false), `estimatedTransferFee?` (BigInt, pence), `contractStart?`, `contractEnd?`, timestamps.
+  - Deliberately separate from live tables: no `club_id`, no RLS — the data is identical for every tenant and only read during onboarding.
+- Migration `apps/api/prisma/migrations/20260530000001_template_tables/migration.sql` — creates the two enum types, both tables, the unique name index, the FK + cascade. **Applied to live Supabase** via `prisma migrate deploy` (7/7 migrations applied, status clean).
+
+### Phase 2 — Background sync worker
+
+- `apps/api/src/scripts/transfermarkt-mappers.ts` — **pure, side-effect-free** mappers (no DB/env imports, so unit-testable in isolation): `mapPosition` (keyword rules; midfield checked before defence/attack so "Defensive Midfield" → MID), `parseTransfermarktDate` ("Mar 13, 1990" / ISO / "-" → null), `parseMarketValueToPence` (raw number or "€50.00m"/"€800k"/"€1.2bn" → integer pence; no FX), `normaliseNationality`, `mapPlayerToRosterItem`, `mapCoachToRosterItem` (isManager=true, position=null).
+- `apps/api/src/scripts/sync-templates.ts` — the worker.
+  - Hardcoded competition set GB1 (PL) + GB2 (Championship) — fetches each competition's club list live so promotion/relegation needs no code change; that union is exactly the 44 clubs.
+  - Per club: `GET /clubs/{id}/profile` (logo + best-effort coach) then `GET /clubs/{id}/players?season_id=`, map, then upsert club + wholesale-replace its roster rows (Supabase service client, select-then-update/insert since id has no DB default).
+  - **Anti-Cloudflare:** configurable `setTimeout` delay between every request (default 3000ms), even after a failure. Per-request AbortController timeout (default 20000ms).
+  - **Error boundary:** each club sync (and each competition fetch) wrapped in try/catch — a broken selector/timeout logs a warning and the batch continues; never crashes wholesale.
+  - Config via env: `TRANSFERMARKT_API_URL` (default http://localhost:8000), `TRANSFERMARKT_SEASON_ID` (default derived: Jul+ → current year, else prior — so May 2026 → 2025), `TRANSFERMARKT_SYNC_DELAY_MS`, `TRANSFERMARKT_TIMEOUT_MS`. Guarded so importing the module (for tests) does not run `main()`.
+- `apps/api/src/scripts/transfermarkt-mappers.test.ts` — node:test suite (20 tests).
+- `apps/api/package.json` — added `sync:templates` (tsx --env-file) and `test:scripts` (node --import tsx --test) scripts.
+
+### Verification
+
+- Mapper tests: **20/20 passing** (`pnpm --filter @headroom/api test:scripts`).
+- API typecheck: **0 errors**. `prisma validate` + `generate`: clean.
+- Worker smoke test against an unreachable API: degrades gracefully (per-competition warnings, 0 synced, **exit 0** — no crash), season correctly derived as 2025.
+
+### Gate
+
+**Stopped after Phase 2 for explicit user verification before building the Onboarding UI, the `/api/onboarding/*` routes, and the roster hydration/staging-redout (Phases 3–5).**
+
+### Phases 3–5 — Onboarding UI, hydration API, roster redout (same feature, after the Phase-2 gate)
+
+**Phase 4 — API** (`apps/api/src/routes/onboarding.ts`, registered in `server.ts`):
+- `GET /onboarding/clubs?league=` — searchable club list from the local `template_clubs` cache; `league` accepts app `league_id` (`premier-league` / `efl-championship`), mapped to the template enum. Returns `{ id, name, leagueId, logoUrl }`.
+- `POST /onboarding/complete` `{ templateClubId }` — **CFO-only** (`requireRole(cfo)`). Guards against double-hydration (409 if the club already has active players), clones every `template_roster_item` into the live `players` + `contracts` (INITIAL phase, `is_current`) and any manager into `managers` + `manager_contracts`, then adopts the club identity (name / short_name / league_id). **Wages forced to 0**; transfer/compensation fee seeded from `estimated_transfer_fee`; missing contract dates fall back to today → +3y; book value via `currentBookValuePence`. Safe insert ordering (players→contracts, manager→contract) with best-effort rollback since Supabase REST has no transactions. Audited.
+- `apps/web/src/lib/api.ts`: `api.onboarding.clubs()` / `complete()` + `OnboardingClub` / `OnboardingCompleteResponse` types.
+
+**Phase 3 — UI** (`apps/web/src/pages/OnboardingPage.tsx`, route `/onboarding` inside the protected AppLayout):
+- Two-step wizard: league cards → searchable club grid (crest avatar w/ initials fallback, selected check via `layoutId`, sticky confirm bar). On confirm → `complete()`, update club store identity, toast, navigate to `/roster`. Empty-cache + non-CFO states handled.
+- `RosterPage` empty squad state gained a **"Pre-fill from a club"** CTA → `/onboarding` (CFO only).
+
+**Phase 5 — Roster redout** (`apps/web/src/pages/RosterPage.tsx`):
+- Amber banner above the squad when any active contract has a £0 wage, with the spec copy ("Weve pre-filled your active 25-man squad… input their official weekly payroll wages or overwrite… by uploading your clubs CSV") + a live count and an Upload-CSV shortcut.
+- Player table wage cell renders a red "£0 — set wage" chip on a red background when the wage is 0 (squad tab only, via new `flagZeroWage` prop).
+- Player edit drawers weekly-wage `PoundInput` red-rings when the wage is 0/blank (new optional `invalid` prop).
+
+### Verification (Phases 3–5)
+- API typecheck **0 errors**; web typecheck **0 errors**; web production build **clean**.
+- Engine **110/110**; mapper tests **20/20** still green.
+- Live REST check: `template_clubs` + `template_roster_items` reachable via PostgREST (0 rows pre-sync), so `GET /onboarding/clubs` returns the empty-cache state correctly until the monthly sync runs.
+
+### Follow-up: RLS hardening, live DB fill, README, hydration tests (2026-05-30)
+
+- **Supabase "RLS Disabled in Public" (CRITICAL) advisor — fixed.** Enabled RLS on the tables that shipped without it: `managers` + `manager_contracts` get `club_id = current_club_id()` policies (same pattern as players/contracts); `template_clubs`, `template_roster_items`, and Prisma's `_prisma_migrations` get RLS enabled with **no policy** (service-role-only — the API bypasses RLS, no anon/auth key can touch them). Canonical `apps/api/prisma/rls.sql` extended + migration `20260530000002_rls_managers_and_templates` applied to live Supabase. Verified all five tables report `relrowsecurity = true`.
+- **Template library filled from the live scraper.** Ran `sync:templates` against the public `transfermarkt-api.fly.dev` instance (season 2025): **44 clubs synced, 0 failed, 1218 roster items** (20 PL + 24 Championship). Verified positions mapped (0 nulls), fees in pence, crests + DOB + nationality populated. Manager rows = 0 (the scraper exposes no coach data, as expected).
+- **README** updated to MVP 2.0 with a full "Roster Templates & Onboarding" section (architecture diagram, the sync worker + its safety nets, the run command, the zero-wage rule, and the onboarding endpoints), plus the optional `TRANSFERMARKT_*` env vars and the new test commands.
+- **Hydration logic extracted + tested.** Pulled the pure transform out of the route into `apps/api/src/routes/onboarding-hydrate.ts` (`buildHydratedRoster` + helpers; route refactored to call it). New `onboarding-hydrate.test.ts` (script `test:onboarding`): 16 tests — pure helper/builder assertions **plus DB-backed tests that hydrate all 44 real cached clubs** and assert the invariants (every wage £0, end>start, fee≥0, book value ≤ fee, GK/DEF/MID/FWD-or-null positions, 1:1 player↔contract linkage, 20/24 league split, Chelsea crest + CHE short code).
+
+**Verification:** `test:onboarding` 16/16 (hydrated 44 clubs → 1218 players) · mappers 20/20 · engine 110/110 · API typecheck clean.
+
+### Follow-up: roster polish — dynamic banner, home-nation flags, squad numbers (2026-05-30)
+
+1. **Banner no longer hardcodes "25-man".** The pre-fill redout banner now reads "We've pre-filled your active squad (N players)." using the live `active.length`.
+2. **Nationality flags fixed for football nations.** `country-flag-icons` actually ships the home-nation SVGs (exported as `GB_ENG`/`GB_SCT`/`GB_WLS`/`GB_NIR`), so added England/Scotland/Wales/Northern Ireland to `apps/web/src/lib/countries.ts` (rendered by the existing `<Flag>` with no change), plus a `NATIONALITY_ALIASES` table for common spellings (Ivory Coast, DR Congo, Turkey↔Türkiye, South/North Korea, Holland, Bosnia-Herzegovina, USA, Cape Verde, Czechia, the Gambia, …). `findCountry` now matches code → name → alias. CountryPicker sorts by name (home nations slot in alphabetically) and shows a clean code badge (`ENG`, not `GB_ENG`). Verified at runtime: all resolve to a present flag; unknowns return null. Existing synced "England" data lights up with no re-sync.
+3. **Squad (shirt) numbers added** — sporting directors can assign + sort by them.
+   - DB: migration `20260530000003_player_squad_number` adds nullable `players.squad_number` (applied); Prisma `Player.squadNumber`.
+   - Shared: `PlayerWithContract.squadNumber`, `ManualPlayerSchema.squadNumber` (int 1–99, optional).
+   - API (`roster.ts`): selected in both player queries, mapped in `buildPlayerResponse`, set on manual create, and added to `PlayerPatchBody` + the PATCH update (nullable to clear). Client `updatePlayer` patch type updated.
+   - UI (`RosterPage.tsx`): new leftmost "#" column; squad tab **sorts by number ascending (unassigned last), then name**; add + edit forms gained a "Squad number" field. Template hydration leaves it null (the scraper's squad endpoint carries no shirt number).
+
+**Verification:** web + API typecheck clean · web build clean · engine 110/110 · onboarding 16/16 (44 clubs → 1218 players) · mappers 20/20 · flag-resolution runtime check passed.
+
+### Follow-up: shirt numbers, change-club, club logo, onboarding UX redesign (2026-05-30)
+
+**Shirt numbers (scraped + stored end-to-end).** The bulk squad endpoint omits shirt numbers, so the sync worker now makes one extra `/players/{id}/profile` call per player (`shirtNumber`, parsed by `parseShirtNumber`, paced by `TRANSFERMARKT_PLAYER_DELAY_MS`, individually error-bounded). Added `template_roster_items.squad_number` + `players.squad_number` (migrations applied), carried through onboarding hydration. Re-synced the live DB: **44/44 clubs, 1218 items, ~99% with a shirt number** (Chelsea #1 Robert Sánchez, etc.). Also added `squad_number` as an optional CSV column (RosterRowSchema, parser, commit, staging "Shirt" column + editable cell) and a sortable `#` column on the Roster table (sorted nulls-last) and the **Dashboard** breakdown table. Manual add/edit forms gained a Squad number field.
+
+**Change club (re-onboarding).** `POST /onboarding/complete` now takes `replace`; with it set, `wipeClubRoster()` clears the existing players/contracts/managers/manager_contracts (+ orphaned scenario_actions, FK-safe order) before hydrating the new pick. Financial settings preserved; 409 still protects first-time onboarding without `replace`.
+
+**Club logo.** Added `clubs.logo_url` (migration), set from the chosen template on onboarding, returned by `GET /club`, stored in the club store (`clubLogoUrl`). Backfilled existing clubs from template crests. The Sidebar Workspace panel shows the crest (initials fallback). The Workspace club row is a CFO-only button opening a **change-club modal** (explains the wipe); the Roster header button was removed in favour of it.
+
+**Onboarding UX/UI redesign (presentation only).** Centered welcome wizard; gradient league emblem cards with club-count chips + accent bars; club step with search-icon field, skeleton loading grid, larger crest tiles (hover-lift, selected ring+check, toggle-deselect), distinct no-results vs empty-cache states, softer sticky confirm bar; a full-screen **ImportingState** (pulsing crest + staged checklist) during the hydrate call; and a redesigned Roster landing banner ("Squad imported — add wages") with a wage-entry progress bar.
+
+**Verification:** engine 110/110 · mappers 22/22 · onboarding DB tests 16/16 (44 clubs → 1218 players, wages £0, valid numbers/positions) · API + web typecheck clean · web build clean · live dev servers (web :5173, api :3001) serving the new code. RLS advisor warnings from the prior session remain resolved.

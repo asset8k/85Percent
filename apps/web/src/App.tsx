@@ -8,6 +8,7 @@ import { ScenariosPage } from '@/pages/ScenariosPage'
 import { SSRPage } from '@/pages/SSRPage'
 import { CalendarPage } from '@/pages/CalendarPage'
 import { ClubSetupPage } from '@/pages/ClubSetupPage'
+import { OnboardingPage } from '@/pages/OnboardingPage'
 
 export function App() {
   return (
@@ -25,6 +26,7 @@ export function App() {
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/roster" element={<RosterPage />} />
+          <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="/scenarios" element={<ScenariosPage />} />
           <Route path="/ssr" element={<SSRPage />} />
           <Route path="/calendar" element={<CalendarPage />} />

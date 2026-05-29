@@ -5,6 +5,7 @@ interface ClubState {
   clubId: string | null
   clubName: string | null
   leagueId: string | null
+  clubLogoUrl: string | null
   financials: ClubFinancialsResponse | null
   /**
    * Loaded scenarios (full detail with actions). Drives the Active Baseline
@@ -13,7 +14,9 @@ interface ClubState {
    */
   scenarios: ScenarioDetail[]
 
-  setClub: (id: string, name: string, leagueId: string) => void
+  // logoUrl is optional — omit it to leave the current crest untouched (e.g. on
+  // a league switch that shouldn't clear the logo).
+  setClub: (id: string, name: string, leagueId: string, logoUrl?: string | null) => void
   setFinancials: (f: ClubFinancialsResponse) => void
   setScenarios: (scenarios: ScenarioDetail[]) => void
   upsertScenario: (scenario: ScenarioDetail) => void
@@ -26,10 +29,17 @@ export const useClubStore = create<ClubState>()((set) => ({
   clubId: null,
   clubName: null,
   leagueId: null,
+  clubLogoUrl: null,
   financials: null,
   scenarios: [],
 
-  setClub: (id, name, leagueId) => set({ clubId: id, clubName: name, leagueId }),
+  setClub: (id, name, leagueId, logoUrl) =>
+    set((state) => ({
+      clubId: id,
+      clubName: name,
+      leagueId,
+      clubLogoUrl: logoUrl !== undefined ? logoUrl : state.clubLogoUrl,
+    })),
   setFinancials: (f) => set({ financials: f }),
   setScenarios: (scenarios) => set({ scenarios }),
   upsertScenario: (scenario) =>

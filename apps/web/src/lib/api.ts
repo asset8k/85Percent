@@ -237,13 +237,28 @@ export interface CreateScenarioPayload {
   }>
 }
 
+// ---- Onboarding (template-driven roster pre-fill) -------------------------
+
+export interface OnboardingClub {
+  id: string
+  name: string
+  leagueId: 'premier-league' | 'efl-championship'
+  logoUrl: string | null
+}
+
+export interface OnboardingCompleteResponse {
+  playersCreated: number
+  managerCreated: boolean
+  club: { name: string; leagueId: 'premier-league' | 'efl-championship'; logoUrl: string | null }
+}
+
 // ---------------------------------------------------------------------------
 export const api = {
   me: {
     get: () => apiFetch<{ id: string; role: string; fullName: string; email: string }>('/me'),
   },
   club: {
-    get: () => apiFetch<{ id: string; name: string; shortName: string; leagueId: string }>('/club'),
+    get: () => apiFetch<{ id: string; name: string; shortName: string; leagueId: string; logoUrl: string | null }>('/club'),
     getFinancials: (season?: string) =>
       apiFetch<ClubFinancialsResponse>(`/club/financials${season ? `?season=${season}` : ''}`),
     updateFinancials: (data: {
@@ -292,6 +307,7 @@ export const api = {
       patch: {
         name?: string
         position?: 'GK' | 'DEF' | 'MID' | 'FWD'
+        squadNumber?: number | null
         nationality?: string | null
         dateOfBirth?: string | null
       }
@@ -358,6 +374,20 @@ export const api = {
     deleteManagerContract: (id: string) =>
       apiFetch<{ success: boolean; promotedContractId: string | null }>(`/roster/manager-contract/${id}`, {
         method: 'DELETE',
+      }),
+  },
+  onboarding: {
+    // Searchable template club list for the wizard, filtered by league_id.
+    clubs: (leagueId?: 'premier-league' | 'efl-championship') =>
+      apiFetch<{ clubs: OnboardingClub[] }>(
+        '/onboarding/clubs' + (leagueId ? `?league=${leagueId}` : ''),
+      ),
+    // Clone the chosen template into the caller's active roster + adopt identity.
+    // `replace` wipes the existing roster first (used to change clubs).
+    complete: (templateClubId: string, replace = false) =>
+      apiFetch<OnboardingCompleteResponse>('/onboarding/complete', {
+        method: 'POST',
+        body: JSON.stringify({ templateClubId, replace }),
       }),
   },
   scenarios: {

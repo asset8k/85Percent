@@ -8,6 +8,7 @@ import { scenarioRoutes } from './routes/scenarios.js'
 import { ssrRoutes } from './routes/ssr.js'
 import { inviteRoutes } from './routes/invites.js'
 import { auditRoutes } from './routes/audit.js'
+import { onboardingRoutes } from './routes/onboarding.js'
 
 const app = Fastify({
   logger: {
@@ -35,6 +36,7 @@ async function start() {
   await app.register(ssrRoutes)
   await app.register(inviteRoutes)
   await app.register(auditRoutes)
+  await app.register(onboardingRoutes)
 
   app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
     request.log.error({ err: error, url: request.url }, 'Unhandled error')
