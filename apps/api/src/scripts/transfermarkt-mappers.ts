@@ -18,7 +18,6 @@ export interface TransfermarktPlayer {
   joinedOn?: string | null
   signedFrom?: string | null
   contract?: string | null // contract expiry, e.g. "Jun 30, 2027"
-  marketValue?: number | string | null
 }
 
 // The normalised row we insert into template_roster_items.
@@ -60,48 +59,9 @@ export function parseTransfermarktDate(raw: string | null | undefined): Date | n
   return new Date(ts)
 }
 
-// Convert a market value into integer pence. The scraper returns either a raw
-// number (major currency units, e.g. 50000000) or a suffixed string
-// ("€50.00m", "€800k"). This is a template estimate used only to seed an
-// initial transfer fee on hydration; no FX conversion is applied (the minor
-// unit is treated as pence). Returns null for missing / non-positive values.
-export function parseMarketValueToPence(raw: number | string | null | undefined): bigint | null {
-  if (raw == null) return null
-
-  if (typeof raw === 'number') {
-    if (!Number.isFinite(raw) || raw <= 0) return null
-    return BigInt(Math.round(raw * 100))
-  }
-
-  const s = raw.trim().toLowerCase()
-  if (!s || s === '-') return null
-
-  const match = s.match(/([\d.,]+)\s*(bn|m|k|th\.?)?/)
-  if (!match || !match[1]) return null
-
-  const num = parseFloat(match[1].replace(/,/g, ''))
-  if (!Number.isFinite(num) || num <= 0) return null
-
-  let multiplier = 1
-  switch (match[2]) {
-    case 'bn':
-      multiplier = 1_000_000_000
-      break
-    case 'm':
-      multiplier = 1_000_000
-      break
-    case 'k':
-    case 'th':
-    case 'th.':
-      multiplier = 1_000
-      break
-  }
-
-  return BigInt(Math.round(num * multiplier * 100))
-}
-
-// Parse a Transfermarkt shirt number into 1–99, or null. The profile endpoint
-// returns it as a string like "#10" (sometimes "-" or empty / a bare number).
+// Parse a Transfermarkt shirt number into 1–99, or null. Kept as a small, tested
+// utility (e.g. for CSV import / future enrichment); the bio-only sync no longer
+// fetches shirt numbers, so the worker doesn't call it.
 export function parseShirtNumber(raw: string | number | null | undefined): number | null {
   if (raw == null) return null
   const digits = String(raw).replace(/[^0-9]/g, '')
@@ -131,21 +91,31 @@ export function mapPlayerToRosterItem(p: TransfermarktPlayer): TemplateRosterIte
     dateOfBirth: parseTransfermarktDate(p.dateOfBirth),
     nationality: normaliseNationality(p.nationality),
     position: mapPosition(p.position),
-    // The squad endpoint carries no shirt number; the worker enriches this from
-    // the per-player profile (parseShirtNumber). Defaults to null here.
+    // The bulk squad endpoint carries no shirt number, and the bio-only model
+    // makes no per-player profile call to fetch one, so squadNumber stays null.
     squadNumber: null,
     isManager: false,
-    estimatedTransferFee: parseMarketValueToPence(p.marketValue),
+    // BIO-ONLY ingestion: we no longer scrape any fee or market value. The fee
+    // is left NULL so the CFO must enter their own official accounting figure;
+    // hydration forces wages to 0 for the same reason.
+    estimatedTransferFee: null,
     contractStart: parseTransfermarktDate(p.joinedOn ?? p.joined ?? null),
     contractEnd: parseTransfermarktDate(p.contract),
   }
 }
 
-// Map a head coach into a roster item. Managers carry no playing position and
-// no market-value fee. Returns null when the name is blank.
+// Map a head coach into a roster item (BIO-ONLY). Managers carry no playing
+// position. All financial fields are left null — the CFO enters the official
+// figures on the Roster page. The staff listing exposes Age, not date of birth,
+// and we make no per-coach profile call, so dateOfBirth stays null too.
+// Returns null when the name is blank.
 export function mapCoachToRosterItem(
   name: string | null | undefined,
-  opts: { joined?: string | null; contract?: string | null; nationality?: string[] | string | null } = {},
+  opts: {
+    joined?: string | null
+    contract?: string | null
+    nationality?: string[] | string | null
+  } = {},
 ): TemplateRosterItemInput | null {
   const clean = (name ?? '').trim()
   if (!clean) return null

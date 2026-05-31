@@ -275,6 +275,7 @@ function buildManagerResponse(
     id: String(manager['id']),
     clubId: String(manager['club_id']),
     name: String(manager['name']),
+    nationality: (manager['nationality'] as string | null) ?? null,
     isActive: Boolean(manager['is_active']),
     createdAt: String(manager['created_at']),
     contract: current,
@@ -1240,6 +1241,7 @@ export async function rosterRoutes(app: FastifyInstance) {
         id: managerId,
         club_id: request.clubId,
         name: r.name,
+        nationality: r.nationality ?? null,
         is_active: true,
         created_at: nowISO,
         updated_at: nowISO,
@@ -1299,8 +1301,9 @@ export async function rosterRoutes(app: FastifyInstance) {
       if (!existing) return reply.status(404).send({ error: 'Manager not found' })
 
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
-      if (parsed.data.name     !== undefined) patch['name']      = parsed.data.name
-      if (parsed.data.isActive !== undefined) patch['is_active'] = parsed.data.isActive
+      if (parsed.data.name        !== undefined) patch['name']        = parsed.data.name
+      if (parsed.data.nationality !== undefined) patch['nationality'] = parsed.data.nationality
+      if (parsed.data.isActive    !== undefined) patch['is_active']   = parsed.data.isActive
 
       const { error: updErr } = await supabase
         .from('managers')

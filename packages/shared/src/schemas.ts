@@ -147,6 +147,7 @@ export type ContractPatchInput = z.infer<typeof ContractPatchSchema>
 export const ManagerInputSchema = z
   .object({
     name: z.string().trim().min(1).max(80),
+    nationality: z.string().trim().max(60).nullable().optional(),
     compensationFeePence: z.number().int().min(0),
     annualWagePence: z.number().int().positive(),
     agentFeePence: z.number().int().min(0),
@@ -170,6 +171,7 @@ export type ManagerInput = z.infer<typeof ManagerInputSchema>
 export const ManagerPatchSchema = z
   .object({
     name: z.string().trim().min(1).max(80).optional(),
+    nationality: z.string().trim().max(60).nullable().optional(),
     isActive: z.boolean().optional(),
   })
   .refine((r) => Object.values(r).some((v) => v !== undefined), {

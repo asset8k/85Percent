@@ -169,6 +169,7 @@ export function buildHydratedRoster(args: {
       id: managerId,
       club_id: clubId,
       name: managerRow.name,
+      nationality: managerRow.nationality,
       is_active: true,
       created_at: nowISO,
       updated_at: nowISO,

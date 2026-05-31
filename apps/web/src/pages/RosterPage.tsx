@@ -12,8 +12,10 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
+import { AlertTriangle } from 'lucide-react'
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -139,20 +141,11 @@ export function RosterPage() {
   }
 
   const filteredActive = useMemo(() => {
-    const base =
-      filter === 'all'
-        ? active
-        : filter === 'expiring'
-          ? active.filter((p) => p.monthsToExpiry != null && p.monthsToExpiry <= 6)
-          : active.filter((p) => p.position === filter)
-    // Sort by shirt number ascending (unassigned last), then name — the order
-    // sporting directors expect when scanning a squad list.
-    return [...base].sort((a, b) => {
-      const an = a.squadNumber ?? Infinity
-      const bn = b.squadNumber ?? Infinity
-      if (an !== bn) return an - bn
-      return a.name.localeCompare(b.name)
-    })
+    // Filtering only — column ordering is owned by PlayerTable's sortable headers.
+    if (filter === 'all') return active
+    return filter === 'expiring'
+      ? active.filter((p) => p.monthsToExpiry != null && p.monthsToExpiry <= 6)
+      : active.filter((p) => p.position === filter)
   }, [active, filter])
 
   // Post-onboarding "redout": template hydration leaves every contract on a £0
@@ -240,12 +233,12 @@ export function RosterPage() {
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] text-amber-900 font-semibold">
-                      Squad imported — add wages to finish setup
+                      We have loaded your squad template
                     </p>
                     <p className="text-[12.5px] text-amber-800 mt-1 leading-relaxed">
-                      We pre-filled {active.length} {active.length === 1 ? 'player' : 'players'} with positions,
-                      numbers and contracts. Wages aren’t part of the pre-fill, so enter each player’s weekly
-                      payroll (tap a row) — or upload your club’s CSV — for an accurate Squad Cost Ratio.
+                      While biographical data is complete, employee wages default to zero, and book values
+                      reflect parsed historical transfer records. Please audit these rows before executing
+                      compliance simulations.
                     </p>
 
                     {/* Wage-entry progress */}
@@ -436,23 +429,64 @@ function PlayerTable({
   onCancelDelete?: () => void
 }) {
   const showActions = archived && canMutate && !!onRestore && !!onRequestDelete && !!onConfirmDelete && !!onCancelDelete
+
+  // Column sorting — defaults to shirt number ascending (unassigned last), the
+  // order sporting directors expect when scanning a squad sheet. Clicking a
+  // header toggles direction, mirroring the Dashboard's per-column sort.
+  const [sortKey, setSortKey] = useState<RosterSortKey>('squadNumber')
+  const [sortDir, setSortDir] = useState<RosterSortDir>('asc')
+  const sortedPlayers = useMemo(() => {
+    const dir = sortDir === 'asc' ? 1 : -1
+    return [...players].sort((a, b) => {
+      switch (sortKey) {
+        case 'name':        return a.name.localeCompare(b.name) * dir
+        case 'position':    return (a.position ?? '').localeCompare(b.position ?? '') * dir
+        case 'wage':        return ((a.contract?.annualWagePence ?? 0) - (b.contract?.annualWagePence ?? 0)) * dir
+        case 'book':        return ((a.contract?.bookValuePence ?? 0) - (b.contract?.bookValuePence ?? 0)) * dir
+        case 'contractEnd': {
+          const ad = a.contract?.endDate ? Date.parse(a.contract.endDate) : Infinity
+          const bd = b.contract?.endDate ? Date.parse(b.contract.endDate) : Infinity
+          return (ad - bd) * dir
+        }
+        case 'expiry': {
+          // Last column shows "To Expiry" (contract end) on the squad tab and
+          // the archived date on the archived tab — sort by whichever is shown.
+          const aRaw = archived ? a.archivedAt : a.contract?.endDate
+          const bRaw = archived ? b.archivedAt : b.contract?.endDate
+          const ad = aRaw ? Date.parse(aRaw) : Infinity
+          const bd = bRaw ? Date.parse(bRaw) : Infinity
+          return (ad - bd) * dir
+        }
+        case 'squadNumber':
+        default: {
+          const an = a.squadNumber ?? Infinity
+          const bn = b.squadNumber ?? Infinity
+          if (an !== bn) return (an - bn) * dir
+          return a.name.localeCompare(b.name)
+        }
+      }
+    })
+  }, [players, sortKey, sortDir, archived])
+
+  const handleSort = (f: RosterSortKey, d: RosterSortDir) => { setSortKey(f); setSortDir(d) }
+
   return (
     <Card className="overflow-hidden">
       <table className="w-full">
         <thead className="border-b border-slate-100">
           <tr>
-            <Th align="right">#</Th>
-            <Th>Name</Th>
-            <Th>Position</Th>
-            <Th align="right">Annual Wage</Th>
-            <Th align="right">Book Value</Th>
-            <Th>Contract End</Th>
-            <Th align="right">{archived ? 'Archived' : 'To Expiry'}</Th>
+            <SortableTh field="squadNumber" label="#"            align="right" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+            <SortableTh field="name"        label="Name"                       sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+            <SortableTh field="position"    label="Position"                   sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+            <SortableTh field="wage"        label="Annual Wage" align="right"  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+            <SortableTh field="book"        label="Book Value"  align="right"  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} info={<BookValueInfo />} />
+            <SortableTh field="contractEnd" label="Contract End"               sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+            <SortableTh field="expiry"      label={archived ? 'Archived' : 'To Expiry'} align="right" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
             {showActions && <Th align="right">Actions</Th>}
           </tr>
         </thead>
         <tbody>
-          {players.map((p) => (
+          {sortedPlayers.map((p) => (
             <tr
               key={p.id}
               onClick={() => onRowClick(p)}
@@ -479,22 +513,15 @@ function PlayerTable({
                 <PositionPill position={p.position} />
               </td>
               {(() => {
-                const zeroWage = flagZeroWage && !archived && !!p.contract && p.contract.annualWagePence === 0
+                const needsWage = flagZeroWage && !archived && !!p.contract && p.contract.annualWagePence === 0
                 return (
-                  <td
-                    className={cn(
-                      'px-5 py-3.5 text-[13px] num text-right',
-                      zeroWage ? 'bg-red-50' : 'text-slate-900',
-                    )}
-                  >
+                  <td className="px-5 py-3.5 text-[13px] num text-right text-slate-900">
                     {!p.contract ? (
                       '—'
-                    ) : zeroWage ? (
-                      <span
-                        className="inline-flex items-center gap-1.5 rounded-md border border-red-300 bg-white px-2 py-0.5 text-red-600 font-medium"
-                        title="Wage required — enter the player’s weekly payroll to compute an accurate SCR"
-                      >
-                        £0 — set wage
+                    ) : needsWage ? (
+                      <span className="inline-flex items-center justify-end gap-1.5 text-slate-400">
+                        {formatPence(0)}
+                        <FinancialWarning />
                       </span>
                     ) : (
                       formatPence(p.contract.annualWagePence)
@@ -502,9 +529,23 @@ function PlayerTable({
                   </td>
                 )
               })()}
-              <td className="px-5 py-3.5 text-[13px] num text-right text-slate-700">
-                {p.contract ? formatPence(p.contract.bookValuePence) : '—'}
-              </td>
+              {(() => {
+                const needsFee = flagZeroWage && !archived && !!p.contract && p.contract.bookValuePence === 0
+                return (
+                  <td className="px-5 py-3.5 text-[13px] num text-right text-slate-700">
+                    {!p.contract ? (
+                      '—'
+                    ) : needsFee ? (
+                      <span className="inline-flex items-center justify-end gap-1.5 text-slate-400">
+                        {formatPence(0)}
+                        <FinancialWarning />
+                      </span>
+                    ) : (
+                      formatPence(p.contract.bookValuePence)
+                    )}
+                  </td>
+                )
+              })()}
               <td className="px-5 py-3.5 text-[13px] text-slate-500 num whitespace-nowrap">
                 {p.contract ? formatDate(p.contract.endDate) : '—'}
               </td>
@@ -688,6 +729,89 @@ function CloseIcon() {
   )
 }
 
+// Copy required next to every missing financial figure across the roster +
+// staging surfaces. Bio-only ingestion leaves wages and transfer fees blank, so
+// these prompts guide the CFO to enter official numbers without the old wall of
+// red error states.
+const FINANCIAL_WARNING_TEXT =
+  'Financial figure required. Please input the official value to calculate the Squad Cost Ratio.'
+
+// Subtle amber AlertTriangle + hover/focus tooltip. The tooltip is rendered in a
+// portal to <body> and positioned off the icon's screen rect, so it escapes the
+// `overflow-hidden`/`overflow-auto` table containers that previously clipped it.
+// Keyboard-focusable for a11y.
+function FinancialWarning({ className }: { className?: string }) {
+  const iconRef = useRef<HTMLSpanElement>(null)
+  const [coords, setCoords] = useState<{ top: number; right: number } | null>(null)
+
+  const show = () => {
+    const r = iconRef.current?.getBoundingClientRect()
+    if (r) setCoords({ top: r.top, right: window.innerWidth - r.right })
+  }
+  const hide = () => setCoords(null)
+
+  return (
+    <span
+      ref={iconRef}
+      className={cn('relative inline-flex items-center align-middle', className)}
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
+    >
+      <AlertTriangle
+        size={14}
+        strokeWidth={2}
+        tabIndex={0}
+        aria-label={FINANCIAL_WARNING_TEXT}
+        className="text-amber-500 outline-none cursor-help"
+      />
+      {coords &&
+        createPortal(
+          <span
+            role="tooltip"
+            className="pointer-events-none fixed z-[1000] w-56 -translate-y-full rounded-lg bg-slate-900 px-3 py-2 text-left text-[11.5px] font-normal normal-case leading-snug text-white shadow-lg"
+            style={{ top: coords.top - 8, right: coords.right }}
+          >
+            {FINANCIAL_WARNING_TEXT}
+          </span>,
+          document.body,
+        )}
+    </span>
+  )
+}
+
+// A read-only money cell that shows the value, or £0 + a warning icon when the
+// figure is missing (null) or zero. Keeps the column tidy (no red fill).
+function FinancialCell({ pence }: { pence: number | null }) {
+  if (pence == null) return <span className="text-slate-400">—</span>
+  if (pence <= 0) {
+    return (
+      <span className="inline-flex items-center justify-end gap-1.5 text-slate-400">
+        {formatPence(0)}
+        <FinancialWarning />
+      </span>
+    )
+  }
+  return <>{formatPence(pence)}</>
+}
+
+// Wraps a staging-table money input; floats the warning icon inside the field's
+// right edge while the value is still missing/zero, then it disappears once the
+// user types a real figure.
+function FinancialInputCell({ needsValue, children }: { needsValue: boolean; children: React.ReactNode }) {
+  return (
+    <div className="relative">
+      {children}
+      {needsValue && (
+        <span className="absolute right-1.5 top-1/2 -translate-y-1/2">
+          <FinancialWarning />
+        </span>
+      )}
+    </div>
+  )
+}
+
 function EditIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -713,6 +837,59 @@ function Th({
       )}
     >
       {children}
+    </th>
+  )
+}
+
+// Column-sort keys for the squad / archived player tables.
+type RosterSortKey = 'squadNumber' | 'name' | 'position' | 'wage' | 'book' | 'contractEnd' | 'expiry'
+type RosterSortDir = 'asc' | 'desc'
+
+// Clickable header cell — matches the plain Th visually, adds a direction caret
+// on the active column. First click sorts ascending for the text columns and
+// descending for the right-aligned money/date columns (the more useful default);
+// clicking again flips direction. Mirrors the Dashboard's SortableTh.
+function SortableTh({
+  field, label, align = 'left', sortKey, sortDir, onSort, info,
+}: {
+  field: RosterSortKey
+  label: string
+  align?: 'left' | 'right' | 'center'
+  sortKey: RosterSortKey
+  sortDir: RosterSortDir
+  onSort: (f: RosterSortKey, d: RosterSortDir) => void
+  // Optional info affordance (e.g. a tooltip) rendered beside the label. Clicks
+  // on it are stopped so they don't toggle the column sort.
+  info?: React.ReactNode
+}) {
+  const isActive = sortKey === field
+  const handle = () => {
+    if (isActive) onSort(field, sortDir === 'asc' ? 'desc' : 'asc')
+    else onSort(field, align === 'right' ? 'desc' : 'asc')
+  }
+  return (
+    <th
+      onClick={handle}
+      aria-sort={isActive ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      className={cn(
+        'meta-label px-5 py-3 cursor-pointer select-none whitespace-nowrap transition-colors',
+        align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left',
+        isActive ? 'text-violet-700' : 'hover:text-slate-600'
+      )}
+    >
+      <span className={cn('inline-flex items-center gap-1', align === 'right' && 'flex-row-reverse')}>
+        {label}
+        {isActive && (
+          <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            {sortDir === 'asc' ? <path d="M3 8l3-4 3 4" /> : <path d="M3 4l3 4 3-4" />}
+          </svg>
+        )}
+        {info && (
+          <span onClick={(e) => e.stopPropagation()} className="cursor-default font-normal">
+            {info}
+          </span>
+        )}
+      </span>
     </th>
   )
 }
@@ -1006,8 +1183,12 @@ function StagingRowDisplay({
       <td className="px-5 py-3"><PositionPill position={p?.position ?? null} /></td>
       <td className="px-5 py-3 text-[13px] num text-right text-slate-600">{p?.squadNumber ?? '—'}</td>
       <td className="px-5 py-3 text-[13px] text-slate-500 num">{p?.dateOfBirth ?? '—'}</td>
-      <td className="px-5 py-3 text-[13px] num text-right">{p ? formatPence(p.transferFeePence) : '—'}</td>
-      <td className="px-5 py-3 text-[13px] num text-right">{p ? formatPence(Math.floor(p.annualWagePence / 52)) : '—'}</td>
+      <td className="px-5 py-3 text-[13px] num text-right">
+        <FinancialCell pence={p ? p.transferFeePence : null} />
+      </td>
+      <td className="px-5 py-3 text-[13px] num text-right">
+        <FinancialCell pence={p ? Math.floor(p.annualWagePence / 52) : null} />
+      </td>
       <td className="px-5 py-3 text-[13px] num text-right">{p ? formatPence(p.agentFeePence) : '—'}</td>
       <td className="px-5 py-3 text-[13px] text-slate-500 num">{p?.startDate ?? '—'}</td>
       <td className="px-5 py-3 text-[13px] text-slate-500 num">
@@ -1120,10 +1301,14 @@ function StagingRowEditor({
         />
       </td>
       <td className="px-2 py-2">
-        <NumericInput value={transferPounds} onChange={setTransferPounds} className={cellNumeric} placeholder="0" />
+        <FinancialInputCell needsValue={!isFinite(transferPounds) || transferPounds <= 0}>
+          <NumericInput value={transferPounds} onChange={setTransferPounds} className={cellNumeric} placeholder="0" />
+        </FinancialInputCell>
       </td>
       <td className="px-2 py-2">
-        <NumericInput value={weeklyWagePounds} onChange={setWeeklyWagePounds} className={cellNumeric} placeholder="0" />
+        <FinancialInputCell needsValue={!isFinite(weeklyWagePounds) || weeklyWagePounds <= 0}>
+          <NumericInput value={weeklyWagePounds} onChange={setWeeklyWagePounds} className={cellNumeric} placeholder="0" />
+        </FinancialInputCell>
       </td>
       <td className="px-2 py-2">
         <NumericInput value={agentPounds} onChange={setAgentPounds} className={cellNumeric} placeholder="0" />
@@ -1476,7 +1661,11 @@ function PlayerEditDrawer({
               <div className="meta-label mb-3">Contract</div>
               <div className="grid grid-cols-3 gap-4">
                 <Field label="Transfer fee (£)">
-                  <PoundInput value={transferPounds} onChange={setTransferPounds} />
+                  <PoundInput
+                    value={transferPounds}
+                    onChange={setTransferPounds}
+                    invalid={!Number.isFinite(transferPounds) || transferPounds === 0}
+                  />
                 </Field>
                 <Field label="Weekly wage (£)">
                   <PoundInput
@@ -1612,63 +1801,47 @@ function ManagerCard({
   }
 
   const c = manager.contract
-  const amortPence = c ? annualAmortisation(c.feePence, c.contractLengthYears) : 0
+  const needsWage = !!c && c.annualWagePence === 0
 
+  // Minimalist row that echoes a player row: flag · name · "Head Coach" tag on
+  // the left; annual wage + contract end on the right; Edit at the far end. The
+  // whole row is clickable to edit (like a player row) when the user can mutate.
   return (
-    <Card className="mb-5 p-5">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+    <Card className="mb-5 overflow-hidden">
+      <div
+        onClick={canMutate ? onEdit : undefined}
+        className={cn(
+          'flex items-center justify-between gap-4 px-5 py-3.5 transition-colors',
+          canMutate && 'cursor-pointer hover:bg-violet-50/60',
+        )}
+      >
         <div className="flex items-center gap-3 min-w-0">
-          <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-violet-100 text-violet-600 flex-shrink-0">
-            <CoachIcon />
+          <NationalityFlag nationality={manager.nationality} />
+          <span className="text-[14px] font-medium text-slate-900 truncate">{manager.name}</span>
+          <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-md bg-violet-100 text-violet-700 whitespace-nowrap">
+            Head Coach
           </span>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="meta-label text-violet-700">Head Coach</span>
-              {c && <PhaseTypePill phaseType={c.phaseType} />}
-            </div>
-            <div className="text-[16px] font-semibold text-slate-900 truncate">{manager.name}</div>
-          </div>
         </div>
 
-        <div className="flex items-center gap-6">
-          <ManagerStat label="Annual wage" value={c ? formatPence(c.annualWagePence) : '—'} />
-          <ManagerStat
-            label="Amort. compensation"
-            value={c ? formatPence(amortPence) + '/yr' : '—'}
-            hint={c && c.feePence > 0 ? `${formatPence(c.feePence)} over ${Math.min(c.contractLengthYears, 5).toFixed(c.contractLengthYears % 1 === 0 ? 0 : 1)}y (capped)` : undefined}
-          />
-          <ManagerStat
-            label="Contract end"
-            value={c ? formatDate(c.endDate) : '—'}
-            sub={c ? <ExpiryChip months={manager.monthsToExpiry} /> : undefined}
-          />
-          {canMutate && (
-            <Button variant="secondary" onClick={onEdit}>Edit</Button>
-          )}
+        <div className="flex items-center gap-8">
+          <div className="text-right">
+            <div className="meta-label">Annual wage</div>
+            <div className="num text-[13px] mt-0.5 whitespace-nowrap text-slate-900">
+              {!c ? (
+                '—'
+              ) : needsWage ? (
+                <span className="inline-flex items-center justify-end gap-1.5 text-slate-400">
+                  {formatPence(0)}
+                  <FinancialWarning />
+                </span>
+              ) : (
+                formatPence(c.annualWagePence)
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </Card>
-  )
-}
-
-function ManagerStat({
-  label,
-  value,
-  hint,
-  sub,
-}: {
-  label: string
-  value: string
-  hint?: string
-  sub?: React.ReactNode
-}) {
-  return (
-    <div className="text-right">
-      <div className="meta-label">{label}</div>
-      <div className="num text-[14px] font-medium text-slate-900 mt-0.5 whitespace-nowrap">{value}</div>
-      {hint && <div className="text-[10.5px] text-slate-400 mt-0.5 whitespace-nowrap">{hint}</div>}
-      {sub && <div className="mt-1 flex justify-end">{sub}</div>}
-    </div>
   )
 }
 
@@ -1681,6 +1854,7 @@ function ManagerAddModal({
   onCreated: () => void
 }) {
   const [name, setName] = useState('')
+  const [nationality, setNationality] = useState<string | null>(null)
   const [compPounds, setCompPounds] = useState(NaN)
   const [weeklyWagePounds, setWeeklyWagePounds] = useState(NaN)
   const [agentPounds, setAgentPounds] = useState(NaN)
@@ -1694,8 +1868,10 @@ function ManagerAddModal({
     setSaving(true)
     setError('')
     try {
+      const cleanNationality = nationality?.trim() ?? ''
       const payload: ManagerInput = {
         name: name.trim(),
+        ...(cleanNationality ? { nationality: cleanNationality } : {}),
         compensationFeePence: (isFinite(compPounds) ? compPounds : 0) * 100,
         annualWagePence: (isFinite(weeklyWagePounds) ? weeklyWagePounds : 0) * 52 * 100,
         agentFeePence: (isFinite(agentPounds) ? agentPounds : 0) * 100,
@@ -1715,6 +1891,9 @@ function ManagerAddModal({
       <form onSubmit={submit} className="px-5 pb-5 space-y-4 max-h-[80vh] overflow-y-auto overflow-x-visible">
         <Field label="Name">
           <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={80} className={fieldClass} />
+        </Field>
+        <Field label="Nationality">
+          <CountryPicker value={nationality} onChange={setNationality} placeholder="Select country" />
         </Field>
         <div className="grid grid-cols-3 gap-4">
           <Field label="Compensation fee (£)">
@@ -1764,6 +1943,7 @@ function ManagerDrawer({
   const can = useCan()
   const c = manager.contract
   const [name, setName] = useState(manager.name)
+  const [nationality, setNationality] = useState<string | null>(manager.nationality)
   const [compPounds, setCompPounds] = useState(c ? c.feePence / 100 : NaN)
   const [weeklyWagePounds, setWeeklyWagePounds] = useState(c ? Math.round(c.annualWagePence / 52 / 100) : NaN)
   const [agentPounds, setAgentPounds] = useState(c ? c.agentFeePence / 100 : NaN)
@@ -1789,8 +1969,12 @@ function ManagerDrawer({
     setSaving(true)
     setError('')
     try {
-      if (name.trim() !== manager.name) {
-        await api.roster.updateManager(manager.id, { name: name.trim() })
+      const cleanNationality = !nationality || nationality.trim() === '' ? null : nationality.trim()
+      const mgrPatch: Parameters<typeof api.roster.updateManager>[1] = {}
+      if (name.trim() !== manager.name) mgrPatch.name = name.trim()
+      if (cleanNationality !== manager.nationality) mgrPatch.nationality = cleanNationality
+      if (Object.keys(mgrPatch).length > 0) {
+        await api.roster.updateManager(manager.id, mgrPatch)
       }
       if (c) {
         const patch: Parameters<typeof api.roster.updateManagerContract>[1] = {}
@@ -1832,6 +2016,9 @@ function ManagerDrawer({
       <form onSubmit={save} className="px-5 pb-5 space-y-4 max-h-[80vh] overflow-y-auto overflow-x-visible">
         <Field label="Name">
           <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={80} className={fieldClass} />
+        </Field>
+        <Field label="Nationality">
+          <CountryPicker value={nationality} onChange={setNationality} placeholder="Select country" />
         </Field>
 
         {c && (
@@ -2276,6 +2463,65 @@ function ExtendContractWizard({
 // Small hover/focus tooltip for an info icon. Bubble is absolutely positioned
 // above the icon with a high z-index so it escapes the field row; the wizard
 // modal has enough headroom that it won't clip.
+// Net Book Value explainer shown beside the "Book Value" column header. Richer
+// than InfoTooltip (title + body + formula). Rendered through a portal to <body>
+// and positioned off the icon's screen rect so the table's overflow clipping
+// can't hide it. Hover-only, keyboard-focusable for a11y.
+function BookValueInfo() {
+  const iconRef = useRef<HTMLSpanElement>(null)
+  const [coords, setCoords] = useState<{ top: number; right: number } | null>(null)
+
+  const show = () => {
+    const r = iconRef.current?.getBoundingClientRect()
+    if (r) setCoords({ top: r.top, right: window.innerWidth - r.right })
+  }
+  const hide = () => setCoords(null)
+
+  return (
+    <span
+      ref={iconRef}
+      className="relative inline-flex items-center align-middle"
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
+    >
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        tabIndex={0}
+        className="text-slate-400 hover:text-slate-600 focus:text-slate-600 outline-none cursor-help"
+        aria-label="How Net Book Value is calculated"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 16v-4M12 8h.01" />
+      </svg>
+      {coords &&
+        createPortal(
+          <span
+            role="tooltip"
+            className="pointer-events-none fixed z-[1000] -translate-y-full rounded-lg bg-slate-900 px-3 py-2.5 text-left font-normal normal-case leading-relaxed text-white shadow-lg"
+            style={{ width: 300, top: coords.top - 8, right: coords.right }}
+          >
+            <span className="block text-[12px] font-semibold mb-1">How Net Book Value is Calculated:</span>
+            <span className="block text-[11.5px] text-slate-200">
+              The transfer fee you enter, amortised evenly over the contract length (capped at 5 years).
+              Free signings and academy graduates carry £0.
+            </span>
+            <span className="mt-2 block rounded bg-slate-800 px-2 py-1 text-[11px] font-medium text-white">
+              Formula: Initial Fee − (Annual Amortisation × Years Elapsed)
+            </span>
+          </span>,
+          document.body,
+        )}
+    </span>
+  )
+}
+
 function InfoTooltip({ text }: { text: string }) {
   const [open, setOpen] = useState(false)
   return (

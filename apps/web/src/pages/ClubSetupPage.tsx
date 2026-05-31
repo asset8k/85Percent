@@ -50,16 +50,9 @@ const SetupSchema = z
 type SetupData = z.infer<typeof SetupSchema>
 
 export function ClubSetupPage() {
-  const { financials, setFinancials, leagueId, setClub, clubId, clubName } = useClubStore()
+  const { financials, setFinancials, leagueId } = useClubStore()
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
-
-  // League switch state — `pendingLeague` is the optimistic target. The sliding
-  // pill animates to it immediately on click; if the API call fails we revert.
-  const [leagueSaving, setLeagueSaving] = useState(false)
-  const [pendingLeague, setPendingLeague] = useState<'efl-championship' | 'premier-league' | null>(null)
-  const effectiveLeague: 'efl-championship' | 'premier-league' =
-    pendingLeague ?? (leagueId === 'premier-league' ? 'premier-league' : 'efl-championship')
 
   // Promoted-club uplift state (only relevant when on Premier League)
   const [showUplift, setShowUplift] = useState(false)
@@ -147,25 +140,6 @@ export function ClubSetupPage() {
     }
   }
 
-  const switchLeague = async (next: 'efl-championship' | 'premier-league') => {
-    if (leagueId === next || leagueSaving) return
-    setLeagueSaving(true)
-    setPendingLeague(next)
-    setError('')
-    try {
-      await api.club.setLeague(next)
-      if (clubId) setClub(clubId, clubName ?? 'Your Club', next)
-      toast.success('League switched', next === 'premier-league' ? 'Premier League rules now apply.' : 'Championship rules now apply.')
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Failed to change league'
-      setError(msg)
-      toast.error('League change failed', msg)
-    } finally {
-      setLeagueSaving(false)
-      setPendingLeague(null)
-    }
-  }
-
   const upliftPence = calculatePromotedClubRevenueUplift(
     Number.isFinite(championshipRevenuePounds) ? championshipRevenuePounds * 100 : 0,
     upliftFactor,
@@ -183,7 +157,7 @@ export function ClubSetupPage() {
 
   return (
     <SettingsShell>
-      {/* League switch (single card spanning the page width) */}
+      {/* League (read-only — determined by the club you selected during onboarding) */}
       <Card className="p-6 mb-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
@@ -192,15 +166,12 @@ export function ClubSetupPage() {
               <h2 className="text-[15px] font-semibold text-slate-900">League</h2>
             </div>
             <p className="text-[13px] text-slate-500 pl-4 max-w-xl">
-              Switches the regulatory framework. Premier League adds the three SSR solvency tests; Championship adds the £33M owner-equity top-up allowance.
+              Set by your club — switch clubs from the workspace to change it. Premier League applies the three SSR solvency tests; the Championship applies the owner-equity top-up allowance.
             </p>
           </div>
-          <LeagueSwitch
-            value={effectiveLeague}
-            pending={pendingLeague}
-            disabled={leagueSaving}
-            onChange={switchLeague}
-          />
+          <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-violet-50 text-violet-700 text-[13px] font-semibold ring-1 ring-violet-200/60 whitespace-nowrap">
+            {leagueId === 'premier-league' ? 'Premier League' : 'EFL Championship'}
+          </span>
         </div>
 
         {/* Promoted-club uplift — only when on PL */}
@@ -1207,95 +1178,6 @@ function AllowanceInput({
         className={inputCls(hasError, 'pr-8')}
       />
       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 select-none pointer-events-none">%</span>
-    </div>
-  )
-}
-
-// Animated 2-way switch for league selection. The white pill slides via
-// `layoutId` (FLIP), giving a continuous transition rather than a colour
-// snap. While the API call is in flight we render the target option in a
-// "loading" state — pill slides immediately, then a thin progress bar
-// underlines the pending option until the server confirms.
-function LeagueSwitch({
-  value,
-  pending,
-  disabled,
-  onChange,
-}: {
-  value: 'efl-championship' | 'premier-league'
-  pending: 'efl-championship' | 'premier-league' | null
-  disabled: boolean
-  onChange: (next: 'efl-championship' | 'premier-league') => void
-}) {
-  const options: { id: 'efl-championship' | 'premier-league'; label: string }[] = [
-    { id: 'efl-championship', label: 'EFL Championship' },
-    { id: 'premier-league', label: 'Premier League' },
-  ]
-  return (
-    <div
-      role="tablist"
-      aria-label="League"
-      className="relative inline-flex items-center bg-slate-100 rounded-lg p-1 overflow-hidden"
-    >
-      {options.map((opt) => {
-        const isActive = value === opt.id
-        const isPending = pending === opt.id
-        return (
-          <button
-            key={opt.id}
-            type="button"
-            role="tab"
-            aria-selected={isActive}
-            disabled={disabled}
-            onClick={() => onChange(opt.id)}
-            className={cn(
-              'relative isolate px-4 py-1.5 text-[13px] font-medium rounded-md transition-colors duration-200',
-              isActive ? 'text-violet-700' : 'text-slate-500 hover:text-slate-800',
-              disabled && !isActive ? 'cursor-not-allowed opacity-60' : '',
-              disabled && isActive ? 'cursor-default' : '',
-            )}
-          >
-            {isActive && (
-              <motion.span
-                layoutId="league-pill"
-                className="absolute inset-0 -z-10 rounded-md bg-white shadow-sm ring-1 ring-slate-200/60"
-                transition={{ type: 'spring', stiffness: 480, damping: 38, mass: 0.6 }}
-              />
-            )}
-            <span className="relative z-10 inline-flex items-center gap-1.5">
-              {opt.label}
-              <AnimatePresence>
-                {isPending && (
-                  <motion.span
-                    key="spin"
-                    initial={{ opacity: 0, width: 0 }}
-                    animate={{ opacity: 1, width: 14 }}
-                    exit={{ opacity: 0, width: 0 }}
-                    transition={{ duration: 0.15 }}
-                    className="inline-flex overflow-hidden"
-                  >
-                    <Spinner size={11} />
-                  </motion.span>
-                )}
-              </AnimatePresence>
-            </span>
-            {/* Underline progress bar while the request is in flight */}
-            <AnimatePresence>
-              {isPending && (
-                <motion.span
-                  key="bar"
-                  initial={{ scaleX: 0 }}
-                  animate={{ scaleX: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
-                  style={{ transformOrigin: 'left' }}
-                  className="pointer-events-none absolute left-2 right-2 bottom-1 h-[2px] rounded-full bg-violet-500/70"
-                />
-              )}
-            </AnimatePresence>
-          </button>
-        )
-      })}
     </div>
   )
 }

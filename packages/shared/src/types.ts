@@ -157,6 +157,7 @@ export interface ManagerWithContract {
   id: string
   clubId: string
   name: string
+  nationality: string | null
   isActive: boolean
   createdAt: string
   contract: ContractPhase | null

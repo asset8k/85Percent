@@ -7,7 +7,6 @@ import assert from 'node:assert/strict'
 import {
   mapPosition,
   parseTransfermarktDate,
-  parseMarketValueToPence,
   parseShirtNumber,
   normaliseNationality,
   mapPlayerToRosterItem,
@@ -64,27 +63,6 @@ describe('parseTransfermarktDate', () => {
   })
 })
 
-describe('parseMarketValueToPence', () => {
-  it('treats a raw number as major units → pence', () => {
-    assert.equal(parseMarketValueToPence(50_000_000), 5_000_000_000n)
-  })
-  it('parses suffixed strings', () => {
-    assert.equal(parseMarketValueToPence('€50.00m'), 5_000_000_000n)
-    assert.equal(parseMarketValueToPence('€800k'), 80_000_000n)
-    assert.equal(parseMarketValueToPence('€1.2bn'), 120_000_000_000n)
-  })
-  it('handles comma grouping', () => {
-    assert.equal(parseMarketValueToPence('1,500,000'), 150_000_000n)
-  })
-  it('returns null for missing / non-positive / dash', () => {
-    assert.equal(parseMarketValueToPence(null), null)
-    assert.equal(parseMarketValueToPence(0), null)
-    assert.equal(parseMarketValueToPence(-5), null)
-    assert.equal(parseMarketValueToPence('-'), null)
-    assert.equal(parseMarketValueToPence(''), null)
-  })
-})
-
 describe('parseShirtNumber', () => {
   it('parses "#10" style strings', () => {
     assert.equal(parseShirtNumber('#10'), 10)
@@ -125,15 +103,16 @@ describe('mapPlayerToRosterItem', () => {
       nationality: ['England'],
       joined: 'Sep 1, 2023',
       contract: 'Jun 30, 2033',
-      marketValue: 130_000_000,
     })
     assert.ok(item)
     assert.equal(item.name, 'Cole Palmer')
     assert.equal(item.position, 'MID')
-    assert.equal(item.squadNumber, null) // enriched later from the profile call
+    assert.equal(item.squadNumber, null) // not in the bulk squad endpoint (bio-only)
     assert.equal(item.isManager, false)
     assert.equal(item.nationality, 'England')
-    assert.equal(item.estimatedTransferFee, 13_000_000_000n)
+    // BIO-ONLY: no fee or market value is ingested — it is left null so the CFO
+    // enters their own official figure.
+    assert.equal(item.estimatedTransferFee, null)
     assert.ok(item.contractStart)
     assert.ok(item.contractEnd)
     assert.equal(item.contractEnd.getFullYear(), 2033)
@@ -153,16 +132,37 @@ describe('mapPlayerToRosterItem', () => {
 })
 
 describe('mapCoachToRosterItem', () => {
-  it('flags the coach as a manager with no position', () => {
-    const item = mapCoachToRosterItem('Enzo Maresca', { contract: 'Jun 30, 2028' })
+  it('flags the coach as a manager, bio-only with all financials null', () => {
+    const item = mapCoachToRosterItem('Enzo Maresca', { contract: 'Jun 30, 2028', nationality: 'Italy' })
     assert.ok(item)
     assert.equal(item.isManager, true)
     assert.equal(item.position, null)
-    assert.equal(item.estimatedTransferFee, null)
+    assert.equal(item.nationality, 'Italy')
+    assert.equal(item.estimatedTransferFee, null) // bio-only — no fee ingested
+    assert.equal(item.dateOfBirth, null)           // staff listing has Age, not DOB
     assert.ok(item.contractEnd)
   })
   it('returns null for a blank coach name', () => {
     assert.equal(mapCoachToRosterItem(''), null)
     assert.equal(mapCoachToRosterItem(null), null)
+    assert.equal(mapCoachToRosterItem(undefined), null)
+  })
+  it('tolerates a partially-parsed coach (name only, everything else null)', () => {
+    // Degraded scrape: we got a name but no nationality/dates. Must not throw —
+    // the row is still usable, with the unparsed fields left null.
+    const item = mapCoachToRosterItem('Mystery Coach', { nationality: null, joined: null, contract: null })
+    assert.ok(item)
+    assert.equal(item.name, 'Mystery Coach')
+    assert.equal(item.isManager, true)
+    assert.equal(item.nationality, null)
+    assert.equal(item.contractStart, null)
+    assert.equal(item.contractEnd, null)
+  })
+  it('coerces unparseable dates / empty nationality to null without throwing', () => {
+    const item = mapCoachToRosterItem('Coach', { nationality: '  ', joined: 'not a date', contract: '-' })
+    assert.ok(item)
+    assert.equal(item.nationality, null)
+    assert.equal(item.contractStart, null)
+    assert.equal(item.contractEnd, null)
   })
 })

@@ -132,12 +132,13 @@ model Contract {
 // Head Coach / Manager. Their wages, compensation fee, and agent fees count
 // toward the club's Squad Cost Ratio. A club has at most one active manager.
 model Manager {
-  id        String   @id @default(uuid())
-  clubId    String   @map("club_id")
-  name      String
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id          String   @id @default(uuid())
+  clubId      String   @map("club_id")
+  name        String
+  nationality String?  // parsed from the template Coaching Staff page; nullable
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   club      Club              @relation(fields: [clubId], references: [id])
   contracts ManagerContract[]
@@ -326,8 +327,10 @@ model TemplateRosterItem {
   // when unknown or for managers.
   squadNumber          Int?              @map("squad_number")
   isManager            Boolean           @default(false) @map("is_manager")
-  // Transfermarkt market value, stored in integer pence (GBP). Estimate only —
-  // used to seed the initial transfer fee on hydration. Null when unknown.
+  // Historical purchase price in integer pence (GBP) — the ACTUAL fee paid for a
+  // player's current move (or a manager's compensation fee), NOT speculative
+  // market value. 0 for academy graduates / free agents; seeds the initial
+  // transfer fee + book value on hydration.
   estimatedTransferFee BigInt?           @map("estimated_transfer_fee")
   contractStart        DateTime?         @map("contract_start")
   contractEnd          DateTime?         @map("contract_end")

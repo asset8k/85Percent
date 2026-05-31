@@ -1,23 +1,34 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Background Template Sync Worker (MVP 2.0 onboarding)
+// Background Template Sync Worker (MVP 2.0 onboarding) — BIO-ONLY model.
 //
-// Populates the template_clubs / template_roster_items dictionary from the
-// unofficial felipeall/transfermarkt-api scraper. This is meant to run on a
-// controlled MONTHLY schedule (cron / admin trigger), NOT during user
-// onboarding — onboarding reads only our local cache, insulating us from the
-// scraper's downtime and Cloudflare rate-limiting.
+// Populates the template_clubs / template_roster_items dictionary. We ingest
+// ONLY biographical data; no financials. This keeps the payload tiny (one API
+// call per club for the squad), avoids Cloudflare rate-limiting, and forces the
+// CFO to enter their own official accounting figures on the Roster page.
+//
+//   • Players  — one felipeall API call per club: /clubs/{id}/players.
+//                Name, position, squad number, nationality, DOB, contract
+//                start/end. estimatedTransferFee / wages are left NULL.
+//   • Manager  — one native HTML fetch per club from transfermarkt.com's
+//                Coaching Staff page (the felipeall wrapper has no reliable
+//                /staff endpoint). Name, nationality, appointed/contract dates.
+//                Financial fields left NULL.
+//
+// This is meant to run on a controlled MONTHLY schedule (cron / admin trigger),
+// NOT during user onboarding — onboarding reads only our local cache.
 //
 // Run it with:
 //   pnpm --filter @headroom/api sync:templates
 // Configure via env (all optional):
-//   TRANSFERMARKT_API_URL        base URL of the scraper      (default http://localhost:8000)
-//   TRANSFERMARKT_SEASON_ID      season start year, e.g. 2025 (default: derived from today)
-//   TRANSFERMARKT_SYNC_DELAY_MS  delay between clubs          (default 3000)
-//   TRANSFERMARKT_TIMEOUT_MS     per-request timeout          (default 20000)
+//   TRANSFERMARKT_API_URL        base URL of the felipeall API (default http://localhost:8000)
+//   TRANSFERMARKT_SEASON_ID      season start year, e.g. 2025  (default: derived from today)
+//   TRANSFERMARKT_SYNC_DELAY_MS  delay between clubs           (default 3000)
+//   TRANSFERMARKT_TIMEOUT_MS     per-request timeout           (default 20000)
+//   TRANSFERMARKT_FETCH_MANAGER  set to 0 to skip the coach scrape
 //
 // Safety nets:
-//   • A generous, configurable delay between every club request (anti-Cloudflare).
-//   • Each club sync is wrapped in its own try/catch — one broken DOM selector or
+//   • A generous, configurable delay between every club (anti-Cloudflare).
+//   • Each club sync is wrapped in its own try/catch — one broken selector or
 //     timeout logs a warning and the batch continues; it never crashes wholesale.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -27,23 +38,27 @@ import { supabase } from '../lib/supabase.js'
 import {
   mapCoachToRosterItem,
   mapPlayerToRosterItem,
-  parseShirtNumber,
   type TemplateLeagueValue,
   type TemplateRosterItemInput,
   type TransfermarktPlayer,
 } from './transfermarkt-mappers.js'
+import { extractHeadCoach } from './transfermarkt-coach-scraper.js'
+import { parseSquadNumbers } from './transfermarkt-squad-scraper.js'
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const API_BASE = (process.env['TRANSFERMARKT_API_URL'] ?? 'http://localhost:8000').replace(/\/+$/, '')
 const SEASON_ID = process.env['TRANSFERMARKT_SEASON_ID'] ?? deriveSeasonId()
 const REQUEST_DELAY_MS = Number(process.env['TRANSFERMARKT_SYNC_DELAY_MS'] ?? 3000)
 const REQUEST_TIMEOUT_MS = Number(process.env['TRANSFERMARKT_TIMEOUT_MS'] ?? 20000)
-// Shirt numbers are NOT in the bulk squad endpoint — they live on each player's
-// profile, so we make one extra request per player. Its own (shorter) delay
-// keeps the run tolerable while still pacing requests. Set
-// TRANSFERMARKT_FETCH_SHIRT_NUMBERS=0 to skip the enrichment entirely.
-const PLAYER_DELAY_MS = Number(process.env['TRANSFERMARKT_PLAYER_DELAY_MS'] ?? 500)
-const FETCH_SHIRT_NUMBERS = process.env['TRANSFERMARKT_FETCH_SHIRT_NUMBERS'] !== '0'
+// One native HTML fetch per club for the head coach; on by default.
+const FETCH_MANAGER = process.env['TRANSFERMARKT_FETCH_MANAGER'] !== '0'
+// One native HTML fetch per club for shirt numbers (kader page); on by default.
+const FETCH_SQUAD_NUMBERS = process.env['TRANSFERMARKT_FETCH_SQUAD_NUMBERS'] !== '0'
+// transfermarkt.com base for the native coach scrape (not the felipeall API).
+const TM_WEB_BASE = (process.env['TRANSFERMARKT_WEB_URL'] ?? 'https://www.transfermarkt.com').replace(/\/+$/, '')
+// A browser-like UA so transfermarkt.com serves the full staff page.
+const BROWSER_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
 // The two English competitions whose membership defines exactly the 44 clubs we
 // cache. We fetch the club list live from each competition rather than hardcode
@@ -70,11 +85,6 @@ interface ClubPlayersResponse {
 interface ClubProfileResponse {
   name?: string
   image?: string | null
-  // The scraper does not reliably expose the coach; read defensively if present.
-  coach?: { name?: string | null; contract?: string | null; joined?: string | null } | null
-}
-interface PlayerProfileResponse {
-  shirtNumber?: string | number | null // e.g. "#10"
 }
 
 // ── Small utilities ───────────────────────────────────────────────────────────
@@ -90,7 +100,15 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function fetchJson<T>(path: string): Promise<T> {
+// felipeall sits behind Cloudflare and throttles bursts with transient 405 /
+// 429 / 5xx responses (observed: it alternates 200 ↔ 405 on rapid repeats).
+// Treating those as a hard failure would silently zero out real transfer fees,
+// so we retry them with exponential backoff before giving up.
+const RETRY_STATUSES = new Set([405, 408, 425, 429, 500, 502, 503, 504])
+const MAX_RETRIES = Number(process.env['TRANSFERMARKT_MAX_RETRIES'] ?? 3)
+const RETRY_BASE_MS = Number(process.env['TRANSFERMARKT_RETRY_BASE_MS'] ?? 1500)
+
+async function fetchOnce<T>(path: string): Promise<T> {
   const url = `${API_BASE}${path}`
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
@@ -100,17 +118,39 @@ async function fetchJson<T>(path: string): Promise<T> {
       headers: { accept: 'application/json' },
     })
     if (!res.ok) {
-      throw new Error(`HTTP ${res.status} for ${path}`)
+      const e = new Error(`HTTP ${res.status} for ${path}`) as Error & { status?: number }
+      e.status = res.status
+      throw e
     }
     return (await res.json()) as T
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error(`Timeout after ${REQUEST_TIMEOUT_MS}ms for ${path}`)
+      const e = new Error(`Timeout after ${REQUEST_TIMEOUT_MS}ms for ${path}`) as Error & { status?: number }
+      e.status = 408
+      throw e
     }
     throw err
   } finally {
     clearTimeout(timer)
   }
+}
+
+async function fetchJson<T>(path: string): Promise<T> {
+  let lastErr: unknown
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await fetchOnce<T>(path)
+    } catch (err) {
+      lastErr = err
+      const status = (err as { status?: number }).status
+      const retryable = status != null && RETRY_STATUSES.has(status)
+      if (!retryable || attempt === MAX_RETRIES) break
+      const backoff = RETRY_BASE_MS * Math.pow(2, attempt) // 1.5s, 3s, 6s, …
+      console.warn(`[sync-templates]     ${path} → HTTP ${status}, retry ${attempt + 1}/${MAX_RETRIES} in ${backoff}ms`)
+      await sleep(backoff)
+    }
+  }
+  throw lastErr
 }
 
 // ── DB writers (Supabase service client — bypasses RLS for this admin job) ─────
@@ -201,51 +241,105 @@ async function collectClubs(): Promise<ClubRef[]> {
   return clubs
 }
 
-// Fetch a player's current shirt number from their profile (the only place the
-// scraper exposes it). Best-effort: returns null on any failure.
-async function fetchShirtNumber(playerId: string): Promise<number | null> {
+// Fetch the club's logo from its felipeall profile. Non-essential — returns null
+// on any failure so a missing crest never aborts the squad sync.
+async function fetchClubLogo(clubTmId: string): Promise<string | null> {
   try {
-    const profile = await fetchJson<PlayerProfileResponse>(`/players/${playerId}/profile`)
-    return parseShirtNumber(profile.shirtNumber)
+    const profile = await fetchJson<ClubProfileResponse>(`/clubs/${clubTmId}/profile`)
+    return profile.image ?? null
   } catch {
     return null
   }
 }
 
-// Sync a single club: fetch its profile (logo + best-effort coach) and squad,
-// map them, and replace the cached rows. Returns the number of roster items.
-async function syncClub(club: ClubRef): Promise<number> {
-  // Profile is non-essential (logo + maybe coach); tolerate its failure.
-  let logoUrl: string | null = null
-  let coachItem: TemplateRosterItemInput | null = null
+// Fetch a transfermarkt.com HTML page (browser UA so the full markup is served).
+// Throws on non-OK / timeout so callers can log and degrade gracefully.
+async function fetchHtml(path: string): Promise<string> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   try {
-    const profile = await fetchJson<ClubProfileResponse>(`/clubs/${club.tmId}/profile`)
-    logoUrl = profile.image ?? null
-    if (profile.coach?.name) {
-      coachItem = mapCoachToRosterItem(profile.coach.name, {
-        joined: profile.coach.joined ?? null,
-        contract: profile.coach.contract ?? null,
-      })
-    }
-  } catch (err) {
-    console.warn(`[sync-templates]   profile for ${club.name} unavailable: ${(err as Error).message}`)
+    const res = await fetch(`${TM_WEB_BASE}${path}`, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': BROWSER_UA,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    return await res.text()
+  } finally {
+    clearTimeout(timer)
   }
+}
 
-  // Squad is essential — let a failure here propagate to the per-club boundary.
+// Native shirt-number scrape: ONE HTML fetch of the club's detailed squad
+// ("kader") page (the felipeall players API carries no shirt number). Returns a
+// player-id → number map; an empty map on any failure so numbers are simply left
+// null and the club's sync still completes.
+async function fetchSquadNumbers(clubTmId: string, clubName: string): Promise<Map<string, number>> {
+  try {
+    const html = await fetchHtml(`/-/kader/verein/${clubTmId}/saison_id/${SEASON_ID}/plus/1`)
+    return parseSquadNumbers(html)
+  } catch (err) {
+    console.warn(`[sync-templates]   squad numbers for ${clubName} unavailable: ${(err as Error).message}`)
+    return new Map()
+  }
+}
+
+// Native head-coach scrape: ONE HTML fetch of transfermarkt.com's Coaching Staff
+// page, parsed by the pure scraper. Financial fields are left null (bio-only).
+// Returns null (logged) when no head coach can be parsed, so a missing manager
+// never aborts the club's sync.
+async function fetchClubManager(clubTmId: string, clubName: string): Promise<TemplateRosterItemInput | null> {
+  try {
+    const html = await fetchHtml(`/-/mitarbeiter/verein/${clubTmId}`)
+    const coach = extractHeadCoach(html)
+    if (!coach) {
+      console.warn(`[sync-templates]   no head coach parsed for ${clubName}`)
+      return null
+    }
+    // Bio-only: name + nationality + appointed/contract dates. No financials.
+    return mapCoachToRosterItem(coach.name, {
+      nationality: coach.nationality,
+      joined: coach.appointed,
+      contract: coach.contractExpires,
+    })
+  } catch (err) {
+    console.warn(`[sync-templates]   manager for ${clubName} unavailable: ${(err as Error).message}`)
+    return null
+  }
+}
+
+// Sync a single club (BIO-ONLY): one API call for the squad, plus one native
+// HTML fetch for the head coach. No fee/market-value/shirt-profile calls.
+// Returns the number of roster items written.
+async function syncClub(club: ClubRef): Promise<number> {
+  // Logo (one profile call) — non-essential, tolerate failure.
+  const logoUrl = await fetchClubLogo(club.tmId)
+
+  // Squad — the single essential API call. A failure propagates to the per-club
+  // boundary in main(). Bio-only mapping; financials stay null.
   const squad = await fetchJson<ClubPlayersResponse>(`/clubs/${club.tmId}/players?season_id=${SEASON_ID}`)
+
+  // Shirt numbers aren't in the API; enrich from the kader page (best-effort).
+  const squadNumbers = FETCH_SQUAD_NUMBERS
+    ? await fetchSquadNumbers(club.tmId, club.name)
+    : new Map<string, number>()
 
   const items: TemplateRosterItemInput[] = []
   for (const p of squad.players ?? []) {
     const mapped = mapPlayerToRosterItem(p)
     if (!mapped) continue
-    // Enrich with the shirt number from the per-player profile (best-effort).
-    if (FETCH_SHIRT_NUMBERS && p.id) {
-      mapped.squadNumber = await fetchShirtNumber(p.id)
-      await sleep(PLAYER_DELAY_MS) // pace the extra per-player requests
-    }
-    items.push(mapped)
+    if (p.id) mapped.squadNumber = squadNumbers.get(String(p.id)) ?? null
+    items.push(mapped) // estimatedTransferFee already null (bio-only)
   }
-  if (coachItem) items.push(coachItem)
+
+  // Head coach (isManager = true) via one native HTML fetch. Financials null.
+  if (FETCH_MANAGER) {
+    const coachItem = await fetchClubManager(club.tmId, club.name)
+    if (coachItem) items.push(coachItem)
+  }
 
   const templateClubId = await upsertTemplateClub(club, logoUrl)
   await replaceRosterItems(templateClubId, items)
@@ -255,8 +349,9 @@ async function syncClub(club: ClubRef): Promise<number> {
 // ── Entrypoint ──────────────────────────────────────────────────────────────────
 async function main(): Promise<void> {
   console.log(
-    `[sync-templates] starting — api=${API_BASE} season=${SEASON_ID} delay=${REQUEST_DELAY_MS}ms timeout=${REQUEST_TIMEOUT_MS}ms ` +
-      `shirtNumbers=${FETCH_SHIRT_NUMBERS ? `on (playerDelay=${PLAYER_DELAY_MS}ms)` : 'off'}`,
+    `[sync-templates] starting (bio-only) — api=${API_BASE} season=${SEASON_ID} ` +
+      `delay=${REQUEST_DELAY_MS}ms timeout=${REQUEST_TIMEOUT_MS}ms ` +
+      `manager=${FETCH_MANAGER ? 'on' : 'off'} squadNumbers=${FETCH_SQUAD_NUMBERS ? 'on' : 'off'}`,
   )
 
   const clubs = await collectClubs()

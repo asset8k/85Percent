@@ -9,7 +9,7 @@
     "start": "node --env-file=.env dist/server.js",
     "typecheck": "tsc --noEmit",
     "sync:templates": "tsx --env-file=.env src/scripts/sync-templates.ts",
-    "test:scripts": "node --import tsx --test src/scripts/transfermarkt-mappers.test.ts",
+    "test:scripts": "node --import tsx --test 'src/scripts/*.test.ts'",
     "test:onboarding": "node --import tsx --env-file=.env --test src/routes/onboarding-hydrate.test.ts",
     "clean": "rm -rf dist"
   },

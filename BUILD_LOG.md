@@ -2012,3 +2012,67 @@ The 5-year cap is regulatorily correct but **changes SCR for existing players on
 **Onboarding UX/UI redesign (presentation only).** Centered welcome wizard; gradient league emblem cards with club-count chips + accent bars; club step with search-icon field, skeleton loading grid, larger crest tiles (hover-lift, selected ring+check, toggle-deselect), distinct no-results vs empty-cache states, softer sticky confirm bar; a full-screen **ImportingState** (pulsing crest + staged checklist) during the hydrate call; and a redesigned Roster landing banner ("Squad imported — add wages") with a wage-entry progress bar.
 
 **Verification:** engine 110/110 · mappers 22/22 · onboarding DB tests 16/16 (44 clubs → 1218 players, wages £0, valid numbers/positions) · API + web typecheck clean · web build clean · live dev servers (web :5173, api :3001) serving the new code. RLS advisor warnings from the prior session remain resolved.
+
+---
+
+## Session 20 — Settings league fix, roster sorting, historical-cost + manager ingestion (2026-05-31)
+
+Refinements on top of MVP 2.0 onboarding.
+
+1. **Settings — removed the redundant League choice** (`apps/web/src/pages/ClubSetupPage.tsx`). The club picked during onboarding already sets the league, so the interactive `LeagueSwitch` toggle was dead UX. Replaced with a read-only league badge; deleted `switchLeague`, the `LeagueSwitch` component, and `leagueSaving`/`pendingLeague` state. `api.club.setLeague` remains but is no longer called from the UI. PL-only uplift estimator + Championship-only owner-equity field still react to `leagueId`.
+
+2. **Roster — per-column sorting** (`apps/web/src/pages/RosterPage.tsx`). New `SortableTh` + caret mirroring the Dashboard. Sortable: # (default asc, unassigned last), Name, Position, Annual Wage, Book Value, Contract End, To Expiry/Archived. First click = text asc / money-date desc, then toggles. Ordering moved from `filteredActive` (now filter-only) into `PlayerTable`, so squad + archived tabs both sort.
+
+3. **Transfer-fee bug fixed: market value → historical cost** (`transfermarkt-mappers.ts`, `sync-templates.ts`). SCR accounting derives amortisation/NBV strictly from the actual purchase price, never speculative market value. `mapPlayerToRosterItem` now defaults `estimatedTransferFee` to `0n` (academy/free agents). New pure helpers `parseTransferFeeToPence` (free/loan/draft/undisclosed/`-`/`?` → `0n`) and `extractCurrentTransferFeePence` (finds the move to the current club in `/players/{id}/transfers`, falls back to most recent). Worker now calls `fetchActualTransferFee(playerId, club.tmId)` per player and overrides the default.
+
+4. **Head-coach ingestion** (`transfermarkt-mappers.ts`, `sync-templates.ts`). New `selectHeadCoach` pulls the first-team manager from a staff payload (embedded `{manager|headCoach|coach}`, `{staff}`/`{members}` array, or bare array), skipping assistants/GK/fitness/youth/academy/analysts/scouts/physios. `mapCoachToRosterItem` now captures the compensation fee (`parseTransferFeeToPence`, default `0n`) + DOB/nationality, `isManager=true`. Worker's `resolveManager` tries the profile-embedded coach, then `/clubs/{id}/staff`; degrades gracefully (logs + continues) when unavailable. Per-club try/catch + 3000 ms delay retained. New env toggles `TRANSFERMARKT_FETCH_TRANSFER_FEES`, `TRANSFERMARKT_FETCH_MANAGER` (both on by default).
+
+5. **Schema (Phase 1)** — `TemplateRosterItem` already had every required field (`isManager`, nullable `position`, `estimatedTransferFee BigInt?`, contract dates). Only corrected the stale "market value" comment to "historical purchase price / compensation fee". No migration needed.
+
+6. **Hydration (Phase 3)** — `onboarding.ts` + `buildHydratedRoster` already clone players→players+contracts and the manager→managers+manager_contracts (active), wages/agent fees forced to 0; `transfer_fee`/`compensation_fee` + `book_value` now carry the real historical fee. No code change needed.
+
+7. **Roster audit banner + Net Book Value tooltip** (Phase 4, `apps/web/src/pages/RosterPage.tsx`). Reworded the post-onboarding banner to the accountancy-audit copy ("We have loaded your squad template… employee wages default to zero, and book values reflect parsed historical transfer records. Please audit these rows before executing compliance simulations."). Added a `BookValueInfo` hover/focus tooltip on the Book Value column header: 5-year-capped linear amortisation from the Initial Transfer Fee, market value ignored, academy/free → £0, formula `Initial Fee − (Annual Amortization × Years Elapsed)`. `SortableTh` gained an optional `info` slot (click-stopped so it doesn't toggle sort).
+
+**Known caveat:** stock felipeall/transfermarkt-api has no documented `/clubs/{id}/staff` endpoint and an unreliable profile `coach` field, so manager ingestion may often be empty until the exact staff endpoint/shape is confirmed; `resolveManager`/`selectHeadCoach` mappings are easy to adjust then.
+
+**Verification:** API typecheck clean · web typecheck clean · mappers **31/31** (added parseTransferFeeToPence, extractCurrentTransferFeePence, selectHeadCoach, manager-compensation coverage) · onboarding DB tests **16/16** (44 clubs → 1218 players, all wages £0).
+
+---
+
+## Session 21 — Bio-only ingestion, native scrapers (coach + shirt numbers), coach UX, full Docker sync (2026-06-01)
+
+Pivoted the template sync to a **bio-only** model and refreshed the entire 44-club library off a locally-built transfermarkt-api in Docker.
+
+### Why bio-only
+Fetching real transfer fees meant ~1,300 extra `/transfers` + `/profile` calls per run, which tripped the public felipeall demo's Cloudflare rate-limit (persistent `HTTP 405`). Decision: **stop ingesting any financials** — drastically smaller payload, no rate-limiting, and it forces the CFO to enter their own official accounting figures (correct for compliance anyway).
+
+### Sync worker — bio-only refactor (`apps/api/src/scripts/sync-templates.ts`)
+- **Removed** all fee/market-value fetching and the per-player `/profile`/`/transfers` calls. `mapPlayerToRosterItem` now sets `estimatedTransferFee: null`; coaches likewise carry null financials.
+- Deleted the now-dead financial mappers (`parseMarketValueToPence`, `parseTransferFeeToPence`, `extractCurrentTransferFeePence`, `selectHeadCoach`) + their tests. Kept `parseShirtNumber` (still used).
+- Per club the worker now does: **1** API call (squad) + **1** API call (logo) + **1** HTML fetch (shirt numbers) + **1** HTML fetch (head coach). 3 s inter-club delay + retry/backoff (405/408/425/429/5xx) retained.
+- New env toggles: `TRANSFERMARKT_FETCH_MANAGER`, `TRANSFERMARKT_FETCH_SQUAD_NUMBERS`, `TRANSFERMARKT_WEB_URL`, `TRANSFERMARKT_MAX_RETRIES`, `TRANSFERMARKT_RETRY_BASE_MS`.
+
+### Native HTML scrapers (new, pure + unit-tested)
+- **`transfermarkt-coach-scraper.ts`** — felipeall has no `/staff` endpoint, so we fetch transfermarkt.com's Coaching Staff page (`/-/mitarbeiter/verein/{id}`) and parse the first-team head coach (name, nationality, appointed/contract dates), skipping assistants/GK/youth/etc. Degrades to `null` on any parse failure.
+- **`transfermarkt-squad-scraper.ts`** — shirt numbers aren't in the felipeall squad JSON (they were the dropped `/profile` call), so we parse them from the club's kader page (`rn_nummer` div ↔ `/profil/spieler/{id}`) and merge by player id. (User confirmed Option A: keep felipeall JSON for bio, add one kader fetch for numbers.)
+- Tests: 8 coach-scraper + 4 squad-scraper. `test:scripts` now globs `src/scripts/*.test.ts`.
+
+### Coach nationality — end to end
+- Migration `20260531000001_manager_nationality` (`managers.nationality TEXT`, applied to live DB via `prisma migrate deploy`). Prisma `Manager.nationality`.
+- Wired through: `buildManagerResponse` + select(`*`), `buildHydratedRoster` manager row, `ManagerInputSchema`/`ManagerPatchSchema` (shared), POST/PATCH `/roster/manager`, `ManagerWithContract` type, `updateManager` client type, and both Add/Edit forms (CountryPicker).
+
+### Roster UI (`apps/web/src/pages/RosterPage.tsx`)
+- **Squad-number column restored** end-to-end (1,175/1,276 players populated after the sync; the rest are genuinely unassigned).
+- **Book Value cell** now shows the amber `FinancialWarning` (icon + tooltip) when £0 in the pre-fill state, mirroring Annual Wage; **edit drawer's Transfer fee** field highlights when empty/0.
+- **Tooltip clipping fixed** — `FinancialWarning` and `BookValueInfo` now render via `createPortal` to `<body>` positioned off the icon's screen rect, so the table's `overflow` no longer clips them. Book Value tooltip text trimmed (no more "speculative market valuation" — we ingest none).
+- **Coach row rework** — `ManagerCard` is now a minimalist player-style row: **flag instead of avatar**, name, "Head Coach" tag, **Annual wage only** (contract-end + the Edit button removed); the **whole row is clickable** to edit. INITIAL pill dropped from the card.
+
+### Coach-nullable hardening
+The whole chain already tolerated a missing coach (worker `if (coachItem)`, hydrate `if (managerRow)`, route `if (hydrated.manager)`, UI empty-state). Added regression tests for partial/garbage coach parses (name-only, unparseable dates, empty nationality → never throws).
+
+### Docker — full 44-club sync
+- Machine has **no Docker Desktop** and password-gated `sudo`, so installed **Colima** (CLI-only Docker runtime) via Homebrew. The published `felipeall/transfermarkt-api` image **doesn't exist on Docker Hub** — built from source (`transfermarkt-api:local`). Its app-level rate limiter is **off by default**, so the local instance has no throttling.
+- Full sync: **44/44 clubs, 0 failed, 1,318 items** (1,276 players + 42 managers). Players with shirt numbers: 1,175. Managers with nationality: 42/42. Non-null fees: 0 (bio-only confirmed). Liverpool + Watford parsed no coach → handled gracefully (no manager row, no crash).
+- New **[DOCKER.md](DOCKER.md)** runbook documents the whole flow (install Colima, build image, run container, run sync, env vars, verification, troubleshooting) for repeatable future re-syncs.
+
+**Verification:** API + web typecheck clean · script tests **32/32** · live full sync 44/44 verified against the DB.

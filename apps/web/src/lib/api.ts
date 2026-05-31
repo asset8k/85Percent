@@ -356,7 +356,7 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(input),
       }),
-    updateManager: (id: string, patch: { name?: string; isActive?: boolean }) =>
+    updateManager: (id: string, patch: { name?: string; nationality?: string | null; isActive?: boolean }) =>
       apiFetch<{ success: boolean }>(`/roster/manager/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(patch),
