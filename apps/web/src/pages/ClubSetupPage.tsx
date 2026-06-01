@@ -3,9 +3,12 @@ import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
+import { useAuthStore } from '@/stores/auth'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { FormPageSkeleton } from '@/components/ui/page-skeletons'
 import { NumericInput } from '@/components/ui/numeric-input'
@@ -50,6 +53,17 @@ const SetupSchema = z
 type SetupData = z.infer<typeof SetupSchema>
 
 export function ClubSetupPage() {
+  return <SettingsShell />
+}
+
+// ---------------------------------------------------------------------------
+// FinancialTab — season financial configuration (CFO only). Exported and
+// rendered by its own top-level page (FinancialsPage) — it lives in its own
+// sidebar entry rather than under Settings, since it's club compliance config
+// rather than a personal/workspace setting.
+// ---------------------------------------------------------------------------
+
+export function FinancialTab() {
   const { financials, setFinancials, leagueId } = useClubStore()
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
@@ -156,7 +170,7 @@ export function ClubSetupPage() {
   const redPctVal = ((EFL_CHAMPIONSHIP_CONFIG.greenThresholdRatio + watchAllowance) * 100).toFixed(0)
 
   return (
-    <SettingsShell>
+    <>
       {/* League (read-only — determined by the club you selected during onboarding) */}
       <Card className="p-6 mb-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -509,25 +523,38 @@ export function ClubSetupPage() {
           </div>
         </Card>
       </div>
-    </SettingsShell>
+    </>
   )
 }
 
 // ---------------------------------------------------------------------------
-// SettingsShell — page header + tab nav. Hosts Financials (this page) +
-// Team + Activity tab content based on the `tab` URL hash.
+// SettingsShell — page header + tab nav. Hosts the five Settings tabs:
+//   Profile & Security (all users) · Team & Access (CFO) · Financial (CFO) ·
+//   Activity Log (CFO) · Danger Zone (CFO).
+// The CFO-only tabs are both hidden from the nav AND guarded server-side by
+// requireRole('cfo'); the role predicates here only drive UI affordances.
 // ---------------------------------------------------------------------------
 
-function SettingsShell({ children }: { children: React.ReactNode }) {
-  const [tab, setTab] = useState<'financials' | 'team' | 'activity'>(() => {
-    const h = window.location.hash.replace('#', '')
-    return h === 'team' || h === 'activity' ? h : 'financials'
-  })
+type SettingsTab = 'profile' | 'team' | 'activity' | 'danger'
+
+function SettingsShell() {
   const can = useCan()
+  const isCfo = can.has('cfo')
+
+  const [tab, setTab] = useState<SettingsTab>(() => {
+    const h = window.location.hash.replace('#', '') as SettingsTab
+    return (['profile', 'team', 'activity', 'danger'] as const).includes(h) ? h : 'profile'
+  })
 
   useEffect(() => {
-    window.location.hash = tab === 'financials' ? '' : tab
+    window.location.hash = tab === 'profile' ? '' : tab
   }, [tab])
+
+  // If a non-CFO somehow lands on a CFO-only tab (e.g. a stale hash), fall back
+  // to the profile tab they're always allowed to see.
+  useEffect(() => {
+    if (!isCfo && tab !== 'profile') setTab('profile')
+  }, [isCfo, tab])
 
   return (
     <div>
@@ -535,23 +562,398 @@ function SettingsShell({ children }: { children: React.ReactNode }) {
         <span className="inline-block w-1.5 h-7 rounded-full bg-violet-600" />
         <div>
           <h1 className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">Settings</h1>
-          <p className="text-[13px] text-slate-400 mt-1.5">Club configuration, team members, and activity log</p>
+          <p className="text-[13px] text-slate-400 mt-1.5">Your profile, security, and workspace configuration</p>
         </div>
       </div>
 
       <div className="flex items-center gap-6 border-b border-slate-200 mb-5">
-        <TabButton active={tab === 'financials'} onClick={() => setTab('financials')}>Financials</TabButton>
-        {can.inviteMembers && (
-          <TabButton active={tab === 'team'} onClick={() => setTab('team')}>Team</TabButton>
-        )}
-        {can.viewAuditLog && (
-          <TabButton active={tab === 'activity'} onClick={() => setTab('activity')}>Activity Log</TabButton>
-        )}
+        <TabButton active={tab === 'profile'} onClick={() => setTab('profile')}>Profile &amp; Security</TabButton>
+        {isCfo && <TabButton active={tab === 'team'} onClick={() => setTab('team')}>Team &amp; Access</TabButton>}
+        {isCfo && <TabButton active={tab === 'activity'} onClick={() => setTab('activity')}>Activity Log</TabButton>}
+        {isCfo && <TabButton active={tab === 'danger'} onClick={() => setTab('danger')}>Danger Zone</TabButton>}
       </div>
 
-      {tab === 'financials' && children}
-      {tab === 'team'       && can.inviteMembers && <TeamTab />}
-      {tab === 'activity'   && can.viewAuditLog   && <ActivityTab />}
+      {tab === 'profile'   && <ProfileSecurityTab />}
+      {tab === 'team'      && isCfo && <TeamTab />}
+      {tab === 'activity'  && isCfo && <ActivityTab />}
+      {tab === 'danger'    && isCfo && <DangerZoneTab />}
+    </div>
+  )
+}
+
+// Shared password policy check — mirrors the backend PasswordSchema. Returns
+// the first unmet requirement, or null when the password is strong enough.
+function passwordIssue(pw: string): string | null {
+  if (pw.length < 8) return 'Must be at least 8 characters'
+  if (!/[A-Z]/.test(pw)) return 'Must contain an uppercase letter'
+  if (!/[a-z]/.test(pw)) return 'Must contain a lowercase letter'
+  if (!/[0-9]/.test(pw)) return 'Must contain a number'
+  if (!/[^A-Za-z0-9]/.test(pw)) return 'Must contain a special character'
+  return null
+}
+
+// ---------------------------------------------------------------------------
+// ProfileSecurityTab — available to every authenticated user. Edit display
+// name + email, change password, and manage the Authenticator App (TOTP).
+// ---------------------------------------------------------------------------
+
+function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+  return (
+    <div className="mb-5">
+      <div className="flex items-center gap-3">
+        <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
+        <h2 className="text-[15px] font-semibold text-slate-900">{title}</h2>
+      </div>
+      {subtitle && <p className="text-[13px] text-slate-500 mt-1 pl-4 max-w-xl">{subtitle}</p>}
+    </div>
+  )
+}
+
+function ProfileSecurityTab() {
+  const [loading, setLoading] = useState(true)
+
+  // Profile fields
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
+  const [email, setEmail] = useState('')
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [profileErr, setProfileErr] = useState('')
+
+  // Password fields
+  const [currentPw, setCurrentPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [confirmPw, setConfirmPw] = useState('')
+  const [savingPw, setSavingPw] = useState(false)
+  const [pwErr, setPwErr] = useState('')
+
+  // TOTP state
+  const [totpEnabled, setTotpEnabled] = useState(false)
+  const [setupData, setSetupData] = useState<{ qrDataUrl: string; secret: string } | null>(null)
+  const [totpCode, setTotpCode] = useState('')
+  const [totpBusy, setTotpBusy] = useState(false)
+  const [totpErr, setTotpErr] = useState('')
+  const [disarming, setDisarming] = useState(false)
+  const [disableCode, setDisableCode] = useState('')
+
+  useEffect(() => {
+    api.me.get()
+      .then((me) => {
+        const parts = me.fullName.trim().split(/\s+/)
+        setFirstName(parts[0] ?? '')
+        setLastName(parts.slice(1).join(' '))
+        setEmail(me.email)
+        setTotpEnabled(me.isTotpEnabled)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  const saveProfile = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setProfileErr('')
+    const fullName = `${firstName.trim()} ${lastName.trim()}`.trim()
+    if (!fullName) { setProfileErr('Name cannot be empty'); return }
+    setSavingProfile(true)
+    try {
+      await api.me.update({ fullName, email: email.trim() })
+      toast.success('Profile updated', 'Your details have been saved.')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to update profile'
+      setProfileErr(msg)
+      toast.error('Update failed', msg)
+    } finally {
+      setSavingProfile(false)
+    }
+  }
+
+  const changePassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setPwErr('')
+    const issue = passwordIssue(newPw)
+    if (issue) { setPwErr(`New password: ${issue.toLowerCase()}`); return }
+    if (newPw !== confirmPw) { setPwErr("New passwords don't match"); return }
+    setSavingPw(true)
+    try {
+      await api.auth.changePassword(currentPw, newPw)
+      setCurrentPw(''); setNewPw(''); setConfirmPw('')
+      toast.success('Password changed', 'Use your new password next time you sign in.')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to change password'
+      setPwErr(msg)
+    } finally {
+      setSavingPw(false)
+    }
+  }
+
+  const startTotpSetup = async () => {
+    setTotpErr('')
+    setTotpBusy(true)
+    try {
+      const d = await api.auth.totpSetup()
+      setSetupData({ qrDataUrl: d.qrDataUrl, secret: d.secret })
+      setTotpCode('')
+    } catch (err) {
+      setTotpErr(err instanceof Error ? err.message : 'Failed to start setup')
+    } finally {
+      setTotpBusy(false)
+    }
+  }
+
+  const verifyTotp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setTotpErr('')
+    setTotpBusy(true)
+    try {
+      await api.auth.totpVerify(totpCode)
+      setTotpEnabled(true)
+      setSetupData(null)
+      setTotpCode('')
+      toast.success('Two-factor enabled', "You'll be asked for a code at sign-in.")
+    } catch (err) {
+      setTotpErr(err instanceof Error ? err.message : 'Invalid code')
+    } finally {
+      setTotpBusy(false)
+    }
+  }
+
+  const disableTotp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setTotpErr('')
+    setTotpBusy(true)
+    try {
+      await api.auth.totpDisable(disableCode)
+      setTotpEnabled(false)
+      setDisarming(false)
+      setDisableCode('')
+      toast.success('Two-factor disabled', 'Sign-in now uses your password only.')
+    } catch (err) {
+      setTotpErr(err instanceof Error ? err.message : 'Invalid code')
+    } finally {
+      setTotpBusy(false)
+    }
+  }
+
+  if (loading) return <FormPageSkeleton />
+
+  return (
+    <div className="space-y-5 max-w-3xl">
+      {/* Profile */}
+      <Card className="p-6">
+        <SectionHeader title="Profile" subtitle="Your name and the email you sign in with." />
+        <form onSubmit={saveProfile}>
+          <div className="grid grid-cols-2 gap-5">
+            <label className="block">
+              <span className="meta-label block mb-2">First Name</span>
+              <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="Jane" />
+            </label>
+            <label className="block">
+              <span className="meta-label block mb-2">Last Name</span>
+              <Input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Doe" />
+            </label>
+            <label className="block col-span-2">
+              <span className="meta-label block mb-2">Email</span>
+              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@club.com" />
+            </label>
+          </div>
+          <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-between">
+            <span className="text-[12px] text-red-600">{profileErr}</span>
+            <Button type="submit" disabled={savingProfile}>
+              {savingProfile && <Spinner size={14} />}
+              {savingProfile ? 'Saving…' : 'Save profile'}
+            </Button>
+          </div>
+        </form>
+      </Card>
+
+      {/* Change password */}
+      <Card className="p-6">
+        <SectionHeader title="Password" subtitle="Min 8 chars · uppercase · lowercase · number · special character." />
+        <form onSubmit={changePassword}>
+          <div className="grid grid-cols-2 gap-5">
+            <label className="block col-span-2">
+              <span className="meta-label block mb-2">Current Password</span>
+              <Input type="password" value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} placeholder="••••••••" autoComplete="current-password" />
+            </label>
+            <label className="block">
+              <span className="meta-label block mb-2">New Password</span>
+              <Input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="••••••••" autoComplete="new-password" />
+            </label>
+            <label className="block">
+              <span className="meta-label block mb-2">Confirm New Password</span>
+              <Input type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} placeholder="••••••••" autoComplete="new-password" />
+            </label>
+          </div>
+          <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-between">
+            <span className="text-[12px] text-red-600">{pwErr}</span>
+            <Button type="submit" disabled={savingPw || !currentPw || !newPw || !confirmPw}>
+              {savingPw && <Spinner size={14} />}
+              {savingPw ? 'Updating…' : 'Change password'}
+            </Button>
+          </div>
+        </form>
+      </Card>
+
+      {/* Two-factor authentication */}
+      <Card className="p-6">
+        <SectionHeader
+          title="Two-Factor Authentication"
+          subtitle="Add an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password) for a one-time code at sign-in."
+        />
+
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <span
+              className={cn(
+                'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[12px] font-medium',
+                totpEnabled ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600',
+              )}
+            >
+              <span className={cn('w-1.5 h-1.5 rounded-full', totpEnabled ? 'bg-green-600' : 'bg-slate-400')} />
+              {totpEnabled ? 'Enabled' : 'Not enabled'}
+            </span>
+          </div>
+
+          {!totpEnabled && !setupData && (
+            <Button type="button" onClick={startTotpSetup} disabled={totpBusy}>
+              {totpBusy && <Spinner size={14} />}
+              Set up authenticator
+            </Button>
+          )}
+          {totpEnabled && !disarming && (
+            <Button type="button" variant="secondary" onClick={() => { setDisarming(true); setTotpErr('') }}>
+              Turn off
+            </Button>
+          )}
+        </div>
+
+        {/* Setup: QR + verify */}
+        {setupData && (
+          <div className="mt-5 pt-5 border-t border-slate-100">
+            <div className="flex flex-col sm:flex-row gap-6">
+              <div className="flex-shrink-0">
+                <img src={setupData.qrDataUrl} alt="Authenticator QR code" width={176} height={176} className="rounded-lg border border-slate-200" />
+              </div>
+              <div className="flex-1">
+                <p className="text-[13px] text-slate-700 font-medium mb-1">1. Scan the QR code</p>
+                <p className="text-[12px] text-slate-500 mb-3">
+                  Or enter this key manually:&nbsp;
+                  <code className="num text-[12px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-700 break-all">{setupData.secret}</code>
+                </p>
+                <p className="text-[13px] text-slate-700 font-medium mb-2">2. Enter the 6-digit code</p>
+                <form onSubmit={verifyTotp} className="flex items-center gap-2">
+                  <Input
+                    value={totpCode}
+                    onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    inputMode="numeric"
+                    placeholder="123456"
+                    className="w-32 num tracking-[0.3em] text-center"
+                  />
+                  <Button type="submit" disabled={totpBusy || totpCode.length !== 6}>
+                    {totpBusy && <Spinner size={14} />}
+                    Verify &amp; enable
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={() => { setSetupData(null); setTotpErr('') }}>
+                    Cancel
+                  </Button>
+                </form>
+                {totpErr && <p className="text-[12px] text-red-600 mt-2">{totpErr}</p>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Disable: confirm with a current code */}
+        {totpEnabled && disarming && (
+          <div className="mt-5 pt-5 border-t border-slate-100">
+            <p className="text-[13px] text-slate-700 mb-2">Enter a current code from your authenticator app to turn off 2FA.</p>
+            <form onSubmit={disableTotp} className="flex items-center gap-2">
+              <Input
+                value={disableCode}
+                onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                inputMode="numeric"
+                placeholder="123456"
+                className="w-32 num tracking-[0.3em] text-center"
+              />
+              <Button type="submit" variant="destructive" disabled={totpBusy || disableCode.length !== 6}>
+                {totpBusy && <Spinner size={14} />}
+                Turn off 2FA
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => { setDisarming(false); setDisableCode(''); setTotpErr('') }}>
+                Cancel
+              </Button>
+            </form>
+            {totpErr && <p className="text-[12px] text-red-600 mt-2">{totpErr}</p>}
+          </div>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// DangerZoneTab — CFO-only. Permanently delete the entire tenant workspace.
+// High friction: the CFO must type the club's exact name to arm the button.
+// ---------------------------------------------------------------------------
+
+function DangerZoneTab() {
+  const { clubName } = useClubStore()
+  const { signOut } = useAuthStore()
+  const navigate = useNavigate()
+  const [confirmName, setConfirmName] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState('')
+
+  const armed = clubName != null && confirmName.trim() === clubName.trim()
+
+  const handleDelete = async () => {
+    if (!armed) return
+    setDeleting(true)
+    setError('')
+    try {
+      await api.club.deleteOrganization(confirmName.trim())
+      toast.success('Organization deleted', 'Your workspace and all its data have been removed.')
+      await signOut()
+      navigate('/login')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete organization')
+      setDeleting(false)
+    }
+  }
+
+  return (
+    <div className="max-w-3xl">
+      <Card className="p-6 border-red-200">
+        <div className="flex items-center gap-3 mb-1">
+          <span className="inline-block w-1 h-5 rounded-full bg-red-600" />
+          <h2 className="text-[15px] font-semibold text-red-700">Delete Organization</h2>
+        </div>
+        <p className="text-[13px] text-slate-600 mt-1 pl-4 max-w-xl">
+          Permanently delete <span className="font-semibold text-slate-900">{clubName ?? 'this organization'}</span> and
+          everything in it — every user account, the full squad, all contracts, scenarios, financials, and activity history.
+          This cannot be undone.
+        </p>
+
+        <div className="mt-5 pl-4 border-l-2 border-red-100">
+          <label className="block max-w-md">
+            <span className="meta-label block mb-2">
+              Type <span className="text-slate-900 font-semibold">{clubName ?? 'the organization name'}</span> to confirm
+            </span>
+            <Input
+              value={confirmName}
+              onChange={(e) => setConfirmName(e.target.value)}
+              placeholder={clubName ?? ''}
+              className="border-red-200 focus-visible:ring-red-400"
+            />
+          </label>
+          {error && <p className="text-[12px] text-red-600 mt-2">{error}</p>}
+          <div className="mt-4">
+            <Button type="button" variant="destructive" disabled={!armed || deleting} onClick={handleDelete}>
+              {deleting && <Spinner size={14} />}
+              {deleting ? 'Deleting…' : 'Delete this organization'}
+            </Button>
+          </div>
+        </div>
+      </Card>
     </div>
   )
 }
@@ -604,6 +1006,12 @@ function TeamTab() {
   const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null)
   const [revokingId, setRevokingId] = useState<string | null>(null)
 
+  // Active-member management (distinct from pending invites).
+  const [meId, setMeId] = useState<string | null>(null)
+  const [roleBusyId, setRoleBusyId] = useState<string | null>(null)
+  const [confirmRevokeMemberId, setConfirmRevokeMemberId] = useState<string | null>(null)
+  const [revokingMemberId, setRevokingMemberId] = useState<string | null>(null)
+
   const refresh = async () => {
     setLoading(true)
     setError('')
@@ -619,6 +1027,36 @@ function TeamTab() {
   }
 
   useEffect(() => { refresh() }, [])
+  useEffect(() => { api.me.get().then((me) => setMeId(me.id)).catch(() => {}) }, [])
+
+  const handleRoleChange = async (id: string, role: InviteRole) => {
+    setRoleBusyId(id)
+    setError('')
+    try {
+      await api.team.updateRole(id, role)
+      setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, role } : m)))
+      toast.success('Role updated', 'The change applies immediately.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update role')
+    } finally {
+      setRoleBusyId(null)
+    }
+  }
+
+  const handleRevokeMember = async (id: string) => {
+    setRevokingMemberId(id)
+    setError('')
+    try {
+      await api.team.revoke(id)
+      setConfirmRevokeMemberId(null)
+      await refresh()
+      toast.success('Access revoked', 'The member can no longer reach this workspace.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to revoke access')
+    } finally {
+      setRevokingMemberId(null)
+    }
+  }
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -734,11 +1172,11 @@ function TeamTab() {
         )}
       </Card>
 
-      {/* Members table */}
+      {/* Members table — active users with role control + revoke */}
       <Card className="overflow-hidden">
         <div className="px-6 py-5 border-b border-slate-100 flex items-center gap-3">
           <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
-          <h2 className="text-[15px] font-semibold text-slate-900">Members ({members.length})</h2>
+          <h2 className="text-[15px] font-semibold text-slate-900">Active users ({members.length})</h2>
         </div>
         <table className="w-full">
           <thead className="bg-slate-50/40 border-b border-slate-100">
@@ -746,24 +1184,79 @@ function TeamTab() {
               <Th>Name</Th>
               <Th>Email</Th>
               <Th>Role</Th>
-              <Th align="right">Joined</Th>
+              <Th>Joined</Th>
+              <Th align="right">{''}</Th>
             </tr>
           </thead>
           <tbody>
-            {members.map((m) => (
-              <tr key={m.id} className="border-b border-slate-100 last:border-0">
-                <td className="px-6 py-3.5 text-[14px] text-slate-900 font-medium">{m.fullName}</td>
-                <td className="px-6 py-3.5 text-[13px] text-slate-500 num">{m.email}</td>
-                <td className="px-6 py-3.5">
-                  <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
-                    {ROLE_LABEL[m.role] ?? m.role}
-                  </span>
-                </td>
-                <td className="px-6 py-3.5 text-right text-[12px] text-slate-500 num">
-                  {new Date(m.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-                </td>
-              </tr>
-            ))}
+            {members.map((m) => {
+              const isSelf = m.id === meId
+              const confirming = confirmRevokeMemberId === m.id
+              const revoking = revokingMemberId === m.id
+              return (
+                <tr key={m.id} className="border-b border-slate-100 last:border-0">
+                  <td className="px-6 py-3.5 text-[14px] text-slate-900 font-medium">
+                    {m.fullName}
+                    {isSelf && <span className="ml-2 text-[11px] text-slate-400 font-normal">(you)</span>}
+                  </td>
+                  <td className="px-6 py-3.5 text-[13px] text-slate-500 num">{m.email}</td>
+                  <td className="px-6 py-3.5">
+                    {isSelf ? (
+                      <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
+                        {ROLE_LABEL[m.role] ?? m.role}
+                      </span>
+                    ) : (
+                      <select
+                        value={m.role}
+                        disabled={roleBusyId === m.id}
+                        onChange={(e) => handleRoleChange(m.id, e.target.value as InviteRole)}
+                        className="text-[13px] px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 disabled:opacity-60"
+                      >
+                        <option value="cfo">CFO</option>
+                        <option value="sporting_director">Sporting Director</option>
+                        <option value="finance_analyst">Finance Analyst</option>
+                      </select>
+                    )}
+                  </td>
+                  <td className="px-6 py-3.5 text-[12px] text-slate-500 num">
+                    {new Date(m.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  </td>
+                  <td className="px-6 py-3.5 text-right">
+                    {isSelf ? (
+                      <span className="text-[12px] text-slate-300">—</span>
+                    ) : confirming ? (
+                      <span className="inline-flex items-center gap-2 justify-end">
+                        <span className="text-[11px] text-slate-600 whitespace-nowrap">Revoke access?</span>
+                        <SettingsIconButton
+                          label={revoking ? 'Revoking…' : 'Confirm revoke'}
+                          tone="danger"
+                          disabled={revoking}
+                          onClick={() => handleRevokeMember(m.id)}
+                        >
+                          {revoking ? <Spinner size={14} /> : <CheckIcon />}
+                        </SettingsIconButton>
+                        <SettingsIconButton
+                          label="Cancel"
+                          tone="neutral"
+                          disabled={revoking}
+                          onClick={() => setConfirmRevokeMemberId(null)}
+                        >
+                          <CloseIcon />
+                        </SettingsIconButton>
+                      </span>
+                    ) : (
+                      <SettingsIconButton
+                        label="Revoke access"
+                        tone="danger"
+                        onClick={() => setConfirmRevokeMemberId(m.id)}
+                      >
+                        <TrashIcon />
+                      </SettingsIconButton>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </Card>

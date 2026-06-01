@@ -41,10 +41,10 @@ export function SSRPage() {
         <Card className="p-12 text-center">
           <p className="text-[15px] font-medium text-slate-900">Premier League only</p>
           <p className="text-[13px] text-slate-500 mt-2 max-w-md mx-auto">
-            The three SSR solvency tests apply to Premier League clubs only. Switch your club to the Premier League configuration from the Settings page to access them.
+            The three SSR solvency tests apply to Premier League clubs only. Switch your club to the Premier League configuration from the Financials page to access them.
           </p>
-          <Link to="/setup" className="inline-block mt-5">
-            <Button>Go to settings</Button>
+          <Link to="/financials" className="inline-block mt-5">
+            <Button>Go to financials</Button>
           </Link>
         </Card>
       </div>

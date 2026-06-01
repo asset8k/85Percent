@@ -97,7 +97,7 @@ export async function clubRoutes(app: FastifyInstance) {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select('id, role, full_name, email')
+        .select('id, role, full_name, email, is_totp_enabled')
         .eq('id', request.userId)
         .maybeSingle()
       if (error) throw error
@@ -107,10 +107,63 @@ export async function clubRoutes(app: FastifyInstance) {
         role: data.role,
         fullName: data.full_name,
         email: data.email,
+        isTotpEnabled: !!data.is_totp_enabled,
       })
     } catch (err) {
       request.log.error({ err }, 'GET /me failed')
       return reply.status(500).send({ error: 'Failed to load user' })
+    }
+  })
+
+  // PATCH /me — update the caller's own profile (display name + email). Email
+  // changes go through the Supabase Admin API so auth.users stays in sync with
+  // public.users. Available to every authenticated user (own record only).
+  app.patch('/me', async (request, reply) => {
+    const Body = z
+      .object({
+        fullName: z.string().trim().min(1).max(120).optional(),
+        email: z.string().trim().toLowerCase().email('Invalid email').optional(),
+      })
+      .refine((b) => b.fullName !== undefined || b.email !== undefined, {
+        message: 'Nothing to update',
+      })
+    const parsed = Body.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+    const { fullName, email } = parsed.data
+
+    try {
+      if (email) {
+        // Reject if another account already owns this email.
+        const { data: clash } = await supabase
+          .from('users')
+          .select('id')
+          .eq('email', email)
+          .neq('id', request.userId)
+          .maybeSingle()
+        if (clash) return reply.status(409).send({ error: 'That email is already in use.' })
+
+        const { error: authErr } = await supabase.auth.admin.updateUserById(String(request.userId), {
+          email,
+          email_confirm: true,
+        })
+        if (authErr) {
+          request.log.error({ err: authErr }, 'PATCH /me: admin email update failed')
+          return reply.status(500).send({ error: 'Failed to update email' })
+        }
+      }
+
+      const patch: Record<string, unknown> = {}
+      if (fullName !== undefined) patch['full_name'] = fullName
+      if (email !== undefined) patch['email'] = email
+
+      const { error } = await supabase.from('users').update(patch).eq('id', request.userId)
+      if (error) throw error
+
+      await writeAuditLog(request, 'users', String(request.userId), 'update', parsed.data)
+      return reply.send({ success: true })
+    } catch (err) {
+      request.log.error({ err }, 'PATCH /me failed')
+      return reply.status(500).send({ error: 'Failed to update profile' })
     }
   })
 
@@ -319,6 +372,91 @@ export async function clubRoutes(app: FastifyInstance) {
     } catch (err) {
       request.log.error({ err }, 'GET /club/league-config failed')
       return reply.status(500).send({ error: 'Failed to load league config' })
+    }
+  })
+
+  // DELETE /club — permanently delete the entire tenant workspace (CFO only).
+  // High-friction: the caller must echo the club's exact name. Irreversible.
+  // We delete every club-scoped table in child→parent order (no reliance on DB
+  // cascade), then remove each member's Supabase auth account, then the club.
+  app.delete('/club', { preHandler: requireRole('cfo') }, async (request, reply) => {
+    const Body = z.object({ confirmName: z.string().min(1) })
+    const parsed = Body.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: 'Confirmation name is required' })
+
+    const clubId = String(request.clubId)
+
+    try {
+      const { data: club, error: clubErr } = await supabase
+        .from('clubs')
+        .select('id, name')
+        .eq('id', clubId)
+        .maybeSingle()
+      if (clubErr) throw clubErr
+      if (!club) return reply.status(404).send({ error: 'Club not found' })
+
+      if (parsed.data.confirmName.trim() !== String(club.name).trim()) {
+        return reply.status(400).send({ error: "The name you typed doesn't match the organization name." })
+      }
+
+      // scenario_actions are keyed by scenario, not club — clear them via the
+      // club's scenario ids before deleting the scenarios themselves.
+      const { data: scenarioRows } = await supabase
+        .from('scenarios')
+        .select('id')
+        .eq('club_id', clubId)
+      const scenarioIds = (scenarioRows ?? []).map((s) => String(s.id))
+      if (scenarioIds.length > 0) {
+        const { error } = await supabase.from('scenario_actions').delete().in('scenario_id', scenarioIds)
+        if (error) throw error
+      }
+
+      // Child→parent deletion across every club-scoped table.
+      const clubScoped = [
+        'audit_logs',
+        'scenarios',
+        'contracts',
+        'players',
+        'manager_contracts',
+        'managers',
+        'ssr_working_capital',
+        'ssr_liquidity',
+        'ssr_equity',
+        'club_financials',
+        'invites',
+      ]
+      for (const table of clubScoped) {
+        const { error } = await supabase.from(table).delete().eq('club_id', clubId)
+        if (error) {
+          request.log.error({ err: error, table }, 'DELETE /club: table cleanup failed')
+          return reply.status(500).send({ error: 'Failed to delete organization data' })
+        }
+      }
+
+      // Remove member accounts: public.users rows + their Supabase auth identities.
+      const { data: members } = await supabase
+        .from('users')
+        .select('id')
+        .eq('club_id', clubId)
+      const memberIds = (members ?? []).map((m) => String(m.id))
+
+      const { error: usersErr } = await supabase.from('users').delete().eq('club_id', clubId)
+      if (usersErr) throw usersErr
+
+      for (const uid of memberIds) {
+        const { error: authErr } = await supabase.auth.admin.deleteUser(uid)
+        // Non-fatal: the public.users row is already gone; a leftover auth user
+        // can no longer reach any workspace. Log and continue.
+        if (authErr) request.log.warn({ err: authErr, uid }, 'DELETE /club: auth user delete failed')
+      }
+
+      const { error: clubDelErr } = await supabase.from('clubs').delete().eq('id', clubId)
+      if (clubDelErr) throw clubDelErr
+
+      return reply.send({ success: true })
+    } catch (err) {
+      request.log.error({ err }, 'DELETE /club failed')
+      return reply.status(500).send({ error: 'Failed to delete organization' })
     }
   })
 }

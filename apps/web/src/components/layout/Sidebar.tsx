@@ -60,6 +60,16 @@ const navItems = [
     ),
   },
   {
+    to: '/financials',
+    label: 'Financials',
+    cfoOnly: true,
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M18 7c0-5.333-8-5.333-8 0" /><path d="M10 7v14" /><path d="M6 21h12" /><path d="M6 13h10" />
+      </svg>
+    ),
+  },
+  {
     to: '/setup',
     label: 'Settings',
     icon: (
@@ -87,6 +97,8 @@ export function Sidebar() {
   const visibleNavItems = navItems.filter((item) => {
     // PL-only items are hidden for non-PL clubs (the API also enforces this)
     if ((item as { plOnly?: boolean }).plOnly && leagueId !== 'premier-league') return false
+    // CFO-only items (Financials) are hidden for other roles (API enforces too)
+    if ((item as { cfoOnly?: boolean }).cfoOnly && !can.editClubFinancials) return false
     return true
   })
 

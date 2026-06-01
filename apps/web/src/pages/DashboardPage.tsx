@@ -25,9 +25,9 @@ import { DashboardSkeleton } from '@/components/ui/page-skeletons'
 import { ComplianceGauge } from '@/components/simulator/ComplianceGauge'
 import { computeActiveBaseline, computeThresholds, statusFromRatio } from '@/lib/scr'
 import { exportSquadPDF } from '@/lib/exports/squadPdf'
-import { calculateSquadCosts, type ContractInput } from '@headroom/engine'
+import { calculateSquadCosts, calculateLevy, calculatePointsDeduction, type ContractInput } from '@headroom/engine'
 import type { PlayerWithContract } from '@headroom/shared'
-import { formatPence } from '@headroom/shared'
+import { formatPence, LEAGUE_CONFIGS } from '@headroom/shared'
 import { findCountry } from '@/lib/countries'
 import { Flag } from '@/components/ui/flag'
 import { AnimatedNumber } from '@/components/ui/animated-number'
@@ -160,8 +160,8 @@ export function DashboardPage() {
           <p className="text-[13px] text-slate-500 mt-2">
             Enter your season revenue and allowance to compute compliance thresholds.
           </p>
-          <Link to="/setup" className="inline-block mt-5">
-            <Button>Go to settings</Button>
+          <Link to="/financials" className="inline-block mt-5">
+            <Button>Go to financials</Button>
           </Link>
         </Card>
       </div>
@@ -190,6 +190,31 @@ export function DashboardPage() {
   const redPct = baseline && baseline.revenuePence > 0
     ? (thresholds!.redPence / baseline.revenuePence) * 100
     : 85
+
+  // Projected regulatory sanctions. Computed on the *active* position — live
+  // squad costs PLUS any included scenarios — so it matches the Projected SCR
+  // pill rather than the bare live ratio (a club can be compliant today but in
+  // the points-deduction zone once an included transfer plan is applied). Levy
+  // applies in the amber zone (over Green), points deduction in the red zone.
+  const cfg = LEAGUE_CONFIGS[leagueId ?? 'efl-championship'] ?? LEAGUE_CONFIGS['efl-championship']!
+  const riskSquadCostsPence = activeBaseline?.baselineSquadCosts ?? totalSquadCostsPence
+  const riskRevenuePence     = activeBaseline?.adjustedRevenue ?? baseline!.revenuePence
+  const riskStatus           = activeBaseline?.status ?? status
+  const includedCount        = activeBaseline?.includedCount ?? 0
+  const riskThresholds = computeThresholds(riskRevenuePence, financials.currentAllowanceRatio)
+  const levyPence = calculateLevy(riskSquadCostsPence, riskThresholds.greenPence, riskRevenuePence, cfg.greenThresholdRatio)
+  const pointsDeduction = calculatePointsDeduction(riskSquadCostsPence, riskThresholds.redPence, cfg.pointsDeductionPerUnit, cfg.pointsDeductionBasePoints)
+  const overspendGreenPence = riskSquadCostsPence - riskThresholds.greenPence
+  const riskHeadroomPence   = riskThresholds.greenPence - riskSquadCostsPence
+
+  // Status-tinted styling for the (now prominent) included-scenarios row.
+  const activeStatus = activeBaseline?.status ?? 'green'
+  const activePillStyle = activeStatus === 'red'
+    ? 'bg-red-50 border-red-200'
+    : activeStatus === 'amber' ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'
+  const activeNumStyle = activeStatus === 'red'
+    ? 'text-red-700'
+    : activeStatus === 'amber' ? 'text-amber-700' : 'text-green-700'
 
   const handleExport = () => {
     if (!financials || players.length === 0) return
@@ -233,14 +258,24 @@ export function DashboardPage() {
             <span className="text-[14px] text-slate-400">of revenue</span>
           </div>
           {activeBaseline && activeBaseline.includedCount > 0 && (
-            <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-violet-50 border border-violet-100 text-[12px]">
-              <span className="meta-label text-violet-700">With {activeBaseline.includedCount} included {activeBaseline.includedCount === 1 ? 'scenario' : 'scenarios'}</span>
-              <AnimatedNumber
-                value={activeBaseline.ratio * 100}
-                decimals={1}
-                suffix="%"
-                className="num text-violet-700 font-medium"
-              />
+            <div className={cn('mt-5 flex items-center justify-between gap-3 rounded-xl border px-4 py-3', activePillStyle)}>
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <span className="meta-label text-slate-600">
+                  With {activeBaseline.includedCount} included {activeBaseline.includedCount === 1 ? 'scenario' : 'scenarios'}
+                </span>
+                <StatusBadge status={activeBaseline.status}>
+                  {activeBaseline.status === 'green' ? 'Compliant' : activeBaseline.status === 'amber' ? 'Levy Zone' : 'Points Risk'}
+                </StatusBadge>
+              </div>
+              <div className="flex items-baseline gap-2">
+                <AnimatedNumber
+                  value={activeBaseline.ratio * 100}
+                  decimals={1}
+                  suffix="%"
+                  className={cn('num text-[24px] font-semibold leading-none', activeNumStyle)}
+                />
+                <span className="text-[12px] text-slate-400">of revenue</span>
+              </div>
             </div>
           )}
         </Card>
@@ -274,6 +309,16 @@ export function DashboardPage() {
           redPct={redPct}
         />
       </Card>
+
+      {/* Financial risk — projected sanctions at the active ratio (incl. scenarios) */}
+      <FinancialRiskCard
+        status={riskStatus}
+        levyPence={levyPence}
+        pointsDeduction={pointsDeduction}
+        overspendGreenPence={overspendGreenPence}
+        headroomPence={riskHeadroomPence}
+        includedCount={includedCount}
+      />
 
       {/* Breakdown table */}
       <Card className="overflow-hidden">
@@ -385,6 +430,79 @@ function PageHeader({
         <Button variant="outline">Plan a scenario</Button>
       </Link>
     </div>
+  )
+}
+
+// Projected regulatory sanctions for the current SCR position. Mirrors the
+// Scenario builder's SanctionsPanel, plus a positive "compliant" state so the
+// element is always present on the dashboard (it shows the financial risk —
+// levy in the amber zone, points deduction in the red zone).
+function FinancialRiskCard({
+  status, levyPence, pointsDeduction, overspendGreenPence, headroomPence, includedCount,
+}: {
+  status: 'green' | 'amber' | 'red'
+  levyPence: number
+  pointsDeduction: number
+  overspendGreenPence: number
+  headroomPence: number
+  includedCount: number
+}) {
+  return (
+    <Card className="p-6 mb-6">
+      <div className="flex items-center gap-3 mb-4">
+        <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
+        <div>
+          <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">Financial Risk</h3>
+          <p className="text-[12px] text-slate-500 mt-0.5">
+            {includedCount > 0
+              ? `Projected EFL sanctions with your ${includedCount} included ${includedCount === 1 ? 'scenario' : 'scenarios'} applied.`
+              : 'Projected EFL sanctions at your current squad cost ratio.'}
+          </p>
+        </div>
+      </div>
+
+      {status === 'green' && (
+        <div className="rounded-xl border border-slate-200 border-l-4 border-green-500 bg-green-50 p-5 flex items-start justify-between gap-4">
+          <div>
+            <div className="meta-label text-green-700">No sanctions</div>
+            <p className="text-[13px] text-slate-700 mt-2 max-w-xl">
+              Squad costs are within the Green Threshold — no levy or points deduction projected.
+            </p>
+          </div>
+          <div className="text-right flex-shrink-0">
+            <div className="meta-label">Headroom to Green</div>
+            <div className="num text-[24px] font-semibold text-green-700 leading-none mt-1.5">{formatPence(headroomPence)}</div>
+          </div>
+        </div>
+      )}
+
+      {status === 'amber' && (
+        <div className="rounded-xl border border-slate-200 border-l-4 border-amber-500 bg-amber-50 p-5 flex items-start justify-between gap-4">
+          <div>
+            <div className="meta-label text-amber-700">Estimated Financial Levy</div>
+            <p className="text-[13px] text-slate-700 mt-2 max-w-xl">
+              Based on <span className="num text-amber-700">{formatPence(overspendGreenPence)}</span> overspend above the Green Threshold. A levy applies but no points are deducted.
+            </p>
+          </div>
+          <div className="num text-[32px] font-semibold text-amber-700 leading-none flex-shrink-0">{formatPence(levyPence)}</div>
+        </div>
+      )}
+
+      {status === 'red' && (
+        <div className="rounded-xl border border-slate-200 border-l-4 border-red-600 bg-red-50 p-5 flex items-start justify-between gap-4">
+          <div>
+            <div className="meta-label text-red-700">Estimated Points Deduction</div>
+            <p className="text-[13px] text-slate-700 mt-2 max-w-xl">
+              Squad costs exceed the Red Threshold. Points deductions are imposed in the same season the breach occurs.
+            </p>
+            <p className="text-[12px] text-red-700 mt-3 font-medium">Seek independent legal advice before proceeding.</p>
+          </div>
+          <div className="num text-[32px] font-semibold text-red-700 leading-none whitespace-nowrap flex-shrink-0">
+            {pointsDeduction} pts
+          </div>
+        </div>
+      )}
+    </Card>
   )
 }
 

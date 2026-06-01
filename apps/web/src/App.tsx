@@ -2,12 +2,14 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import { LoginPage } from '@/pages/LoginPage'
+import { ResetPasswordPage } from '@/pages/ResetPasswordPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { RosterPage } from '@/pages/RosterPage'
 import { ScenariosPage } from '@/pages/ScenariosPage'
 import { SSRPage } from '@/pages/SSRPage'
 import { CalendarPage } from '@/pages/CalendarPage'
 import { ClubSetupPage } from '@/pages/ClubSetupPage'
+import { FinancialsPage } from '@/pages/FinancialsPage'
 import { OnboardingPage } from '@/pages/OnboardingPage'
 
 export function App() {
@@ -15,6 +17,7 @@ export function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         <Route
           element={
@@ -30,6 +33,7 @@ export function App() {
           <Route path="/scenarios" element={<ScenariosPage />} />
           <Route path="/ssr" element={<SSRPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
+          <Route path="/financials" element={<FinancialsPage />} />
           <Route path="/setup" element={<ClubSetupPage />} />
 
           {/* Legacy MVP 1.0 routes redirect to the new home */}

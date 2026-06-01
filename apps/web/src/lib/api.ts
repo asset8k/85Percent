@@ -44,9 +44,48 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   }
 }
 
+// Public (unauthenticated) POST — login, 2FA, and password-recovery endpoints
+// run before a session exists, so they skip the Bearer-token path entirely.
+async function publicPost<T>(path: string, body: unknown): Promise<T> {
+  const { start, done } = useProgress.getState()
+  start()
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }))
+      throw new Error((err as { error?: string }).error ?? `API error ${res.status}`)
+    }
+    return (await res.json()) as T
+  } finally {
+    done()
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Response shapes
 // ---------------------------------------------------------------------------
+
+export interface SessionTokens {
+  access_token: string
+  refresh_token: string
+  expires_at: number | null
+  expires_in: number
+}
+
+export interface LoginResponse {
+  requires_2fa: boolean
+  session?: SessionTokens
+}
+
+export interface TotpSetupResponse {
+  secret: string
+  otpauthUri: string
+  qrDataUrl: string
+}
 
 export interface ClubFinancialsResponse {
   id: string
@@ -255,10 +294,46 @@ export interface OnboardingCompleteResponse {
 // ---------------------------------------------------------------------------
 export const api = {
   me: {
-    get: () => apiFetch<{ id: string; role: string; fullName: string; email: string }>('/me'),
+    get: () =>
+      apiFetch<{ id: string; role: string; fullName: string; email: string; isTotpEnabled: boolean }>('/me'),
+    update: (patch: { fullName?: string; email?: string }) =>
+      apiFetch<{ success: boolean }>('/me', { method: 'PATCH', body: JSON.stringify(patch) }),
+  },
+  auth: {
+    // Public — run before a session exists.
+    login: (email: string, password: string) =>
+      publicPost<LoginResponse>('/auth/login', { email, password }),
+    verify2fa: (email: string, password: string, code: string) =>
+      publicPost<{ session: SessionTokens }>('/auth/verify-2fa', { email, password, code }),
+    forgotPassword: (email: string) =>
+      publicPost<{ success: boolean }>('/auth/forgot-password', { email }),
+    resetPassword: (token: string, password: string) =>
+      publicPost<{ success: boolean }>('/auth/reset-password', { token, password }),
+    // Authenticated — TOTP management + password change from Settings.
+    totpSetup: () => apiFetch<TotpSetupResponse>('/auth/totp/setup', { method: 'POST' }),
+    totpVerify: (code: string) =>
+      apiFetch<{ success: boolean; enabled: boolean }>('/auth/totp/verify', {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      }),
+    totpDisable: (code: string) =>
+      apiFetch<{ success: boolean; enabled: boolean }>('/auth/totp/disable', {
+        method: 'POST',
+        body: JSON.stringify({ code }),
+      }),
+    changePassword: (currentPassword: string, newPassword: string) =>
+      apiFetch<{ success: boolean }>('/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword }),
+      }),
   },
   club: {
     get: () => apiFetch<{ id: string; name: string; shortName: string; leagueId: string; logoUrl: string | null }>('/club'),
+    deleteOrganization: (confirmName: string) =>
+      apiFetch<{ success: boolean }>('/club', {
+        method: 'DELETE',
+        body: JSON.stringify({ confirmName }),
+      }),
     getFinancials: (season?: string) =>
       apiFetch<ClubFinancialsResponse>(`/club/financials${season ? `?season=${season}` : ''}`),
     updateFinancials: (data: {
@@ -465,6 +540,13 @@ export const api = {
   },
   team: {
     list: () => apiFetch<{ members: TeamMember[] }>('/team'),
+    updateRole: (id: string, role: InviteRole) =>
+      apiFetch<{ success: boolean; role: InviteRole }>(`/team/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role }),
+      }),
+    revoke: (id: string) =>
+      apiFetch<{ success: boolean }>(`/team/${id}`, { method: 'DELETE' }),
   },
   audit: {
     list: (params: {

@@ -52,9 +52,12 @@ export function LoginPage() {
 
   // Default mode is signup when an invite token is present (the invitee
   // doesn't have an account yet); otherwise signin (the default landing page).
-  const [mode, setMode] = useState<'signin' | 'signup'>(inviteToken ? 'signup' : 'signin')
+  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>(inviteToken ? 'signup' : 'signin')
   const [serverError, setServerError] = useState('')
   const [pendingOTP, setPendingOTP] = useState<string | null>(null)
+  // When login returns requires_2fa we hold the credentials in memory just long
+  // enough to re-submit them with the TOTP code; never persisted.
+  const [pending2fa, setPending2fa] = useState<{ email: string; password: string } | null>(null)
   const [invite, setInvite] = useState<InviteLookupResponse | null>(null)
   const [inviteError, setInviteError] = useState('')
 
@@ -66,10 +69,11 @@ export function LoginPage() {
       .catch((e: Error) => setInviteError(e.message))
   }, [inviteToken])
 
-  const switchMode = (m: 'signin' | 'signup') => {
+  const switchMode = (m: 'signin' | 'signup' | 'forgot') => {
     setMode(m)
     setServerError('')
     setPendingOTP(null)
+    setPending2fa(null)
   }
 
   return (
@@ -117,18 +121,33 @@ export function LoginPage() {
             </div>
           )}
 
-          {pendingOTP ? (
+          {pending2fa ? (
+            <TwoFactorForm
+              email={pending2fa.email}
+              password={pending2fa.password}
+              onSuccess={() => navigate('/dashboard')}
+              onError={setServerError}
+              onBack={() => switchMode('signin')}
+            />
+          ) : pendingOTP ? (
             <OTPForm
               email={pendingOTP}
               onSuccess={() => navigate('/dashboard')}
               onError={setServerError}
               onBack={() => switchMode('signup')}
             />
+          ) : mode === 'forgot' ? (
+            <ForgotPasswordForm
+              onError={setServerError}
+              onBack={() => switchMode('signin')}
+            />
           ) : mode === 'signin' ? (
             <SignInForm
               onSuccess={() => navigate('/dashboard')}
+              onNeed2fa={(email, password) => { setServerError(''); setPending2fa({ email, password }) }}
               onError={setServerError}
               onSwitchToSignUp={() => switchMode('signup')}
+              onForgot={() => switchMode('forgot')}
             />
           ) : (
             <SignUpForm
@@ -156,20 +175,40 @@ export function LoginPage() {
 
 function SignInForm({
   onSuccess,
+  onNeed2fa,
   onError,
   onSwitchToSignUp,
+  onForgot,
 }: {
   onSuccess: () => void
+  onNeed2fa: (email: string, password: string) => void
   onError: (msg: string) => void
   onSwitchToSignUp: () => void
+  onForgot: () => void
 }) {
   const form = useForm<SignInData>({ resolver: zodResolver(SignInSchema) })
 
+  // Login is proxied through the backend so the JWT can be withheld until the
+  // TOTP step passes. When 2FA is off, the backend returns the Supabase session
+  // and we hydrate the client with setSession (onAuthStateChange does the rest).
   const onSubmit = async (data: SignInData) => {
     onError('')
-    const { error } = await supabase.auth.signInWithPassword(data)
-    if (error) { onError(error.message); return }
-    onSuccess()
+    try {
+      const res = await api.auth.login(data.email, data.password)
+      if (res.requires_2fa) {
+        onNeed2fa(data.email, data.password)
+        return
+      }
+      if (!res.session) { onError('Login failed. Please try again.'); return }
+      const { error } = await supabase.auth.setSession({
+        access_token: res.session.access_token,
+        refresh_token: res.session.refresh_token,
+      })
+      if (error) { onError(error.message); return }
+      onSuccess()
+    } catch (e) {
+      onError(e instanceof Error ? e.message : 'Invalid email or password')
+    }
   }
 
   return (
@@ -180,7 +219,12 @@ function SignInForm({
       <Field label="Password" error={form.formState.errors.password?.message}>
         <input type="password" placeholder="••••••••" {...form.register('password')} className={INPUT} />
       </Field>
-      <Button type="submit" className="w-full mt-2" disabled={form.formState.isSubmitting}>
+      <div className="-mt-1 text-right">
+        <button type="button" onClick={onForgot} className="text-[12px] text-violet-600 hover:text-violet-700 font-medium">
+          Forgot password?
+        </button>
+      </div>
+      <Button type="submit" className="w-full mt-1" disabled={form.formState.isSubmitting}>
         {form.formState.isSubmitting && <Spinner size={14} />}
         {form.formState.isSubmitting ? 'Signing in…' : 'Sign In'}
       </Button>
@@ -190,6 +234,189 @@ function SignInForm({
           Create one
         </button>
       </p>
+    </form>
+  )
+}
+
+// ── Two-Factor (TOTP) prompt — shown after password verification when the
+// account has an authenticator enrolled. Re-submits the held credentials with
+// the 6-digit code; the backend issues the session only when the code matches.
+const TOTP_LENGTH = 6
+
+function TwoFactorForm({
+  email,
+  password,
+  onSuccess,
+  onError,
+  onBack,
+}: {
+  email: string
+  password: string
+  onSuccess: () => void
+  onError: (msg: string) => void
+  onBack: () => void
+}) {
+  // Same boxed-cell UX as the registration OTP screen (auto-advance, paste,
+  // backspace, auto-submit on the last digit) — just 6 cells with 3+3 grouping.
+  const [digits, setDigits] = useState<string[]>(Array(TOTP_LENGTH).fill(''))
+  const [loading, setLoading] = useState(false)
+  const inputs = useRef<Array<HTMLInputElement | null>>([])
+
+  useEffect(() => { inputs.current[0]?.focus() }, [])
+
+  const verify = async (code: string) => {
+    setLoading(true)
+    onError('')
+    try {
+      const { session } = await api.auth.verify2fa(email, password, code)
+      const { error } = await supabase.auth.setSession({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+      })
+      if (error) { onError(error.message); setLoading(false); return }
+      onSuccess()
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Invalid authentication code')
+      setDigits(Array(TOTP_LENGTH).fill(''))
+      setLoading(false)
+      inputs.current[0]?.focus()
+    }
+  }
+
+  const handleChange = (i: number, val: string) => {
+    const digit = val.replace(/\D/g, '').slice(-1)
+    const next = [...digits]
+    next[i] = digit
+    setDigits(next)
+    if (digit && i < TOTP_LENGTH - 1) inputs.current[i + 1]?.focus()
+    if (digit && i === TOTP_LENGTH - 1) {
+      const code = [...next].join('')
+      if (code.length === TOTP_LENGTH) void verify(code)
+    }
+  }
+
+  const handleKeyDown = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !digits[i] && i > 0) inputs.current[i - 1]?.focus()
+  }
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const text = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, TOTP_LENGTH)
+    if (!text) return
+    e.preventDefault()
+    const next = Array(TOTP_LENGTH).fill('')
+    text.split('').forEach((c, idx) => { next[idx] = c })
+    setDigits(next)
+    const focusIdx = Math.min(text.length, TOTP_LENGTH - 1)
+    inputs.current[focusIdx]?.focus()
+    if (text.length === TOTP_LENGTH) void verify(text)
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const code = digits.join('')
+    if (code.length === TOTP_LENGTH) void verify(code)
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+      <div>
+        <p className="text-sm font-medium text-slate-900 mb-1">Two-factor authentication</p>
+        <p className="text-[13px] text-slate-500">
+          Enter the {TOTP_LENGTH}-digit code from your authenticator app.
+        </p>
+      </div>
+
+      <div className="flex gap-1 justify-center" onPaste={handlePaste}>
+        {digits.map((d, i) => (
+          <input
+            key={i}
+            ref={(el) => { inputs.current[i] = el }}
+            type="text"
+            inputMode="numeric"
+            maxLength={1}
+            value={d}
+            onChange={(e) => handleChange(i, e.target.value)}
+            onKeyDown={(e) => handleKeyDown(i, e)}
+            className={
+              'w-10 h-12 text-center text-lg font-semibold text-slate-900 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-colors num' +
+              (i === TOTP_LENGTH / 2 ? ' ml-3' : '')
+            }
+          />
+        ))}
+      </div>
+
+      <Button type="submit" className="w-full" disabled={loading || digits.join('').length < TOTP_LENGTH}>
+        {loading && <Spinner size={14} />}
+        {loading ? 'Verifying…' : 'Verify'}
+      </Button>
+      <button type="button" onClick={onBack} className="text-[13px] text-slate-500 hover:text-slate-700 transition-colors text-center">
+        ← Back to sign in
+      </button>
+    </form>
+  )
+}
+
+// ── Forgot password — request a reset link. The link is emailed (console-logged
+// in dev). Always shows the same confirmation regardless of whether the email
+// exists, to avoid leaking which addresses have accounts.
+function ForgotPasswordForm({
+  onError,
+  onBack,
+}: {
+  onError: (msg: string) => void
+  onBack: () => void
+}) {
+  const [email, setEmail] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [sent, setSent] = useState(false)
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    onError('')
+    try {
+      await api.auth.forgotPassword(email.trim())
+      setSent(true)
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Something went wrong')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  if (sent) {
+    return (
+      <div className="flex flex-col gap-5">
+        <div>
+          <p className="text-sm font-medium text-slate-900 mb-1">Check your email</p>
+          <p className="text-[13px] text-slate-500">
+            If an account exists for <span className="font-medium text-slate-700">{email}</span>, we've sent a link to
+            reset your password. It expires in 1 hour.
+          </p>
+        </div>
+        <button type="button" onClick={onBack} className="text-[13px] text-slate-500 hover:text-slate-700 transition-colors">
+          ← Back to sign in
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-4">
+      <div>
+        <p className="text-sm font-medium text-slate-900 mb-1">Reset your password</p>
+        <p className="text-[13px] text-slate-500">Enter your work email and we'll send you a reset link.</p>
+      </div>
+      <Field label="Work Email">
+        <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@club.com" className={INPUT} />
+      </Field>
+      <Button type="submit" className="w-full mt-1" disabled={loading || !email.trim()}>
+        {loading && <Spinner size={14} />}
+        {loading ? 'Sending…' : 'Send reset link'}
+      </Button>
+      <button type="button" onClick={onBack} className="text-[13px] text-slate-500 hover:text-slate-700 transition-colors text-center">
+        ← Back to sign in
+      </button>
     </form>
   )
 }

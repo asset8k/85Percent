@@ -261,5 +261,100 @@ export async function inviteRoutes(app: FastifyInstance) {
         return reply.status(500).send({ error: 'Failed to load team' })
       }
     })
+
+    // PATCH /team/:id — change a member's role (CFO only). A CFO can't change
+    // their own role (prevents accidentally locking themselves out of CFO ops).
+    scoped.patch('/team/:id', { preHandler: requireRole('cfo') }, async (request, reply) => {
+      const { id } = request.params as { id: string }
+      const Body = z.object({ role: z.enum(['cfo', 'sporting_director', 'finance_analyst']) })
+      const parsed = Body.safeParse(request.body)
+      if (!parsed.success) return reply.status(400).send({ error: 'Invalid role' })
+
+      if (id === request.userId) {
+        return reply.status(400).send({ error: "You can't change your own role." })
+      }
+
+      try {
+        const { data: member, error: findErr } = await supabase
+          .from('users')
+          .select('id, role')
+          .eq('id', id)
+          .eq('club_id', request.clubId)
+          .maybeSingle()
+        if (findErr) throw findErr
+        if (!member) return reply.status(404).send({ error: 'Team member not found' })
+
+        const { error: updErr } = await supabase
+          .from('users')
+          .update({ role: parsed.data.role })
+          .eq('id', id)
+          .eq('club_id', request.clubId)
+        if (updErr) throw updErr
+
+        await writeAuditLog(request, 'users', id, 'update', { role: parsed.data.role }, { role: member.role })
+        return reply.send({ success: true, role: parsed.data.role })
+      } catch (err) {
+        request.log.error({ err }, 'PATCH /team/:id failed')
+        return reply.status(500).send({ error: 'Failed to update role' })
+      }
+    })
+
+    // DELETE /team/:id — revoke a member's access (CFO only). Removes their
+    // tenant membership and their Supabase auth identity. A CFO can't revoke
+    // themselves. Authored scenarios + audit rows are cleared first to satisfy
+    // the users FK (mirrors the orphan-cleanup in authMiddleware).
+    scoped.delete('/team/:id', { preHandler: requireRole('cfo') }, async (request, reply) => {
+      const { id } = request.params as { id: string }
+      if (id === request.userId) {
+        return reply.status(400).send({ error: "You can't revoke your own access." })
+      }
+
+      try {
+        const { data: member, error: findErr } = await supabase
+          .from('users')
+          .select('id, email, role')
+          .eq('id', id)
+          .eq('club_id', request.clubId)
+          .maybeSingle()
+        if (findErr) throw findErr
+        if (!member) return reply.status(404).send({ error: 'Team member not found' })
+
+        const { data: scenarioRows } = await supabase
+          .from('scenarios')
+          .select('id')
+          .eq('club_id', request.clubId)
+          .eq('created_by', id)
+        const scenarioIds = (scenarioRows ?? []).map((s) => String(s.id))
+        if (scenarioIds.length > 0) {
+          const { error } = await supabase.from('scenario_actions').delete().in('scenario_id', scenarioIds)
+          if (error) throw error
+          const { error: scErr } = await supabase.from('scenarios').delete().in('id', scenarioIds)
+          if (scErr) throw scErr
+        }
+
+        const { error: auditErr } = await supabase.from('audit_logs').delete().eq('user_id', id)
+        if (auditErr) throw auditErr
+
+        const { error: userErr } = await supabase
+          .from('users')
+          .delete()
+          .eq('id', id)
+          .eq('club_id', request.clubId)
+        if (userErr) throw userErr
+
+        // Revoke the login itself. Non-fatal if it fails — they're already out
+        // of the tenant and would land in a fresh isolated workspace at most.
+        const { error: authErr } = await supabase.auth.admin.deleteUser(id)
+        if (authErr) request.log.warn({ err: authErr, id }, 'DELETE /team/:id: auth delete failed')
+
+        await writeAuditLog(request, 'users', id, 'delete', undefined, {
+          email: member.email, role: member.role,
+        })
+        return reply.send({ success: true })
+      } catch (err) {
+        request.log.error({ err }, 'DELETE /team/:id failed')
+        return reply.status(500).send({ error: 'Failed to revoke access' })
+      }
+    })
   })
 }

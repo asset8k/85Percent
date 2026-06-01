@@ -2114,3 +2114,43 @@ The whole chain already tolerated a missing coach (worker `if (coachItem)`, hydr
 - **Preserved join date** (`players.joined_date` + `template_roster_items.joined_date`, migration `20260601000002_player_joined_date`, applied to live DB): the mapper now keeps the **original `joined` date** independently of `contractStart` (which may be the extension date). Threaded mapper → template → hydration (`players.joined_date`, falls back to contract start) → GET `/roster` (`buildPlayerResponse.joinedDate`) → `PlayerWithContract.joinedDate` → edit drawer shows "Joined the club: X · contract start reflects a later extension" when they differ. Manual add / CSV commit default `joined_date` to the contract start.
 - **DOCKER.md** updated with the two new env vars + extension-scrape cost note (~3 min → ~12–15 min when enabled).
 - Tests: script suite **40/40** (added player-scraper ×5, joinedDate assertions); onboarding **18/18** (live DB); engine **119/119**; API + web typecheck clean.
+
+---
+
+## Session 23 — Settings refactor + Auth upgrade (TOTP 2FA + Forgot Password)
+
+**Goal:** Tabbed Settings (Personal vs CFO-only), optional Authenticator-App TOTP at login, and a standard Forgot-Password recovery flow. Registration OTP flow untouched.
+
+### Architecture note (important)
+Headroom uses **Supabase Auth** end-to-end: passwords live in Supabase `auth.users`, the JWT is minted by Supabase, and the API only *validates* it. The task spec assumed a custom JWT/Prisma-password backend, so two adaptations were made (the password store is never duplicated):
+- **TOTP** is gated by a **backend-proxied login** (user-chosen approach): `POST /auth/login` verifies the password via an anon-key client and, if 2FA is on, returns `{ requires_2fa: true }` **without tokens**; `POST /auth/verify-2fa` re-verifies password + the `otplib` code and only then returns the Supabase session. The client hydrates with `supabase.auth.setSession`.
+- **Password changes** (reset + change) go through the Supabase **Admin API** (`auth.admin.updateUserById`); our DB only holds the single-use reset token + expiry.
+
+### Backend
+- **Schema** (`User`): `totp_secret`, `is_totp_enabled` (default false), `password_reset_token` (partial-unique), `password_reset_expires`. Migration `20260601000003_user_totp_and_password_reset` — **applied to live DB**.
+- **Env**: added `SUPABASE_ANON_KEY` to `apps/api/.env` (mirrors the web publishable key) — needed to verify passwords server-side. New `apps/api/src/lib/supabase-anon.ts` (one-shot, no session persistence).
+- **Deps**: `otplib@^12` (stable `authenticator` API — v13 is an incompatible functional rewrite) + `qrcode`.
+- **`apps/api/src/routes/auth.ts`** (new, registered in server.ts): `/auth/login`, `/auth/verify-2fa`, `/auth/forgot-password` (always 200, no enumeration; console-logs the `/reset-password?token=` link in dev), `/auth/reset-password` (single-use, expiry compared **in Postgres** to avoid the naive-`timestamp`/local-parse bug), and authed `/auth/totp/setup|verify|disable` + `/auth/change-password`. Tighter per-route rate limit (10/min/IP) via `config.rateLimit`.
+- **`/me`** now returns `isTotpEnabled`; new **`PATCH /me`** (name + email; email change synced through Admin API).
+- **Team & Access** (`invites.ts`): `PATCH /team/:id` (change role, can't change self) + `DELETE /team/:id` (revoke — clears authored scenarios/audit rows, deletes the user + their Supabase auth identity; can't revoke self).
+- **Danger Zone** (`club.ts`): `DELETE /club` (CFO only) — requires the typed club name; cascades child→parent across every club-scoped table, removes each member's auth identity, then the club.
+
+### Frontend
+- **Settings** (`ClubSetupPage.tsx`) refactored into 5 tabs using the existing UI Kit: **Profile & Security** (all users — edit name/email, change password, full TOTP enrol/QR/verify/disable), **Team & Access** (CFO — invites + active-user role dropdown + revoke), **Financial Settings** (CFO — the former financials form, unchanged), **Activity Log** (CFO), **Danger Zone** (CFO — type-to-confirm delete). CFO-only tabs are hidden from the nav and guarded server-side.
+- **Login** (`LoginPage.tsx`): now proxies through `/auth/login`; added a **2FA code prompt** (`TwoFactorForm`) and a **Forgot password?** link → `ForgotPasswordForm` (request reset). Sign-up/OTP flow unchanged.
+- **Reset Password** (`ResetPasswordPage.tsx`, new) at public route `/reset-password` — reads the token from the URL, enforces the password policy, single-use.
+- **`api.ts`**: `auth.*` (public `publicPost` for login/2fa/forgot/reset; authed totp/change-password), `me.update`, `team.updateRole|revoke`, `club.deleteOrganization`; `me.get` gains `isTotpEnabled`.
+
+### Verification
+- Typecheck: API + web clean. Web production build clean.
+- Tests: engine **119/119**, scripts **40/40**, onboarding **18/18**.
+- **Live e2e drive** (throwaway Supabase user, auto-cleaned): login (no 2FA) → TOTP setup (QR) → verify/enable → login `requires_2fa` (no session leaked) → bad code rejected / good code issues session → disable → forgot → reset (single-use; replay rejected) → login with new password / old password rejected. **All passed.** Public endpoints return correct 401/400/no-enumeration; all CFO/authed routes 401 without a token.
+
+### Standing notes
+- `SUPABASE_ANON_KEY` in `apps/api/.env` is the publishable key (safe); the service-role key + DB password remain gitignored and must never be committed.
+- Branch not yet committed; awaiting user instruction.
+
+### Session 23 addendum — Financials moved out of Settings + Dashboard risk restored
+- **Financials is now its own sidebar entry** (`/financials`, **`FinancialsPage`**), CFO-only, separate from **Settings** (`/setup`) — it's club compliance config, not a personal/workspace setting. `FinancialTab` is exported from `ClubSetupPage` and reused. Settings tabs are now Profile & Security / Team & Access / Activity Log / Danger Zone. Sidebar gained a CFO-only "Financials" item (£ icon, hidden for non-CFO; API still enforces). `AppLayout` title map + the Dashboard/SSR empty-state links now point to `/financials`.
+- **Dashboard "Financial Risk" card restored** (after the gauge): uses engine `calculateLevy` / `calculatePointsDeduction` with the league config. Green → "No sanctions" + headroom; Amber → Estimated Financial Levy + overspend-above-Green; Red → Estimated Points Deduction (pts) + legal-advice note. Mirrors the Scenario builder's SanctionsPanel.
+- Web typecheck + production build clean.
