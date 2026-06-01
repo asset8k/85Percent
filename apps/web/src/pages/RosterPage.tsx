@@ -1387,6 +1387,7 @@ function ManualPlayerModal({
   const [agentPounds, setAgentPounds] = useState(NaN)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [joinedDate, setJoinedDate] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -1412,6 +1413,7 @@ function ManualPlayerModal({
         ...(Number.isFinite(squadNumber) && squadNumber >= 1 ? { squadNumber } : {}),
         ...(cleanNationality ? { nationality: cleanNationality } : {}),
         ...(dateOfBirth ? { dateOfBirth } : {}),
+        ...(joinedDate ? { joinedDate } : {}),
         transferFeePence: (isFinite(transferPounds) ? transferPounds : 0) * 100,
         annualWagePence:  (isFinite(weeklyWagePounds) ? weeklyWagePounds : 0) * 52 * 100,
         agentFeePence:    (isFinite(agentPounds) ? agentPounds : 0) * 100,
@@ -1495,6 +1497,19 @@ function ManualPlayerModal({
           </Field>
         </div>
 
+        <div className="grid grid-cols-2 gap-4">
+          <Field
+            label={
+              <span className="inline-flex items-center gap-1.5">
+                Joined the club (optional)
+                <InfoTooltip text="When the player first joined. Leave blank for a new signing — it defaults to the contract start. Set it only if they joined earlier and have since extended." />
+              </span>
+            }
+          >
+            <DatePicker value={joinedDate} onChange={setJoinedDate} placeholder="Defaults to contract start" />
+          </Field>
+        </div>
+
         {error && (
           <div className="border border-red-200 bg-red-50 rounded-lg px-4 py-3 text-[13px] text-red-700">
             {error}
@@ -1534,6 +1549,7 @@ function PlayerEditDrawer({
   const [squadNumber, setSquadNumber] = useState(player.squadNumber ?? NaN)
   const [nationality, setNationality] = useState<string | null>(player.nationality)
   const [dateOfBirth, setDateOfBirth] = useState(player.dateOfBirth ?? '')
+  const [joinedDate, setJoinedDate] = useState(player.joinedDate ?? '')
   const [transferPounds, setTransferPounds] = useState(c ? c.transferFeePence / 100 : NaN)
   const [weeklyWagePounds, setWeeklyWagePounds] = useState(c ? Math.round(c.annualWagePence / 52 / 100) : NaN)
   const [agentPounds, setAgentPounds] = useState(c ? c.agentFeePence / 100 : NaN)
@@ -1597,6 +1613,7 @@ function PlayerEditDrawer({
         squadNumber?: number | null
         nationality?: string | null
         dateOfBirth?: string | null
+        joinedDate?: string | null
       } = {}
       if (name.trim() !== player.name) playerPatch.name = name.trim()
       if (position !== player.position) playerPatch.position = position
@@ -1606,6 +1623,8 @@ function PlayerEditDrawer({
       if (cleanNationality !== player.nationality) playerPatch.nationality = cleanNationality
       const cleanDob = dateOfBirth.trim() === '' ? null : dateOfBirth.trim()
       if (cleanDob !== (player.dateOfBirth ?? null)) playerPatch.dateOfBirth = cleanDob
+      const cleanJoined = joinedDate.trim() === '' ? null : joinedDate.trim()
+      if (cleanJoined !== (player.joinedDate ?? null)) playerPatch.joinedDate = cleanJoined
 
       if (Object.keys(playerPatch).length > 0) {
         await api.roster.updatePlayer(player.id, playerPatch)
@@ -1740,22 +1759,41 @@ function PlayerEditDrawer({
               />
 
               <div className="grid grid-cols-2 gap-4 mt-4">
-                <Field label="Contract start">
+                <Field
+                  label={
+                    <span className="inline-flex items-center gap-1.5">
+                      Contract start
+                      {player.joinedDate && player.joinedDate !== startDate && (
+                        <InfoTooltip
+                          text={`This is a later extension date — amortisation runs from here, not from when the player joined (${formatDate(player.joinedDate)}).`}
+                        />
+                      )}
+                    </span>
+                  }
+                >
                   <DatePicker value={startDate} onChange={setStartDate} required placeholder="Select start date" />
                 </Field>
                 <Field label="Contract end">
                   <DatePicker value={endDate} onChange={setEndDate} required placeholder="Select end date" />
                 </Field>
               </div>
+
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <Field
+                  label={
+                    <span className="inline-flex items-center gap-1.5">
+                      Joined the club
+                      <InfoTooltip text="When the player first joined. Defaults to the contract start for a new signing; it only differs once they've signed an extension." />
+                    </span>
+                  }
+                >
+                  <DatePicker value={joinedDate} onChange={setJoinedDate} placeholder="Select join date" />
+                </Field>
+              </div>
+
               <p className="mt-2 text-[12px] text-slate-500">
                 Current book value: <span className="num text-slate-700">{formatPence(c.bookValuePence)}</span>
               </p>
-              {player.joinedDate && player.joinedDate !== startDate && (
-                <p className="mt-1 text-[12px] text-slate-500">
-                  Joined the club: <span className="num text-slate-700">{formatDate(player.joinedDate)}</span>
-                  <span className="text-slate-400"> · contract start reflects a later extension</span>
-                </p>
-              )}
 
               {/* Contract ledger — only meaningful once there's history beyond
                   the initial signing. The current phase is always shown above. */}
@@ -2753,7 +2791,7 @@ function PoundInput({
 }
 
 const CARRIED_BOOK_VALUE_TOOLTIP =
-  'Use this field for players who signed a contract extension mid-tenure. Enter their exact Net Book Value at the time of the extension to ensure accurate ongoing amortisation.'
+  "For a player who signed a new or extended deal part-way through their contract. Enter how much of their original transfer fee was still left to write off on the day they extended — that 'remaining book value' is what we spread over the new deal, instead of guessing from a fee we don't have."
 
 // Progressive-disclosure control for the Carried Book Value override. Hidden by
 // default behind a subtle "Advanced" link; once revealed it shows a £ input
@@ -2813,8 +2851,9 @@ function CarriedBookValueField({
       </Field>
       {needsAudit && (
         <p className="mt-2 text-[11.5px] leading-snug text-amber-700">
-          This looks like an extension block imported from a template — the original transfer fee is
-          unknown. Enter the remaining Net Book Value at the extension date so amortisation is accurate.
+          We imported this player's extended contract but not their original transfer fee, so we can't
+          work out their amortisation. Enter how much of that fee was still left to write off when they
+          extended — you'll find this "remaining book value" in your club's accounts.
         </p>
       )}
       <button

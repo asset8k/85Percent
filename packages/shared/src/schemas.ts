@@ -88,6 +88,9 @@ export const ManualPlayerSchema = z
     nationality: z.string().trim().max(60).optional(),
     // Optional date of birth — drives the age display only; not used in compliance math.
     dateOfBirth: ISODateString.optional(),
+    // Optional date the player joined the club. When omitted the API defaults it
+    // to the contract start (a new signing joins on their start date).
+    joinedDate: ISODateString.optional(),
     transferFeePence: z.number().int().min(0),
     // Carried Book Value override (pence). Non-null ⇒ engine amortises this
     // instead of the transfer fee. Null/omitted ⇒ standard fee amortisation.

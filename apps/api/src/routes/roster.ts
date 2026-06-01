@@ -334,6 +334,8 @@ const PlayerPatchBody = z.object({
   nationality: z.string().trim().max(60).nullable().optional(),
   // Pass null to clear; pass YYYY-MM-DD to set.
   dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD').nullable().optional(),
+  // Original join date. Pass null to clear, YYYY-MM-DD to set.
+  joinedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD').nullable().optional(),
 }).refine((r) => Object.values(r).some((v) => v !== undefined), { message: 'No fields provided' })
 
 // ---------------------------------------------------------------------------
@@ -623,7 +625,9 @@ export async function rosterRoutes(app: FastifyInstance) {
         squad_number: r.squadNumber ?? null,
         nationality: r.nationality ?? null,
         date_of_birth: r.dateOfBirth ?? null,
-        joined_date: r.startDate, // manual add: original join = contract start
+        // Explicit join date if given, else default to the contract start (a new
+        // signing joins on their start date).
+        joined_date: r.joinedDate ?? r.startDate,
         is_active: true,
         created_at: nowISO,
         updated_at: nowISO,
@@ -689,6 +693,7 @@ export async function rosterRoutes(app: FastifyInstance) {
       if (parsed.data.squadNumber !== undefined) patch['squad_number'] = parsed.data.squadNumber
       if (parsed.data.nationality !== undefined) patch['nationality'] = parsed.data.nationality
       if (parsed.data.dateOfBirth !== undefined) patch['date_of_birth'] = parsed.data.dateOfBirth
+      if (parsed.data.joinedDate  !== undefined) patch['joined_date']  = parsed.data.joinedDate
 
       const { error: updateErr } = await supabase
         .from('players')
