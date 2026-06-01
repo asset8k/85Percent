@@ -189,13 +189,18 @@ function buildPlayerResponse(
     const startObj  = new Date(startDate + 'T00:00:00Z')
     const endObj    = new Date(endDate   + 'T00:00:00Z')
     const transferFeePence = Number(contract['transfer_fee'])
+    const carriedBookValuePence =
+      contract['carried_book_value'] == null ? null : Number(contract['carried_book_value'])
 
-    // Live book value — ignore the stored snapshot (Phase 5 will refresh on schedule)
-    const liveBookValue = currentBookValuePence(transferFeePence, startObj, endObj, now)
+    // Live book value — ignore the stored snapshot (Phase 5 will refresh on
+    // schedule). The carried override, when present, replaces the transfer fee
+    // as the amortisation principal.
+    const liveBookValue = currentBookValuePence(transferFeePence, startObj, endObj, now, carriedBookValuePence)
 
     contractOut = {
       id: String(contract['id']),
       transferFeePence,
+      carriedBookValuePence,
       annualWagePence: Number(contract['annual_wage']),
       agentFeePence:   Number(contract['agent_fee']),
       startDate,
@@ -203,6 +208,7 @@ function buildPlayerResponse(
       contractLengthYears: Number(contract['contract_length_years']),
       bookValuePence: liveBookValue,
       isActive: Boolean(contract['is_active']),
+      phaseType: contract['phase_type'] === 'EXTENSION' ? 'EXTENSION' : 'INITIAL',
     }
 
     monthsToExpiry =
@@ -215,6 +221,8 @@ function buildPlayerResponse(
   // to the first 10 chars defensively so the wire-format is always YYYY-MM-DD.
   const rawDob = player['date_of_birth']
   const dateOfBirth = rawDob == null ? null : String(rawDob).slice(0, 10)
+  const rawJoined = player['joined_date']
+  const joinedDate = rawJoined == null ? null : String(rawJoined).slice(0, 10)
 
   return {
     id: String(player['id']),
@@ -224,6 +232,7 @@ function buildPlayerResponse(
     squadNumber: player['squad_number'] == null ? null : Number(player['squad_number']),
     nationality: (player['nationality'] as string | null) ?? null,
     dateOfBirth,
+    joinedDate,
     isActive: Boolean(player['is_active']),
     archivedAt: (player['archived_at'] as string | null) ?? null,
     createdAt: String(player['created_at']),
@@ -248,17 +257,20 @@ function buildPhase(row: Record<string, unknown>, feePence: number): ContractPha
   const endDate   = String(row['end_date']).slice(0, 10)
   const startObj  = new Date(startDate + 'T00:00:00Z')
   const endObj    = new Date(endDate   + 'T00:00:00Z')
+  const carriedBookValuePence =
+    row['carried_book_value'] == null ? null : Number(row['carried_book_value'])
   return {
     id: String(row['id']),
     phaseType: row['phase_type'] === 'EXTENSION' ? 'EXTENSION' : 'INITIAL',
     isCurrent: Boolean(row['is_current']),
     feePence,
+    carriedBookValuePence,
     annualWagePence: Number(row['annual_wage']),
     agentFeePence:   Number(row['agent_fee']),
     startDate,
     endDate,
     contractLengthYears: Number(row['contract_length_years']),
-    bookValuePence: currentBookValuePence(feePence, startObj, endObj, new Date()),
+    bookValuePence: currentBookValuePence(feePence, startObj, endObj, new Date(), carriedBookValuePence),
     supersededAt: row['superseded_at'] == null ? null : String(row['superseded_at']),
     createdAt: String(row['created_at']),
   }
@@ -304,6 +316,8 @@ const CommitBody = z.object({
       nationality: z.string().max(60).optional(),
       dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date of birth must be YYYY-MM-DD').optional(),
       transferFeePence: z.number().int().min(0),
+      // Optional Carried Book Value override (pence) supplied from the staging UI.
+      carriedBookValuePence: z.number().int().min(0).nullable().optional(),
       annualWagePence:  z.number().int().positive(),
       agentFeePence:    z.number().int().min(0),
       startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -333,7 +347,7 @@ export async function rosterRoutes(app: FastifyInstance) {
     try {
       const { data: players, error: playersErr } = await supabase
         .from('players')
-        .select('id, club_id, name, position, squad_number, nationality, date_of_birth, is_active, archived_at, created_at')
+        .select('id, club_id, name, position, squad_number, nationality, date_of_birth, joined_date, is_active, archived_at, created_at')
         .eq('club_id', request.clubId)
         .eq('is_active', true)
         .order('name', { ascending: true })
@@ -346,7 +360,7 @@ export async function rosterRoutes(app: FastifyInstance) {
       if (playerIds.length > 0) {
         const { data: contracts, error: contractsErr } = await supabase
           .from('contracts')
-          .select('id, player_id, transfer_fee, annual_wage, agent_fee, start_date, end_date, contract_length_years, book_value, is_active')
+          .select('id, player_id, transfer_fee, carried_book_value, annual_wage, agent_fee, start_date, end_date, contract_length_years, book_value, is_active, phase_type')
           .eq('club_id', request.clubId)
           .eq('is_active', true)
           .in('player_id', playerIds)
@@ -374,7 +388,7 @@ export async function rosterRoutes(app: FastifyInstance) {
     try {
       const { data: players, error } = await supabase
         .from('players')
-        .select('id, club_id, name, position, squad_number, nationality, date_of_birth, is_active, archived_at, created_at')
+        .select('id, club_id, name, position, squad_number, nationality, date_of_birth, joined_date, is_active, archived_at, created_at')
         .eq('club_id', request.clubId)
         .eq('is_active', false)
         .order('archived_at', { ascending: false })
@@ -513,7 +527,8 @@ export async function rosterRoutes(app: FastifyInstance) {
         const contractId = randomUUID()
         const startObj = new Date(r.startDate + 'T00:00:00Z')
         const endObj   = new Date(r.endDate   + 'T00:00:00Z')
-        const bookVal  = currentBookValuePence(r.transferFeePence, startObj, endObj, new Date())
+        const carried  = r.carriedBookValuePence ?? null
+        const bookVal  = currentBookValuePence(r.transferFeePence, startObj, endObj, new Date(), carried)
 
         playersToInsert.push({
           id: playerId,
@@ -523,6 +538,7 @@ export async function rosterRoutes(app: FastifyInstance) {
           squad_number: r.squadNumber ?? null,
           nationality: r.nationality ?? null,
           date_of_birth: r.dateOfBirth ?? null,
+          joined_date: r.startDate, // no separate join date on CSV; use contract start
           is_active: true,
           created_at: nowISO,
           updated_at: nowISO,
@@ -533,6 +549,7 @@ export async function rosterRoutes(app: FastifyInstance) {
           player_id: playerId,
           club_id: request.clubId,
           transfer_fee: r.transferFeePence,
+          carried_book_value: carried,
           annual_wage:  r.annualWagePence,
           agent_fee:    r.agentFeePence,
           start_date: r.startDate,
@@ -595,7 +612,8 @@ export async function rosterRoutes(app: FastifyInstance) {
       const contractId = randomUUID()
       const startObj = new Date(r.startDate + 'T00:00:00Z')
       const endObj   = new Date(r.endDate   + 'T00:00:00Z')
-      const bookVal  = currentBookValuePence(r.transferFeePence, startObj, endObj, new Date())
+      const carried  = r.carriedBookValuePence ?? null
+      const bookVal  = currentBookValuePence(r.transferFeePence, startObj, endObj, new Date(), carried)
 
       const { error: pErr } = await supabase.from('players').insert({
         id: playerId,
@@ -605,6 +623,7 @@ export async function rosterRoutes(app: FastifyInstance) {
         squad_number: r.squadNumber ?? null,
         nationality: r.nationality ?? null,
         date_of_birth: r.dateOfBirth ?? null,
+        joined_date: r.startDate, // manual add: original join = contract start
         is_active: true,
         created_at: nowISO,
         updated_at: nowISO,
@@ -616,6 +635,7 @@ export async function rosterRoutes(app: FastifyInstance) {
         player_id: playerId,
         club_id: request.clubId,
         transfer_fee: r.transferFeePence,
+        carried_book_value: carried,
         annual_wage:  r.annualWagePence,
         agent_fee:    r.agentFeePence,
         start_date: r.startDate,
@@ -702,7 +722,7 @@ export async function rosterRoutes(app: FastifyInstance) {
     try {
       const { data: existing, error: findErr } = await supabase
         .from('contracts')
-        .select('id, transfer_fee, annual_wage, agent_fee, start_date, end_date')
+        .select('id, transfer_fee, carried_book_value, annual_wage, agent_fee, start_date, end_date')
         .eq('id', id)
         .eq('club_id', request.clubId)
         .maybeSingle()
@@ -712,6 +732,11 @@ export async function rosterRoutes(app: FastifyInstance) {
 
       const next = {
         transferFeePence: parsed.data.transferFeePence ?? Number(existing.transfer_fee),
+        // undefined ⇒ keep existing, null ⇒ clear override, number ⇒ set it.
+        carriedBookValuePence:
+          parsed.data.carriedBookValuePence !== undefined
+            ? parsed.data.carriedBookValuePence
+            : (existing.carried_book_value == null ? null : Number(existing.carried_book_value)),
         annualWagePence:  parsed.data.annualWagePence  ?? Number(existing.annual_wage),
         agentFeePence:    parsed.data.agentFeePence    ?? Number(existing.agent_fee),
         startDate:        parsed.data.startDate        ?? String(existing.start_date).slice(0, 10),
@@ -732,10 +757,11 @@ export async function rosterRoutes(app: FastifyInstance) {
 
       const startObj = new Date(next.startDate + 'T00:00:00Z')
       const endObj   = new Date(next.endDate   + 'T00:00:00Z')
-      const bookVal  = currentBookValuePence(next.transferFeePence, startObj, endObj, new Date())
+      const bookVal  = currentBookValuePence(next.transferFeePence, startObj, endObj, new Date(), next.carriedBookValuePence)
 
       const patch: Record<string, unknown> = {
         transfer_fee: next.transferFeePence,
+        carried_book_value: next.carriedBookValuePence,
         annual_wage:  next.annualWagePence,
         agent_fee:    next.agentFeePence,
         start_date: next.startDate,

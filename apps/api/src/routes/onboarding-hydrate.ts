@@ -22,6 +22,8 @@ export interface TemplateRosterItemRow {
   estimated_transfer_fee: string | number | null
   contract_start: string | null
   contract_end: string | null
+  joined_date?: string | null
+  contract_start_from_extension?: boolean | null
 }
 
 export interface HydratedRoster {
@@ -128,16 +130,25 @@ export function buildHydratedRoster(args: {
       squad_number: r.squad_number ?? null,
       nationality: r.nationality,
       date_of_birth: toDateOnly(r.date_of_birth),
+      // Original join date — falls back to the contract start when the template
+      // didn't carry a separate joined date.
+      joined_date: toDateOnly(r.joined_date) ?? startDate,
       is_active: true,
       created_at: nowISO,
       updated_at: nowISO,
     })
+
+    // An extension block (start derived from last_extension) becomes an
+    // EXTENSION phase with no carried value yet — the UI flags it so the CFO
+    // records the remaining Net Book Value (the original fee is unknown).
+    const isExtension = r.contract_start_from_extension === true
 
     contracts.push({
       id: contractId,
       player_id: playerId,
       club_id: clubId,
       transfer_fee: fee,
+      carried_book_value: null,
       annual_wage: 0, // wages unknown from Transfermarkt — CFO fills these in
       agent_fee: 0,
       start_date: startDate,
@@ -145,7 +156,7 @@ export function buildHydratedRoster(args: {
       contract_length_years: yearsBetween(startDate, endDate),
       book_value: bookVal,
       is_active: true,
-      phase_type: 'INITIAL',
+      phase_type: isExtension ? 'EXTENSION' : 'INITIAL',
       is_current: true,
       created_at: nowISO,
       updated_at: nowISO,

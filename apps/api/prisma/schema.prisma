@@ -84,6 +84,9 @@ model Player {
   squadNumber Int?      @map("squad_number") // shirt number (1–99); null = unassigned
   nationality String?
   dateOfBirth DateTime? @map("date_of_birth")
+  // Original date the player joined the club, kept even when the current
+  // contract start is a later extension date. Display / tenure context only.
+  joinedDate  DateTime? @map("joined_date")
   isActive    Boolean   @default(true) @map("is_active")   // false = archived (departed)
   archivedAt  DateTime? @map("archived_at")
   createdAt   DateTime  @default(now()) @map("created_at")
@@ -109,6 +112,12 @@ model Contract {
   endDate             DateTime @map("end_date")
   contractLengthYears Decimal  @map("contract_length_years") // computed at insert from dates
   bookValue           BigInt   @map("book_value")            // amortised remaining value, pence
+  // Carried Book Value override (pence). Set when a player signed an extension
+  // mid-tenure and we lack the historical contract phases to amortise the
+  // original fee from scratch (e.g. Transfermarkt snapshots). When non-null the
+  // engine IGNORES transferFee and amortises this exact remaining NBV over the
+  // phase length (capped at 5 years from start). Null = standard fee amortisation.
+  carriedBookValue    BigInt?  @map("carried_book_value")
   isActive            Boolean  @default(true) @map("is_active")
   // Contract ledger (multi-phase history). `phaseType` distinguishes the
   // original signing from later extensions. `isCurrent` marks the single live
@@ -334,6 +343,14 @@ model TemplateRosterItem {
   estimatedTransferFee BigInt?           @map("estimated_transfer_fee")
   contractStart        DateTime?         @map("contract_start")
   contractEnd          DateTime?         @map("contract_end")
+  // Original join date, preserved separately from contractStart (which may be an
+  // extension date). Carried through to players.joinedDate on hydration.
+  joinedDate           DateTime?         @map("joined_date")
+  // True when contractStart was derived from a last_extension date — i.e. this
+  // is the back end of an existing deal, not the original signing. Hydration
+  // marks the live contract as an EXTENSION phase so the UI prompts the CFO to
+  // record the carried book value (the original fee is unknown).
+  contractStartFromExtension Boolean     @default(false) @map("contract_start_from_extension")
   createdAt            DateTime          @default(now()) @map("created_at")
   updatedAt            DateTime          @updatedAt @map("updated_at")
 

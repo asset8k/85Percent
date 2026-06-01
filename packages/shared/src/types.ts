@@ -102,6 +102,7 @@ export interface PlayerWithContract {
   squadNumber: number | null          // shirt number (1–99); null = unassigned
   nationality: string | null
   dateOfBirth: string | null          // ISO YYYY-MM-DD; null = unknown (age UI hides)
+  joinedDate: string | null           // ISO YYYY-MM-DD; original join date (kept across extensions)
   isActive: boolean
   archivedAt: string | null
   createdAt: string
@@ -110,6 +111,12 @@ export interface PlayerWithContract {
   contract: {
     id: string                        // contract id
     transferFeePence: number
+    /**
+     * Carried Book Value override (pence) or null. When non-null the SCR engine
+     * amortises this remaining NBV instead of the transfer fee — for extension
+     * blocks where the original fee is unknown (e.g. template imports).
+     */
+    carriedBookValuePence: number | null
     annualWagePence: number
     agentFeePence: number
     startDate: string                 // ISO YYYY-MM-DD
@@ -117,6 +124,7 @@ export interface PlayerWithContract {
     contractLengthYears: number
     bookValuePence: number            // live, recomputed at read time
     isActive: boolean
+    phaseType: ContractPhaseType      // INITIAL | EXTENSION (drives carried-value UI)
   } | null
 
   // Derived for UI consumption
@@ -140,6 +148,11 @@ export interface ContractPhase {
   isCurrent: boolean
   /** Transfer fee (player) or compensation fee (manager), in pence. */
   feePence: number
+  /**
+   * Carried Book Value override (pence) or null. When non-null the engine
+   * amortises this remaining NBV instead of `feePence` over the phase.
+   */
+  carriedBookValuePence: number | null
   annualWagePence: number
   agentFeePence: number
   startDate: string                 // ISO YYYY-MM-DD
@@ -177,6 +190,7 @@ export interface RosterStagingRow {
     nationality?: string
     dateOfBirth?: string              // ISO YYYY-MM-DD, optional CSV column
     transferFeePence: number
+    carriedBookValuePence?: number | null // optional Carried Book Value override
     annualWagePence: number
     agentFeePence: number
     startDate: string

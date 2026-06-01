@@ -18,6 +18,11 @@ export interface TransfermarktPlayer {
   joinedOn?: string | null
   signedFrom?: string | null
   contract?: string | null // contract expiry, e.g. "Jun 30, 2027"
+  // Date the current deal was last extended/renewed, when the scraper exposes
+  // it ("lastExtension" / "last_extension" / "contractExtension" all seen).
+  lastExtension?: string | null
+  last_extension?: string | null
+  contractExtension?: string | null
 }
 
 // The normalised row we insert into template_roster_items.
@@ -31,6 +36,28 @@ export interface TemplateRosterItemInput {
   estimatedTransferFee: bigint | null
   contractStart: Date | null
   contractEnd: Date | null
+  /**
+   * The date the player originally joined the club, preserved independently of
+   * `contractStart`. When a deal has been extended, `contractStart` holds the
+   * extension date while this keeps the original signing date for display /
+   * tenure context. Null when unknown.
+   */
+  joinedDate: Date | null
+  /**
+   * True when `contractStart` was derived from a last_extension date — i.e. the
+   * snapshot is the back end of an existing deal, not the original signing. The
+   * UI uses this to auto-reveal the Carried Book Value field (the original fee
+   * is unknown, so the CFO must record the remaining NBV to amortise correctly).
+   */
+  contractStartFromExtension: boolean
+}
+
+// Start of the football financial year (1 July) for the season containing
+// `now`. Used as the last-resort contract-start fallback when a template row
+// has neither an extension nor a joined date.
+export function financialYearStart(now: Date = new Date()): Date {
+  const year = now.getUTCMonth() >= 6 ? now.getUTCFullYear() : now.getUTCFullYear() - 1
+  return new Date(Date.UTC(year, 6, 1))
 }
 
 // Map a free-text Transfermarkt position ("Centre-Back", "Left Winger", …) onto
@@ -82,9 +109,19 @@ export function normaliseNationality(n: string[] | string | null | undefined): s
 
 // Map one scraped player into a roster-item insert. Returns null when the row
 // has no usable name (the only field we hard-require).
-export function mapPlayerToRosterItem(p: TransfermarktPlayer): TemplateRosterItemInput | null {
+export function mapPlayerToRosterItem(
+  p: TransfermarktPlayer,
+  now: Date = new Date(),
+): TemplateRosterItemInput | null {
   const name = (p.name ?? '').trim()
   if (!name) return null
+
+  // Start-date logic: a last_extension date means this is the current
+  // (extension) block of an ongoing deal — prefer it. Otherwise fall back to
+  // the joined date, then to the start of the current financial year.
+  const extension = parseTransfermarktDate(p.lastExtension ?? p.last_extension ?? p.contractExtension ?? null)
+  const joined = parseTransfermarktDate(p.joinedOn ?? p.joined ?? null)
+  const contractStart = extension ?? joined ?? financialYearStart(now)
 
   return {
     name,
@@ -99,8 +136,11 @@ export function mapPlayerToRosterItem(p: TransfermarktPlayer): TemplateRosterIte
     // is left NULL so the CFO must enter their own official accounting figure;
     // hydration forces wages to 0 for the same reason.
     estimatedTransferFee: null,
-    contractStart: parseTransfermarktDate(p.joinedOn ?? p.joined ?? null),
+    contractStart,
     contractEnd: parseTransfermarktDate(p.contract),
+    // Original signing date, kept even when contractStart is an extension date.
+    joinedDate: joined,
+    contractStartFromExtension: extension != null,
   }
 }
 
@@ -130,5 +170,9 @@ export function mapCoachToRosterItem(
     estimatedTransferFee: null,
     contractStart: parseTransfermarktDate(opts.joined ?? null),
     contractEnd: parseTransfermarktDate(opts.contract ?? null),
+    // For a coach, "joined" is the appointment date — same as the contract start.
+    joinedDate: parseTransfermarktDate(opts.joined ?? null),
+    // A coach record is the appointment itself, never an extension block.
+    contractStartFromExtension: false,
   }
 }

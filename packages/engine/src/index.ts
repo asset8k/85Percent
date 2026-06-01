@@ -8,6 +8,7 @@ export {
   generateAmortisationSchedule,
   currentBookValuePence,
   calculateRemainingBookValue,
+  effectiveFeePence,
   amortisationPeriodYears,
   AMORTISATION_CAP_YEARS,
   type AmortisableContract,

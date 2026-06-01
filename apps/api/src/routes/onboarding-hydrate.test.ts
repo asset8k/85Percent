@@ -181,6 +181,39 @@ describe('buildHydratedRoster (synthetic)', () => {
     }
   })
 
+  it('marks extension-block rows as EXTENSION phases with no carried value yet', () => {
+    const extItems: TemplateRosterItemRow[] = [
+      {
+        name: 'Reece James',
+        position: 'DEF',
+        squad_number: 24,
+        nationality: 'England',
+        is_manager: false,
+        estimated_transfer_fee: null,
+        contract_start: '2023-03-15T00:00:00',
+        contract_end: '2028-06-30T00:00:00',
+        date_of_birth: '1999-12-08T00:00:00',
+        contract_start_from_extension: true,
+      },
+    ]
+    const h = buildHydratedRoster({
+      clubId: 'c', templateName: 'X FC', templateLeague: 'PREMIER_LEAGUE', items: extItems, now: new Date(),
+    })
+    assert.equal(h.contracts[0]!['phase_type'], 'EXTENSION')
+    assert.equal(h.contracts[0]!['carried_book_value'], null)
+    assert.equal(h.contracts[0]!['transfer_fee'], 0)
+  })
+
+  it('defaults non-extension rows to INITIAL with a null carried value', () => {
+    const h = buildHydratedRoster({
+      clubId: 'c', templateName: 'X FC', templateLeague: 'CHAMPIONSHIP', items, now: new Date(),
+    })
+    for (const c of h.contracts) {
+      assert.equal(c['phase_type'], 'INITIAL')
+      assert.equal(c['carried_book_value'], null)
+    }
+  })
+
   it('adopts club identity from the template', () => {
     const h = buildHydratedRoster({
       clubId: 'c', templateName: 'Chelsea FC', templateLeague: 'PREMIER_LEAGUE', items, now: new Date(),

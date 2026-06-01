@@ -89,6 +89,9 @@ export const ManualPlayerSchema = z
     // Optional date of birth — drives the age display only; not used in compliance math.
     dateOfBirth: ISODateString.optional(),
     transferFeePence: z.number().int().min(0),
+    // Carried Book Value override (pence). Non-null ⇒ engine amortises this
+    // instead of the transfer fee. Null/omitted ⇒ standard fee amortisation.
+    carriedBookValuePence: z.number().int().min(0).nullable().optional(),
     annualWagePence:  z.number().int().positive(),
     agentFeePence:    z.number().int().min(0),
     startDate: ISODateString,
@@ -123,6 +126,9 @@ export type ManualPlayerInput = z.infer<typeof ManualPlayerSchema>
 export const ContractPatchSchema = z
   .object({
     transferFeePence: z.number().int().min(0).optional(),
+    // Pass a number to set the Carried Book Value override, null to clear it
+    // (revert to standard transfer-fee amortisation).
+    carriedBookValuePence: z.number().int().min(0).nullable().optional(),
     annualWagePence:  z.number().int().positive().optional(),
     agentFeePence:    z.number().int().min(0).optional(),
     startDate: ISODateString.optional(),
@@ -182,6 +188,9 @@ export type ManagerPatchInput = z.infer<typeof ManagerPatchSchema>
 
 // Patch the current contract phase (player or manager) in place — used for
 // corrections, NOT extensions. `feePence` is the transfer/compensation fee.
+// Note: there is no Carried Book Value override here — PhasePatch only drives
+// manager_contracts, which has no such column (the override is a player-side
+// mechanism for template-imported extension blocks).
 export const PhasePatchSchema = z
   .object({
     feePence:        z.number().int().min(0).optional(),

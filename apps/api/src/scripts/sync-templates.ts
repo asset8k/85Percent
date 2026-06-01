@@ -25,6 +25,10 @@
 //   TRANSFERMARKT_SYNC_DELAY_MS  delay between clubs           (default 3000)
 //   TRANSFERMARKT_TIMEOUT_MS     per-request timeout           (default 20000)
 //   TRANSFERMARKT_FETCH_MANAGER  set to 0 to skip the coach scrape
+//   TRANSFERMARKT_FETCH_EXTENSIONS set to 1 to scrape each player's profile for
+//                                the real "last contract extension" date (slow:
+//                                ~1 fetch/player; flags extension blocks on import)
+//   TRANSFERMARKT_PLAYER_DELAY_MS throttle between player-profile fetches (default 400)
 //
 // Safety nets:
 //   • A generous, configurable delay between every club (anti-Cloudflare).
@@ -44,6 +48,7 @@ import {
 } from './transfermarkt-mappers.js'
 import { extractHeadCoach } from './transfermarkt-coach-scraper.js'
 import { parseSquadNumbers } from './transfermarkt-squad-scraper.js'
+import { parsePlayerContractDates } from './transfermarkt-player-scraper.js'
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const API_BASE = (process.env['TRANSFERMARKT_API_URL'] ?? 'http://localhost:8000').replace(/\/+$/, '')
@@ -54,6 +59,12 @@ const REQUEST_TIMEOUT_MS = Number(process.env['TRANSFERMARKT_TIMEOUT_MS'] ?? 200
 const FETCH_MANAGER = process.env['TRANSFERMARKT_FETCH_MANAGER'] !== '0'
 // One native HTML fetch per club for shirt numbers (kader page); on by default.
 const FETCH_SQUAD_NUMBERS = process.env['TRANSFERMARKT_FETCH_SQUAD_NUMBERS'] !== '0'
+// One native HTML fetch PER PLAYER for the "last contract extension" date (only
+// on the individual profile page). OFF by default — it adds ~1 fetch per player
+// (slow, and hits transfermarkt.com directly), so it's opt-in for the runs where
+// accurate extension/amortisation data is wanted. Throttled by PLAYER_DELAY_MS.
+const FETCH_EXTENSIONS = process.env['TRANSFERMARKT_FETCH_EXTENSIONS'] === '1'
+const PLAYER_DELAY_MS = Number(process.env['TRANSFERMARKT_PLAYER_DELAY_MS'] ?? 400)
 // transfermarkt.com base for the native coach scrape (not the felipeall API).
 const TM_WEB_BASE = (process.env['TRANSFERMARKT_WEB_URL'] ?? 'https://www.transfermarkt.com').replace(/\/+$/, '')
 // A browser-like UA so transfermarkt.com serves the full staff page.
@@ -209,6 +220,11 @@ async function replaceRosterItems(templateClubId: string, items: TemplateRosterI
     estimated_transfer_fee: it.estimatedTransferFee == null ? null : Number(it.estimatedTransferFee),
     contract_start: it.contractStart ? it.contractStart.toISOString() : null,
     contract_end: it.contractEnd ? it.contractEnd.toISOString() : null,
+    // Original join date, kept separately from contract_start (an extension date).
+    joined_date: it.joinedDate ? it.joinedDate.toISOString() : null,
+    // True when contract_start came from a last_extension date — flags an
+    // extension block whose carried book value the CFO must audit on import.
+    contract_start_from_extension: it.contractStartFromExtension,
     updated_at: nowIso,
   }))
 
@@ -287,6 +303,18 @@ async function fetchSquadNumbers(clubTmId: string, clubName: string): Promise<Ma
   }
 }
 
+// Native per-player extension scrape: ONE HTML fetch of the player's profile
+// page, parsed for the "Date of last contract extension". Returns null on any
+// failure (logged at debug level) so a single bad profile never aborts the club.
+async function fetchPlayerExtension(playerTmId: string): Promise<string | null> {
+  try {
+    const html = await fetchHtml(`/-/profil/spieler/${playerTmId}`)
+    return parsePlayerContractDates(html).lastExtension
+  } catch {
+    return null
+  }
+}
+
 // Native head-coach scrape: ONE HTML fetch of transfermarkt.com's Coaching Staff
 // page, parsed by the pure scraper. Financial fields are left null (bio-only).
 // Returns null (logged) when no head coach can be parsed, so a missing manager
@@ -329,6 +357,13 @@ async function syncClub(club: ClubRef): Promise<number> {
 
   const items: TemplateRosterItemInput[] = []
   for (const p of squad.players ?? []) {
+    // Enrich with the real last-extension date from the profile page (opt-in).
+    // When present this becomes the contract start and flags an extension block
+    // so the CFO is prompted for the carried book value on import.
+    if (FETCH_EXTENSIONS && p.id) {
+      p.lastExtension = await fetchPlayerExtension(String(p.id))
+      if (PLAYER_DELAY_MS > 0) await sleep(PLAYER_DELAY_MS)
+    }
     const mapped = mapPlayerToRosterItem(p)
     if (!mapped) continue
     if (p.id) mapped.squadNumber = squadNumbers.get(String(p.id)) ?? null

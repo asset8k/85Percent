@@ -11,6 +11,7 @@ import {
   normaliseNationality,
   mapPlayerToRosterItem,
   mapCoachToRosterItem,
+  financialYearStart,
 } from './transfermarkt-mappers.js'
 
 describe('mapPosition', () => {
@@ -116,18 +117,58 @@ describe('mapPlayerToRosterItem', () => {
     assert.ok(item.contractStart)
     assert.ok(item.contractEnd)
     assert.equal(item.contractEnd.getFullYear(), 2033)
+    // Start came from `joined`, not an extension; joinedDate mirrors it.
+    assert.equal(item.contractStart.getUTCFullYear(), 2023)
+    assert.equal(item.contractStartFromExtension, false)
+    assert.ok(item.joinedDate)
+    assert.equal(item.joinedDate.getUTCFullYear(), 2023)
   })
-  it('tolerates missing optional fields', () => {
-    const item = mapPlayerToRosterItem({ name: 'Trialist' })
+  it('prefers last_extension for the contract start but keeps the original joined date', () => {
+    const item = mapPlayerToRosterItem({
+      name: 'Reece James',
+      joined: 'Jul 1, 2018',
+      lastExtension: 'Mar 15, 2023',
+      contract: 'Jun 30, 2028',
+    })
+    assert.ok(item)
+    assert.ok(item.contractStart)
+    assert.equal(item.contractStart.getUTCFullYear(), 2023)
+    assert.equal(item.contractStart.getUTCMonth(), 2) // March
+    assert.equal(item.contractStartFromExtension, true)
+    // The original signing date is preserved separately.
+    assert.ok(item.joinedDate)
+    assert.equal(item.joinedDate.getUTCFullYear(), 2018)
+  })
+  it('falls back to the financial-year start when no extension or joined date exists', () => {
+    const now = new Date(Date.UTC(2026, 0, 15)) // Jan 2026 → FY started Jul 2025
+    const item = mapPlayerToRosterItem({ name: 'Trialist' }, now)
     assert.ok(item)
     assert.equal(item.position, null)
     assert.equal(item.estimatedTransferFee, null)
     assert.equal(item.dateOfBirth, null)
-    assert.equal(item.contractStart, null)
+    assert.ok(item.contractStart)
+    assert.equal(item.contractStart.getTime(), financialYearStart(now).getTime())
+    assert.equal(item.contractStartFromExtension, false)
+    // No joined date on the page → joinedDate stays null (NOT the FY fallback).
+    assert.equal(item.joinedDate, null)
   })
   it('returns null when the name is blank', () => {
     assert.equal(mapPlayerToRosterItem({ name: '   ' }), null)
     assert.equal(mapPlayerToRosterItem({}), null)
+  })
+})
+
+describe('financialYearStart', () => {
+  it('returns 1 July of the current season for dates on/after July', () => {
+    const d = financialYearStart(new Date(Date.UTC(2026, 8, 10))) // Sep 2026
+    assert.equal(d.getUTCFullYear(), 2026)
+    assert.equal(d.getUTCMonth(), 6) // July
+    assert.equal(d.getUTCDate(), 1)
+  })
+  it('returns 1 July of the previous calendar year for dates before July', () => {
+    const d = financialYearStart(new Date(Date.UTC(2026, 4, 10))) // May 2026
+    assert.equal(d.getUTCFullYear(), 2025)
+    assert.equal(d.getUTCMonth(), 6) // July
   })
 })
 

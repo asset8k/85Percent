@@ -2076,3 +2076,41 @@ The whole chain already tolerated a missing coach (worker `if (coachItem)`, hydr
 - New **[DOCKER.md](DOCKER.md)** runbook documents the whole flow (install Colima, build image, run container, run sync, env vars, verification, troubleshooting) for repeatable future re-syncs.
 
 **Verification:** API + web typecheck clean · script tests **32/32** · live full sync 44/44 verified against the DB.
+
+## Session 22 — Carried Book Value override + Extend-modal tooltip fix (2026-06-01)
+
+**Problem.** Transfermarkt snapshots give only `joined` / `last_extension` / `contract_end` — no historical contract phases. For a player bought years ago who later signed an extension, we can't reconstruct how much of the original fee is already amortised. Solution: a **Carried Book Value override** the CFO can enter (the exact remaining Net Book Value at the extension date), bypassing the need for historical phase arrays.
+
+### Engine (`packages/engine`)
+- **`amortisation.ts`** — new `effectiveFeePence(transferFee, carriedBookValue?)` (override wins when non-null, incl. 0). `currentBookValuePence` gained an optional 5th param `carriedBookValuePence`; when set it amortises the carried NBV over the phase instead of the transfer fee (5-year cap still applies). Both exported from `index.ts`.
+- **`squadCosts.ts`** — `ContractInput.carriedBookValuePence?: number | null`; `calculateSquadCosts` feeds `effectiveFeePence(...)` into the amortisation so the live SCR respects the override.
+- Tests: +9 (3 `currentBookValuePence` override, 3 `effectiveFeePence`, 3 `calculateSquadCosts` override incl. 5-year cap). Engine **119/119**.
+
+### Schema + DB
+- `Contract.carriedBookValue BigInt?` and `TemplateRosterItem.contractStartFromExtension Boolean @default(false)` (Prisma). Migration `20260601000001_contract_carried_book_value` — **applied to live DB** via `prisma migrate deploy`.
+- Zod (shared): `carriedBookValuePence` (nullable optional) added to `ManualPlayerSchema` + `ContractPatchSchema`. Deliberately **not** on `PhasePatchSchema` (manager-only; `manager_contracts` has no such column).
+- Types (shared): `PlayerWithContract.contract` gained `carriedBookValuePence` + `phaseType`; `ContractPhase.carriedBookValuePence`; `RosterStagingRow.parsed.carriedBookValuePence?`.
+
+### Ingestion (Phase 2)
+- **`transfermarkt-mappers.ts`** — `mapPlayerToRosterItem` now derives `contractStart` = `last_extension` → else `joined` → else **`financialYearStart()`** (1 July of the current season), and sets `contractStartFromExtension` when the extension date was used. New exported `financialYearStart(now)`.
+- `sync-templates.ts` persists `contract_start_from_extension`; `onboarding.ts` selects it.
+- **`onboarding-hydrate.ts`** — an extension-block row hydrates as a **`phase_type: 'EXTENSION'`** contract with `carried_book_value: null`, so the UI flags it for CFO audit. Non-extension rows stay `INITIAL`.
+- Tests: mapper +3 (last_extension preference, FY fallback, `financialYearStart`); hydrate +2 (EXTENSION-block, INITIAL default). Mapper **23/23**, onboarding **18/18** (incl. live DB-backed).
+
+### API routes
+- `roster.ts` — `buildPlayerResponse` / `buildPhase` read `carried_book_value` (+ `phase_type`) and compute live book value with the override; GET `/roster`, `CommitBody`+commit insert, manual-add insert, and PATCH `/roster/contract/:id` (set / clear-with-null / keep) all thread it.
+- `club.ts` — `deriveSquadCostsForClub` selects `carried_book_value` and maps it into `ContractInput`, so the dashboard SCR honours overrides.
+
+### Frontend (`RosterPage.tsx`) — Phase 4 progressive disclosure
+- New `CarriedBookValueField` — hidden behind a subtle **"Advanced: Set Carried Book Value"** link; revealed it shows a £ input + `InfoTooltip` ("Use this field for players who signed a contract extension mid-tenure…").
+- **Smart auto-reveal**: an imported extension block (`phaseType === 'EXTENSION' && carriedBookValue == null && transferFee === 0`) auto-reveals the field with an **amber warning** prompting the CFO to audit it. Wired into the Player Edit Drawer save (number ⇒ set, hidden/empty ⇒ null) and the CSV staging-row editor (merged back onto the re-validated parsed row).
+- **Extend-modal tooltip fix** — `InfoTooltip` now renders via `createPortal` to `<body>` with viewport-clamped positioning, so the "New Contract End Date" info bubble is no longer clipped by the modal's right edge.
+
+**Verification:** engine 119/119 · mapper 23/23 · onboarding 18/18 (live DB) · API + web typecheck clean · web production build clean · migration applied to live DB.
+
+### Session 22 addendum — per-player extension scrape + preserved join date
+- **UI**: the "Advanced: Set Carried Book Value" reveal is now a tiny muted "Advanced" link in the normal case; it only becomes a visible amber "Set carried book value" when a row is a flagged extension block needing audit.
+- **Per-player extension scraper** (`transfermarkt-player-scraper.ts`, pure + 5 unit tests): the felipeall bulk endpoint has no renewal date, so we parse the **"Last contract extension"** date from each player's profile page (`/-/profil/spieler/{id}`, `info-table__content--regular` label → next date token; tolerant of the legacy `<th>/<td>` layout). Wired into the worker behind **`TRANSFERMARKT_FETCH_EXTENSIONS=1`** (opt-in; ~1 fetch/player, throttled by `TRANSFERMARKT_PLAYER_DELAY_MS`, default 350). When found, the extension date becomes the contract start and flags the row as an extension block.
+- **Preserved join date** (`players.joined_date` + `template_roster_items.joined_date`, migration `20260601000002_player_joined_date`, applied to live DB): the mapper now keeps the **original `joined` date** independently of `contractStart` (which may be the extension date). Threaded mapper → template → hydration (`players.joined_date`, falls back to contract start) → GET `/roster` (`buildPlayerResponse.joinedDate`) → `PlayerWithContract.joinedDate` → edit drawer shows "Joined the club: X · contract start reflects a later extension" when they differ. Manual add / CSV commit default `joined_date` to the contract start.
+- **DOCKER.md** updated with the two new env vars + extension-scrape cost note (~3 min → ~12–15 min when enabled).
+- Tests: script suite **40/40** (added player-scraper ×5, joinedDate assertions); onboarding **18/18** (live DB); engine **119/119**; API + web typecheck clean.

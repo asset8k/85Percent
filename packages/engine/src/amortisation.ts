@@ -43,6 +43,32 @@ function amortisationEndDate(startDate: Date, endDate: Date): Date {
   return capped.getTime() < endDate.getTime() ? capped : endDate
 }
 
+// Coerce a bigint|number into a number (pence).
+function toNumber(v: bigint | number): number {
+  return typeof v === 'bigint' ? Number(v) : v
+}
+
+/**
+ * The fee an SCR calculation should amortise for a contract phase.
+ *
+ * Normally this is the transfer fee. But when a player signed an extension
+ * mid-tenure and we lack the historical phases to amortise the original fee
+ * from scratch (e.g. a Transfermarkt snapshot), the CFO records the exact
+ * remaining Net Book Value at the moment of the extension as a
+ * **Carried Book Value override**. When that override is present (non-null) it
+ * REPLACES the transfer fee as the principal — the original fee is ignored and
+ * the carried NBV is amortised over the extension phase instead.
+ *
+ * Returns the override when non-null, otherwise the transfer fee. Pure.
+ */
+export function effectiveFeePence(
+  transferFeePence: bigint | number,
+  carriedBookValuePence?: bigint | number | null,
+): number {
+  if (carriedBookValuePence != null) return toNumber(carriedBookValuePence)
+  return toNumber(transferFeePence)
+}
+
 /**
  * Current book value of a transfer/compensation fee, straight-line amortised
  * over the contract's date range **capped at 5 years** (AMORTISATION_CAP_YEARS).
@@ -50,15 +76,21 @@ function amortisationEndDate(startDate: Date, endDate: Date): Date {
  * it. Returns the full fee if asOf is before the start date (book value is
  * locked in at purchase).
  *
+ * When `carriedBookValuePence` is supplied (non-null) it OVERRIDES the transfer
+ * fee: the carried Net Book Value becomes the principal that is amortised over
+ * this phase (start → capped end). Used for extension blocks where the original
+ * fee is unknown. See effectiveFeePence.
+ *
  * All monetary values in pence. Pure function — pass asOf explicitly in tests.
  */
 export function currentBookValuePence(
   transferFeePence: bigint | number,
   startDate: Date,
   endDate: Date,
-  asOf: Date = new Date()
+  asOf: Date = new Date(),
+  carriedBookValuePence?: bigint | number | null,
 ): number {
-  const fee = typeof transferFeePence === 'bigint' ? Number(transferFeePence) : transferFeePence
+  const fee = effectiveFeePence(transferFeePence, carriedBookValuePence)
   if (fee === 0) return 0
 
   // Amortise over the capped window, not the full contract length.

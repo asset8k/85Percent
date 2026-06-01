@@ -1232,6 +1232,10 @@ function StagingRowEditor({
     row.parsed ? Math.round(row.parsed.annualWagePence / 52 / 100) : NaN
   )
   const [agentPounds, setAgentPounds] = useState(row.parsed ? row.parsed.agentFeePence / 100 : NaN)
+  const [carriedPounds, setCarriedPounds] = useState(
+    row.parsed?.carriedBookValuePence != null ? row.parsed.carriedBookValuePence / 100 : NaN
+  )
+  const [showCarried, setShowCarried] = useState(row.parsed?.carriedBookValuePence != null)
   const [startDate, setStartDate] = useState(row.parsed?.startDate ?? '')
   const [endDate, setEndDate] = useState(row.parsed?.endDate ?? '')
   const [saving, setSaving] = useState(false)
@@ -1266,7 +1270,17 @@ function StagingRowEditor({
       const result = await api.roster.parseCsv(csvText)
       const next = result.rows[0]
       if (next) {
-        onChange({ ...next, rowIndex: row.rowIndex })
+        // The CSV round-trip doesn't carry the Carried Book Value override, so
+        // merge it back onto the re-validated parsed row before committing.
+        const carried =
+          showCarried && Number.isFinite(carriedPounds) && carriedPounds >= 0
+            ? Math.round(carriedPounds * 100)
+            : null
+        const merged =
+          next.parsed != null
+            ? { ...next, parsed: { ...next.parsed, carriedBookValuePence: carried } }
+            : next
+        onChange({ ...merged, rowIndex: row.rowIndex })
         onClose()
       }
     } finally {
@@ -1304,6 +1318,23 @@ function StagingRowEditor({
         <FinancialInputCell needsValue={!isFinite(transferPounds) || transferPounds <= 0}>
           <NumericInput value={transferPounds} onChange={setTransferPounds} className={cellNumeric} placeholder="0" />
         </FinancialInputCell>
+        {showCarried ? (
+          <div className="mt-1.5">
+            <div className="flex items-center justify-end gap-1 mb-0.5">
+              <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">Carried BV</span>
+              <InfoTooltip text={CARRIED_BOOK_VALUE_TOOLTIP} />
+            </div>
+            <NumericInput value={carriedPounds} onChange={setCarriedPounds} className={cellNumeric} placeholder="0" />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowCarried(true)}
+            className="mt-1 block w-full text-right text-[10.5px] font-medium text-violet-600 hover:text-violet-700"
+          >
+            Set Carried BV
+          </button>
+        )}
       </td>
       <td className="px-2 py-2">
         <FinancialInputCell needsValue={!isFinite(weeklyWagePounds) || weeklyWagePounds <= 0}>
@@ -1508,6 +1539,18 @@ function PlayerEditDrawer({
   const [agentPounds, setAgentPounds] = useState(c ? c.agentFeePence / 100 : NaN)
   const [startDate, setStartDate] = useState(c?.startDate ?? '')
   const [endDate, setEndDate] = useState(c?.endDate ?? '')
+
+  // Carried Book Value override (advanced, progressively disclosed). An imported
+  // extension block (EXTENSION phase, no fee, no override) is flagged for audit
+  // and auto-reveals; an already-set override stays revealed too.
+  const needsBookValueAudit =
+    !!c && c.phaseType === 'EXTENSION' && c.carriedBookValuePence == null && c.transferFeePence === 0
+  const [carriedPounds, setCarriedPounds] = useState(
+    c && c.carriedBookValuePence != null ? c.carriedBookValuePence / 100 : NaN,
+  )
+  const [showCarried, setShowCarried] = useState(
+    !!c && (c.carriedBookValuePence != null || needsBookValueAudit),
+  )
   const [saving, setSaving] = useState(false)
   const [archiving, setArchiving] = useState(false)
   const [confirmArchive, setConfirmArchive] = useState(false)
@@ -1580,6 +1623,14 @@ function PlayerEditDrawer({
         if (agentPence !== c.agentFeePence)         contractPatch.agentFeePence = agentPence
         if (startDate !== c.startDate)              contractPatch.startDate = startDate
         if (endDate !== c.endDate)                  contractPatch.endDate = endDate
+
+        // Carried Book Value override: a number when revealed & filled, else null
+        // (hidden or cleared reverts to standard transfer-fee amortisation).
+        const nextCarried =
+          showCarried && Number.isFinite(carriedPounds) && carriedPounds >= 0
+            ? Math.round(carriedPounds * 100)
+            : null
+        if (nextCarried !== c.carriedBookValuePence) contractPatch.carriedBookValuePence = nextCarried
 
         if (Object.keys(contractPatch).length > 0) {
           await api.roster.updateContract(c.id, contractPatch)
@@ -1678,6 +1729,16 @@ function PlayerEditDrawer({
                   <PoundInput value={agentPounds} onChange={setAgentPounds} />
                 </Field>
               </div>
+
+              <CarriedBookValueField
+                show={showCarried}
+                needsAudit={needsBookValueAudit}
+                valuePounds={carriedPounds}
+                onReveal={() => setShowCarried(true)}
+                onChange={setCarriedPounds}
+                onHide={() => { setShowCarried(false); setCarriedPounds(NaN) }}
+              />
+
               <div className="grid grid-cols-2 gap-4 mt-4">
                 <Field label="Contract start">
                   <DatePicker value={startDate} onChange={setStartDate} required placeholder="Select start date" />
@@ -1689,6 +1750,12 @@ function PlayerEditDrawer({
               <p className="mt-2 text-[12px] text-slate-500">
                 Current book value: <span className="num text-slate-700">{formatPence(c.bookValuePence)}</span>
               </p>
+              {player.joinedDate && player.joinedDate !== startDate && (
+                <p className="mt-1 text-[12px] text-slate-500">
+                  Joined the club: <span className="num text-slate-700">{formatDate(player.joinedDate)}</span>
+                  <span className="text-slate-400"> · contract start reflects a later extension</span>
+                </p>
+              )}
 
               {/* Contract ledger — only meaningful once there's history beyond
                   the initial signing. The current phase is always shown above. */}
@@ -2522,35 +2589,56 @@ function BookValueInfo() {
   )
 }
 
+// Compact info tooltip beside a field label. Rendered through a portal to
+// <body> and positioned off the icon's screen rect — the centred-above bubble
+// is clamped to the viewport so it can't be clipped by the modal's edge (the
+// "NEW CONTRACT END DATE" icon sits close to the right border).
 function InfoTooltip({ text }: { text: string }) {
-  const [open, setOpen] = useState(false)
+  const iconRef = useRef<HTMLButtonElement>(null)
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null)
+
+  const BUBBLE_WIDTH = 224 // matches w-56
+  const MARGIN = 8
+
+  const show = () => {
+    const r = iconRef.current?.getBoundingClientRect()
+    if (!r) return
+    const centre = r.left + r.width / 2
+    const half = BUBBLE_WIDTH / 2
+    // Clamp the bubble's left edge inside the viewport.
+    const left = Math.min(
+      Math.max(centre - half, MARGIN),
+      window.innerWidth - BUBBLE_WIDTH - MARGIN,
+    )
+    setCoords({ top: r.top - MARGIN, left })
+  }
+  const hide = () => setCoords(null)
+
   return (
     <span className="relative inline-flex">
       <button
+        ref={iconRef}
         type="button"
         aria-label="More information"
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        onFocus={show}
+        onBlur={hide}
         className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-slate-200 text-slate-600 text-[10px] font-semibold hover:bg-slate-300 transition-colors"
       >
         i
       </button>
-      <AnimatePresence>
-        {open && (
-          <motion.span
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 4 }}
-            transition={{ duration: 0.12 }}
+      {coords &&
+        createPortal(
+          <span
             role="tooltip"
-            className="absolute left-1/2 bottom-full z-50 mb-2 w-56 -translate-x-1/2 rounded-lg bg-slate-900 px-3 py-2 text-[11.5px] leading-snug text-white shadow-lg normal-case tracking-normal font-normal"
+            className="pointer-events-none fixed z-[1000] -translate-y-full rounded-lg bg-slate-900 px-3 py-2 text-[11.5px] leading-snug text-white shadow-lg normal-case tracking-normal font-normal"
+            style={{ width: BUBBLE_WIDTH, top: coords.top, left: coords.left }}
           >
             {text}
-          </motion.span>
+          </span>,
+          document.body,
         )}
-      </AnimatePresence>
     </span>
   )
 }
@@ -2660,6 +2748,82 @@ function PoundInput({
         className={cn(fieldClass, 'pl-7 num', invalid && 'border-red-300 ring-1 ring-red-200 focus-visible:ring-red-400')}
         placeholder="0"
       />
+    </div>
+  )
+}
+
+const CARRIED_BOOK_VALUE_TOOLTIP =
+  'Use this field for players who signed a contract extension mid-tenure. Enter their exact Net Book Value at the time of the extension to ensure accurate ongoing amortisation.'
+
+// Progressive-disclosure control for the Carried Book Value override. Hidden by
+// default behind a subtle "Advanced" link; once revealed it shows a £ input
+// with an info tooltip. When `needsAudit` is set (an imported extension block
+// with no fee basis) it auto-reveals and flags an amber warning so the CFO
+// knows to enter the value.
+function CarriedBookValueField({
+  show,
+  needsAudit,
+  valuePounds,
+  onReveal,
+  onChange,
+  onHide,
+}: {
+  show: boolean
+  needsAudit: boolean
+  valuePounds: number
+  onReveal: () => void
+  onChange: (n: number) => void
+  onHide: () => void
+}) {
+  if (!show) {
+    return (
+      <button
+        type="button"
+        onClick={onReveal}
+        className={cn(
+          'mt-2 inline-flex items-center gap-1 text-[11px] normal-case tracking-normal transition-colors',
+          needsAudit
+            ? 'font-medium text-amber-600 hover:text-amber-700'
+            : 'text-slate-400 hover:text-slate-600',
+        )}
+      >
+        {needsAudit && <AlertTriangle size={11} strokeWidth={2} className="text-amber-500" />}
+        {needsAudit ? 'Set carried book value' : 'Advanced'}
+      </button>
+    )
+  }
+
+  return (
+    <div
+      className={cn(
+        'mt-3 rounded-lg border p-3',
+        needsAudit ? 'border-amber-300 bg-amber-50/60' : 'border-slate-200 bg-slate-50/60',
+      )}
+    >
+      <Field
+        label={
+          <span className="inline-flex items-center gap-1.5">
+            {needsAudit && <AlertTriangle size={13} strokeWidth={2} className="text-amber-500" />}
+            Carried Book Value (£)
+            <InfoTooltip text={CARRIED_BOOK_VALUE_TOOLTIP} />
+          </span>
+        }
+      >
+        <PoundInput value={valuePounds} onChange={onChange} />
+      </Field>
+      {needsAudit && (
+        <p className="mt-2 text-[11.5px] leading-snug text-amber-700">
+          This looks like an extension block imported from a template — the original transfer fee is
+          unknown. Enter the remaining Net Book Value at the extension date so amortisation is accurate.
+        </p>
+      )}
+      <button
+        type="button"
+        onClick={onHide}
+        className="mt-2 text-[11.5px] font-medium text-slate-500 hover:text-slate-700"
+      >
+        Use standard transfer fee instead
+      </button>
     </div>
   )
 }

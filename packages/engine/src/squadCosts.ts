@@ -18,13 +18,20 @@
  *   compensation fee, and amortised agent fee are added to the player totals.
  */
 
-import { amortisationPeriodYears } from './amortisation.js'
+import { amortisationPeriodYears, effectiveFeePence } from './amortisation.js'
 
 export interface ContractInput {
   /** Application-level identifier — typically the player id (for breakdown rows). */
   playerId: string
   /** Total transfer fee in pence (0 for free transfers). */
   transferFeePence: number
+  /**
+   * Carried Book Value override (pence). When non-null the engine IGNORES
+   * `transferFeePence` and amortises this exact remaining Net Book Value over
+   * the phase length instead — for extension blocks where the original fee is
+   * unknown. Null/undefined = standard transfer-fee amortisation.
+   */
+  carriedBookValuePence?: number | null
   /** Annual wage in pence per year. */
   annualWagePence: number
   /** One-off agent fee in pence. */
@@ -98,7 +105,9 @@ export function calculateSquadCosts(
 ): SquadCostsResult {
   const breakdown: PlayerCostBreakdown[] = contracts.map((c) => {
     const { amortisationPence, annualisedAgentFeePence, totalAnnualCostPence } = annualCost({
-      feePence: c.transferFeePence,
+      // Carried Book Value override replaces the transfer fee as the amortisation
+      // principal when present; otherwise the standard fee is used.
+      feePence: effectiveFeePence(c.transferFeePence, c.carriedBookValuePence),
       annualWagePence: c.annualWagePence,
       agentFeePence: c.agentFeePence,
       contractLengthYears: c.contractLengthYears,

@@ -137,7 +137,7 @@ export async function onboardingRoutes(app: FastifyInstance) {
 
       const { data: items, error: iErr } = await supabase
         .from('template_roster_items')
-        .select('name, date_of_birth, nationality, position, squad_number, is_manager, estimated_transfer_fee, contract_start, contract_end')
+        .select('name, date_of_birth, nationality, position, squad_number, is_manager, estimated_transfer_fee, contract_start, contract_end, joined_date, contract_start_from_extension')
         .eq('template_club_id', templateClubId)
       if (iErr) throw iErr
 

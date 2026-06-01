@@ -10,6 +10,7 @@ import {
   generateAmortisationSchedule,
   currentBookValuePence,
   calculateRemainingBookValue,
+  effectiveFeePence,
   amortisationPeriodYears,
   AMORTISATION_CAP_YEARS,
   calculateSquadCosts,
@@ -572,6 +573,54 @@ describe('currentBookValuePence', () => {
     const date = utc(2026, 1, 1)
     expect(currentBookValuePence(FEE, date, date, date)).toBe(0)
   })
+
+  // ---- Carried Book Value override ----
+
+  it('carried override replaces the transfer fee as the amortisation principal', () => {
+    // 4-year phase; transfer fee says £5M but the carried NBV at the extension
+    // date is £2M. At the midpoint, half of the £2M (£1M) should remain — the
+    // £5M fee is ignored entirely.
+    const start = utc(2026, 1, 1)
+    const end   = utc(2030, 1, 1)
+    const asOf  = utc(2028, 1, 1)
+    const carried = 2_000_000_00
+    expect(currentBookValuePence(FEE, start, end, asOf, carried)).toBe(carried / 2)
+  })
+
+  it('carried override of 0 amortises to nothing (not the transfer fee)', () => {
+    const start = utc(2026, 1, 1)
+    const end   = utc(2030, 1, 1)
+    const asOf  = utc(2026, 6, 1)
+    expect(currentBookValuePence(FEE, start, end, asOf, 0)).toBe(0)
+  })
+
+  it('null/undefined carried override falls back to the transfer fee', () => {
+    const start = utc(2026, 1, 1)
+    const end   = utc(2030, 1, 1)
+    const asOf  = utc(2028, 1, 1)
+    expect(currentBookValuePence(FEE, start, end, asOf, null)).toBe(FEE / 2)
+    expect(currentBookValuePence(FEE, start, end, asOf, undefined)).toBe(FEE / 2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// effectiveFeePence — picks the carried override over the transfer fee.
+// ---------------------------------------------------------------------------
+describe('effectiveFeePence', () => {
+  it('returns the transfer fee when no override is given', () => {
+    expect(effectiveFeePence(5_000_000_00)).toBe(5_000_000_00)
+    expect(effectiveFeePence(5_000_000_00, null)).toBe(5_000_000_00)
+    expect(effectiveFeePence(5_000_000_00, undefined)).toBe(5_000_000_00)
+  })
+
+  it('returns the override when present, including 0', () => {
+    expect(effectiveFeePence(5_000_000_00, 2_000_000_00)).toBe(2_000_000_00)
+    expect(effectiveFeePence(5_000_000_00, 0)).toBe(0)
+  })
+
+  it('coerces bigint inputs', () => {
+    expect(effectiveFeePence(BigInt(5_000_000_00), BigInt(2_000_000_00))).toBe(2_000_000_00)
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -645,6 +694,53 @@ describe('calculateSquadCosts', () => {
     const result = calculateSquadCosts([])
     expect(result.totalSquadCostsPence).toBe(0)
     expect(result.breakdown).toEqual([])
+  })
+
+  it('Carried Book Value override drives amortisation instead of the transfer fee', () => {
+    // Extension block: original fee unknown/stale (£10M), but the carried NBV at
+    // the extension date is £4M over a 4-year phase → £1M/yr amortisation. The
+    // £10M transfer fee must be ignored.
+    const result = calculateSquadCosts([
+      {
+        playerId: 'p1',
+        transferFeePence: 10_000_000_00,
+        carriedBookValuePence: 4_000_000_00,
+        annualWagePence: 2_000_000_00,
+        agentFeePence: 0,
+        contractLengthYears: 4,
+      },
+    ])
+    expect(result.breakdown[0]!.amortisationPence).toBe(1_000_000_00) // 4M / 4, not 10M / 4
+    expect(result.breakdown[0]!.totalAnnualCostPence).toBe(3_000_000_00) // 1M + 2M wage
+  })
+
+  it('Carried Book Value override respects the 5-year amortisation cap', () => {
+    // 8-year phase, £10M carried NBV → capped at 5 years → £2M/yr.
+    const result = calculateSquadCosts([
+      {
+        playerId: 'p1',
+        transferFeePence: 0,
+        carriedBookValuePence: 10_000_000_00,
+        annualWagePence: 0,
+        agentFeePence: 0,
+        contractLengthYears: 8,
+      },
+    ])
+    expect(result.breakdown[0]!.amortisationPence).toBe(2_000_000_00) // 10M / min(8,5)
+  })
+
+  it('null carried override leaves standard transfer-fee amortisation intact', () => {
+    const result = calculateSquadCosts([
+      {
+        playerId: 'p1',
+        transferFeePence: 4_000_000_00,
+        carriedBookValuePence: null,
+        annualWagePence: 0,
+        agentFeePence: 0,
+        contractLengthYears: 4,
+      },
+    ])
+    expect(result.breakdown[0]!.amortisationPence).toBe(1_000_000_00) // 4M / 4
   })
 })
 

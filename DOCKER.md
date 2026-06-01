@@ -135,6 +135,10 @@ All optional; sensible defaults in [apps/api/src/scripts/sync-templates.ts](apps
 | `TRANSFERMARKT_RETRY_BASE_MS` | `1500` | First backoff (then 3 s, 6 s, …) |
 | `TRANSFERMARKT_FETCH_MANAGER` | on | Set `0` to skip the head-coach scrape |
 | `TRANSFERMARKT_FETCH_SQUAD_NUMBERS` | on | Set `0` to skip the kader shirt-number scrape |
+| `TRANSFERMARKT_FETCH_EXTENSIONS` | **off** | Set `1` to scrape each player's profile page for the real "Last contract extension" date. When found it becomes the contract start and flags the row as an extension block (so onboarding marks it EXTENSION and the CFO is prompted for the carried book value). **Adds ~1 HTML fetch per player** (~1,300 fetches to transfermarkt.com) — slow, so opt-in. |
+| `TRANSFERMARKT_PLAYER_DELAY_MS` | `350` | Throttle between player-profile fetches (only used when the above is on) |
+
+> **Extension scrape cost.** With `TRANSFERMARKT_FETCH_EXTENSIONS=1` the run goes from ~3 min to ~12–15 min because every player's profile page is fetched individually (the bulk squad endpoint has no renewal date). It hits transfermarkt.com directly, so the per-player delay + retry/backoff matter. Run it only when you specifically want accurate extension/amortisation seeding; the normal monthly bio refresh can leave it off.
 
 > **Note:** the felipeall **API** runs locally (no rate limit), but the shirt-number and
 > head-coach scrapes still hit **transfermarkt.com directly** over the public internet.

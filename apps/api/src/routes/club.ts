@@ -67,7 +67,7 @@ async function deriveSquadCostsForClub(clubId: string): Promise<{
 }> {
   const { data: contracts, error } = await supabase
     .from('contracts')
-    .select('player_id, transfer_fee, annual_wage, agent_fee, contract_length_years')
+    .select('player_id, transfer_fee, carried_book_value, annual_wage, agent_fee, contract_length_years')
     .eq('club_id', clubId)
     .eq('is_active', true)
 
@@ -76,6 +76,7 @@ async function deriveSquadCostsForClub(clubId: string): Promise<{
   const inputs: ContractInput[] = (contracts ?? []).map((c) => ({
     playerId: String(c.player_id),
     transferFeePence: Number(c.transfer_fee),
+    carriedBookValuePence: c.carried_book_value == null ? null : Number(c.carried_book_value),
     annualWagePence:  Number(c.annual_wage),
     agentFeePence:    Number(c.agent_fee),
     contractLengthYears: Number(c.contract_length_years),
