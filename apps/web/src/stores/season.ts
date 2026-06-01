@@ -1,0 +1,95 @@
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+
+/**
+ * Active-season store (MVP 2.1 — Dynamic Seasons).
+ *
+ * Decouples the platform from the hardcoded 2026/27 season. A season is
+ * identified by its START year (e.g. 2026 → the "2026/27" fiscal year, which
+ * runs 1 Jul 2026 → 30 Jun 2027). Everything season-dependent — the financial
+ * config fetched from the API, calendar dates, SSR thresholds, amortisation /
+ * contract-expiry "as-of" math — derives from `startYear` via the pure helpers
+ * below, so there is a single source of truth.
+ *
+ * 2026 is the platform's launch season (no earlier data exists); we allow
+ * stepping forward to plan future windows. The selection is persisted so a
+ * reload keeps the user in the season they were planning.
+ */
+
+// Platform launch season — nothing earlier has data.
+export const MIN_SEASON_START = 2026
+// How far forward a user may plan.
+export const MAX_SEASON_START = MIN_SEASON_START + 9
+
+export function clampSeasonStart(year: number): number {
+  if (year < MIN_SEASON_START) return MIN_SEASON_START
+  if (year > MAX_SEASON_START) return MAX_SEASON_START
+  return year
+}
+
+/** End (calendar) year of a fiscal season — always startYear + 1. */
+export function seasonEndYear(startYear: number): number {
+  return startYear + 1
+}
+
+/** Display label, e.g. 2026 → "2026/27". */
+export function seasonLabel(startYear: number): string {
+  return `${startYear}/${String((startYear + 1) % 100).padStart(2, '0')}`
+}
+
+/** Storage key matching the DB `season` column format, e.g. 2026 → "2026-27". */
+export function seasonKey(startYear: number): string {
+  return `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`
+}
+
+/** Fiscal year opens 1 July of the start year (UTC midnight). */
+export function seasonStartDate(startYear: number): Date {
+  return new Date(Date.UTC(startYear, 6, 1))
+}
+
+/** Fiscal year closes 30 June of the following year (UTC midnight). */
+export function seasonEndDate(startYear: number): Date {
+  return new Date(Date.UTC(startYear + 1, 5, 30))
+}
+
+/**
+ * The "as-of" date the engine should evaluate against for the selected season —
+ * the fiscal close (30 Jun of the end year). Amortisation book values and
+ * contract-expiry checks resolve against this instead of `new Date()`, so the
+ * numbers reflect the season the user is planning rather than today.
+ */
+export function seasonAsOfDate(startYear: number): Date {
+  return seasonEndDate(startYear)
+}
+
+/** True when an ISO YYYY-MM-DD date falls inside the season's fiscal window. */
+export function isWithinSeason(isoDate: string, startYear: number): boolean {
+  const d = new Date(isoDate.slice(0, 10) + 'T00:00:00Z').getTime()
+  return d >= seasonStartDate(startYear).getTime() && d <= seasonEndDate(startYear).getTime()
+}
+
+interface SeasonState {
+  /** Start (calendar) year of the active fiscal season, e.g. 2026 for 2026/27. */
+  startYear: number
+  setStartYear: (year: number) => void
+  nextSeason: () => void
+  prevSeason: () => void
+}
+
+export const useSeasonStore = create<SeasonState>()(
+  persist(
+    (set) => ({
+      startYear: MIN_SEASON_START,
+      setStartYear: (year) => set({ startYear: clampSeasonStart(year) }),
+      nextSeason: () => set((s) => ({ startYear: clampSeasonStart(s.startYear + 1) })),
+      prevSeason: () => set((s) => ({ startYear: clampSeasonStart(s.startYear - 1) })),
+    }),
+    {
+      name: 'headroom.activeSeason',
+      // Re-clamp on rehydrate in case MIN/MAX shift between releases.
+      onRehydrateStorage: () => (state) => {
+        if (state) state.startYear = clampSeasonStart(state.startYear)
+      },
+    },
+  ),
+)

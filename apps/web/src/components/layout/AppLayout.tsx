@@ -3,7 +3,9 @@ import { createPortal } from 'react-dom'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Sidebar } from './Sidebar'
+import { NotificationBell } from './NotificationBell'
 import { useClubStore } from '@/stores/club'
+import { useSeasonStore, seasonLabel } from '@/stores/season'
 import { StatusBadge } from '@/components/ui/badge'
 import { AnimatedNumber } from '@/components/ui/animated-number'
 import { ProgressBar } from '@/components/ui/progress-bar'
@@ -26,6 +28,7 @@ const routeLabel: Record<string, string> = {
 
 export function AppLayout() {
   const { clubName, financials, scenarios, setScenarios } = useClubStore()
+  const seasonStartYear = useSeasonStore((s) => s.startYear)
   const location = useLocation()
 
   const firstSegment = '/' + location.pathname.split('/')[1]
@@ -90,6 +93,7 @@ export function AppLayout() {
           )}
 
           <div className="flex-1 flex items-center justify-end gap-2.5 min-w-0">
+            <NotificationBell />
             <div className="text-right leading-tight">
               <div className="text-[13px] text-slate-900 font-medium">CFO</div>
               <div className="text-[11px] text-slate-400">Finance</div>
@@ -122,7 +126,7 @@ export function AppLayout() {
         <footer className="px-8 py-5 border-t border-slate-100">
           <div className="max-w-[1280px] mx-auto flex items-center justify-between">
             <p className="text-[11px] text-slate-400">{DISCLAIMER}</p>
-            <p className="num text-[11px] text-slate-400">v2.0 · 2026/27</p>
+            <p className="num text-[11px] text-slate-400">v2.0 · {seasonLabel(seasonStartYear)}</p>
           </div>
         </footer>
       </div>

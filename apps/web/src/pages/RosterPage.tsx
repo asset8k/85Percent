@@ -27,6 +27,7 @@ import { DatePicker } from '@/components/ui/date-picker'
 import { cn } from '@/lib/utils'
 import { useCan } from '@/lib/role'
 import { useClubStore } from '@/stores/club'
+import { useSeasonStore, seasonKey } from '@/stores/season'
 import { exportAmortisationXLSX } from '@/lib/exports/amortisationXlsx'
 import { findCountry } from '@/lib/countries'
 import { Flag } from '@/components/ui/flag'
@@ -90,7 +91,7 @@ export function RosterPage() {
   const refresh = async () => {
     setLoading(true)
     setError('')
-    const season = financials?.season ?? '2026-27'
+    const season = seasonKey(useSeasonStore.getState().startYear)
     try {
       const [a, b, m, f] = await Promise.all([
         api.roster.list(),
@@ -101,7 +102,7 @@ export function RosterPage() {
       setActive(a.players)
       setArchived(b.players)
       setManager(m.manager)
-      if (f) setFinancials(f)
+      setFinancials(f)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load roster')
     } finally {
@@ -177,7 +178,7 @@ export function RosterPage() {
               variant="ghost"
               onClick={() => exportAmortisationXLSX({
                 clubName: clubName ?? 'Headroom FC',
-                season: financials?.season ?? '2026-27',
+                season: financials?.season ?? seasonKey(useSeasonStore.getState().startYear),
                 players: active,
               })}
               disabled={active.length === 0}

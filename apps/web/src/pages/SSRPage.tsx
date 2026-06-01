@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
+import { useSeasonStore, seasonKey } from '@/stores/season'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/badge'
@@ -108,17 +109,26 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
 // Working Capital — 12-month grid
 // ---------------------------------------------------------------------------
 
-const MONTHS_OF_SEASON: Array<{ key: string; label: string }> = [
-  { key: '2026-07', label: 'Jul 2026' }, { key: '2026-08', label: 'Aug 2026' },
-  { key: '2026-09', label: 'Sep 2026' }, { key: '2026-10', label: 'Oct 2026' },
-  { key: '2026-11', label: 'Nov 2026' }, { key: '2026-12', label: 'Dec 2026' },
-  { key: '2027-01', label: 'Jan 2027' }, { key: '2027-02', label: 'Feb 2027' },
-  { key: '2027-03', label: 'Mar 2027' }, { key: '2027-04', label: 'Apr 2027' },
-  { key: '2027-05', label: 'May 2027' }, { key: '2027-06', label: 'Jun 2027' },
-]
-const SEASON = '2026-27'
+// The 12 fiscal months of a season (Jul of the start year → Jun of the next),
+// derived from the active season so the grid follows the TopBar selector.
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+function monthsOfSeason(startYear: number): Array<{ key: string; label: string }> {
+  const out: Array<{ key: string; label: string }> = []
+  for (let i = 6; i < 18; i++) {
+    const year = startYear + Math.floor(i / 12)
+    const month = i % 12 // 0-indexed
+    out.push({
+      key: `${year}-${String(month + 1).padStart(2, '0')}`,
+      label: `${MONTH_ABBR[month]} ${year}`,
+    })
+  }
+  return out
+}
 
 function WorkingCapitalTab() {
+  const seasonStartYear = useSeasonStore((s) => s.startYear)
+  const SEASON = seasonKey(seasonStartYear)
+  const MONTHS_OF_SEASON = useMemo(() => monthsOfSeason(seasonStartYear), [seasonStartYear])
   const [data, setData] = useState<WorkingCapitalResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -155,7 +165,7 @@ function WorkingCapitalTab() {
     }
   }
 
-  useEffect(() => { refresh() }, [])
+  useEffect(() => { refresh() }, [seasonStartYear]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const setField = (ym: string, key: 'cashflowPounds' | 'fundsPounds', value: number) => {
     setEdits((prev) => {
@@ -283,6 +293,8 @@ function WorkingCapitalTab() {
 // ---------------------------------------------------------------------------
 
 function LiquidityTab() {
+  const seasonStartYear = useSeasonStore((s) => s.startYear)
+  const SEASON = seasonKey(seasonStartYear)
   const [data, setData] = useState<LiquidityResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -308,7 +320,7 @@ function LiquidityTab() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [seasonStartYear]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = async () => {
     if (![assets, liabilities, marketValue].every(Number.isFinite)) return
@@ -429,6 +441,8 @@ function LiquidityTab() {
 // ---------------------------------------------------------------------------
 
 function EquityTab() {
+  const seasonStartYear = useSeasonStore((s) => s.startYear)
+  const SEASON = seasonKey(seasonStartYear)
   const [data, setData] = useState<EquityResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -452,7 +466,7 @@ function EquityTab() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [seasonStartYear]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const save = async () => {
     if (!Number.isFinite(liabilities) || !Number.isFinite(adjustedAssets)) return

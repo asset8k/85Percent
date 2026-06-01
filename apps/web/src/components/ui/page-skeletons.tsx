@@ -204,6 +204,48 @@ export function ScenariosSkeleton() {
 }
 
 // ---------------------------------------------------------------------------
+// Calendar — vertical compliance timeline
+// ---------------------------------------------------------------------------
+export function CalendarSkeleton() {
+  return (
+    <FadeIn>
+      {/* Page header */}
+      <div className="mb-8 flex items-center gap-3">
+        <span className="inline-block w-1.5 h-7 rounded-full bg-violet-200" />
+        <div className="flex-1">
+          <Skeleton className="h-6 w-64" />
+          <Skeleton className="h-3 w-96 mt-2" />
+        </div>
+      </div>
+
+      {/* Timeline */}
+      <div className="relative">
+        <div className="absolute top-2 bottom-2 w-px bg-slate-200" style={{ left: 134 }} />
+        <ul className="space-y-4">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <li key={i} className="flex items-start gap-0">
+              <div className="w-[120px] flex-shrink-0 pt-5">
+                <Skeleton className="h-3.5 w-20" />
+              </div>
+              <div className="relative flex-shrink-0" style={{ width: 28 }}>
+                <Skeleton className="absolute left-1/2 top-7 -translate-x-1/2 h-3 w-3 rounded-full" />
+              </div>
+              <SkeletonShellCard className="flex-1">
+                <div className="flex items-center gap-2 mb-3">
+                  <Skeleton className="h-4 w-28 rounded-full" />
+                </div>
+                <Skeleton className="h-4 w-56" />
+                <Skeleton className="h-3 w-full max-w-md mt-2.5" />
+              </SkeletonShellCard>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </FadeIn>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // SSR / Settings — generic two-column form skeleton
 // ---------------------------------------------------------------------------
 export function FormPageSkeleton() {

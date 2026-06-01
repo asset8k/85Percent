@@ -4,11 +4,14 @@ import { useAuthStore } from '@/stores/auth'
 import { supabase } from '@/lib/supabase'
 import { api } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
+import { useSeasonStore, seasonKey } from '@/stores/season'
+import { useNotificationsStore } from '@/stores/notifications'
 import { Spinner } from '@/components/ui/spinner'
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, setSession } = useAuthStore()
   const { clubId, setClub, setFinancials } = useClubStore()
+  const seasonStartYear = useSeasonStore((s) => s.startYear)
   const location = useLocation()
 
   // `initialized` becomes true once we've confirmed the session state from Supabase.
@@ -35,6 +38,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
           financials: null,
           scenarios: [],
         })
+        useNotificationsStore.getState().reset()
       }
     })
 
@@ -45,19 +49,27 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     // Fetch when there's a session AND the club has not been hydrated for THIS user.
     // Using clubId (not clubName) — clubName can be set by an optimistic update during signin.
     if (session && !clubId) {
-      Promise.all([api.club.get(), api.club.getFinancials('2026-27').catch(() => null)])
-        .then(([club, financials]) => {
-          setClub(club.id, club.name, club.leagueId, club.logoUrl)
-          if (financials) setFinancials(financials)
-        })
+      api.club.get()
+        .then((club) => setClub(club.id, club.name, club.leagueId, club.logoUrl))
         .catch((err) => {
           // Don't leave the user stuck on a blank screen; surface the failure to the console
-          // and let them try again. They can still navigate to /setup manually if financials
-          // are the issue, but a hard club failure means the API is unreachable.
+          // and let them try again. A hard club failure means the API is unreachable.
           console.error('Failed to load club for authenticated user:', err)
         })
     }
-  }, [session, clubId, setClub, setFinancials])
+  }, [session, clubId, setClub])
+
+  // Financials are season-scoped: (re)load them whenever the club is known or the
+  // active season changes. A season with no configured row resolves to null, and
+  // the Dashboard renders its "set up your financials" empty-state for it.
+  useEffect(() => {
+    if (!session || !clubId) return
+    let cancelled = false
+    api.club.getFinancials(seasonKey(seasonStartYear))
+      .then((f) => { if (!cancelled) setFinancials(f) })
+      .catch(() => { if (!cancelled) setFinancials(null) })
+    return () => { cancelled = true }
+  }, [session, clubId, seasonStartYear, setFinancials])
 
   // Still waiting for the initial session check — render nothing rather than
   // bouncing the user to /login prematurely.

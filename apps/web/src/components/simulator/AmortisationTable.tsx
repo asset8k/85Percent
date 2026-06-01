@@ -1,13 +1,14 @@
 import type { AmortisationEntry } from '@headroom/shared'
 import { formatPence } from '@headroom/shared'
+import { useSeasonStore, seasonKey } from '@/stores/season'
 
 interface AmortisationTableProps {
   schedule: AmortisationEntry[]
 }
 
-const CURRENT_SEASON = '2026-27'
-
 export function AmortisationTable({ schedule }: AmortisationTableProps) {
+  // Highlight the row matching the active season rather than a hardcoded one.
+  const currentSeason = seasonKey(useSeasonStore((s) => s.startYear))
   return (
     <table className="w-full">
       <thead>
@@ -24,7 +25,7 @@ export function AmortisationTable({ schedule }: AmortisationTableProps) {
           </tr>
         ) : (
           schedule.map((row) => {
-            const isCurrent = row.season === CURRENT_SEASON
+            const isCurrent = row.season === currentSeason
             return (
               <tr
                 key={row.season}

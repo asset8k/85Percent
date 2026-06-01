@@ -87,6 +87,23 @@ export interface TotpSetupResponse {
   qrDataUrl: string
 }
 
+export type NotificationType = 'INFO' | 'WARNING' | 'CRITICAL'
+
+export interface NotificationItem {
+  id: string
+  title: string
+  message: string
+  type: NotificationType
+  isRead: boolean
+  isClubWide: boolean
+  createdAt: string
+}
+
+export interface NotificationsResponse {
+  notifications: NotificationItem[]
+  unreadCount: number
+}
+
 export interface ClubFinancialsResponse {
   id: string
   clubId: string
@@ -325,6 +342,20 @@ export const api = {
       apiFetch<{ success: boolean }>('/auth/change-password', {
         method: 'POST',
         body: JSON.stringify({ currentPassword, newPassword }),
+      }),
+  },
+  notifications: {
+    list: () => apiFetch<NotificationsResponse>('/notifications'),
+    markRead: (id: string) =>
+      apiFetch<{ success: boolean }>(`/notifications/${id}/read`, { method: 'PATCH' }),
+    markAllRead: () =>
+      apiFetch<{ success: boolean }>('/notifications/read-all', { method: 'PATCH' }),
+    // Event-driven derivation: scans roster + financials for the given season
+    // and raises any standing alerts not already live. Returns how many it made.
+    refresh: (season?: string) =>
+      apiFetch<{ created: number }>('/notifications/refresh', {
+        method: 'POST',
+        body: JSON.stringify(season ? { season } : {}),
       }),
   },
   club: {

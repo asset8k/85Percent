@@ -7,6 +7,8 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
 import { useAuthStore } from '@/stores/auth'
+import { useSeasonStore, seasonKey, seasonLabel } from '@/stores/season'
+import { SeasonSelector } from '@/components/layout/SeasonSelector'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
@@ -65,6 +67,8 @@ export function ClubSetupPage() {
 
 export function FinancialTab() {
   const { financials, setFinancials, leagueId } = useClubStore()
+  const seasonStartYear = useSeasonStore((s) => s.startYear)
+  const activeSeasonKey = seasonKey(seasonStartYear)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
 
@@ -142,8 +146,8 @@ export function FinancialTab() {
     setError('')
     setSaved(false)
     try {
-      await api.club.updateFinancials({ season: '2026-27', ...data })
-      const updated = await api.club.getFinancials('2026-27')
+      await api.club.updateFinancials({ season: activeSeasonKey, ...data })
+      const updated = await api.club.getFinancials(activeSeasonKey)
       setFinancials(updated)
       setSaved(true)
       toast.success('Settings saved', 'Thresholds updated across the app.')
@@ -308,7 +312,7 @@ export function FinancialTab() {
               <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
               <h2 className="text-[15px] font-semibold text-slate-900">Season Financials</h2>
             </div>
-            <span className="meta-label">2026/27</span>
+            <span className="meta-label">{seasonLabel(seasonStartYear)}</span>
           </div>
           <p className="text-[13px] text-slate-500 mb-6 pl-4">These figures define the Green and Red Thresholds used in every simulation.</p>
 
@@ -737,6 +741,21 @@ function ProfileSecurityTab() {
 
   return (
     <div className="space-y-5 max-w-3xl">
+      {/* Active season */}
+      <Card className="p-6">
+        <SectionHeader
+          title="Active Season"
+          subtitle="The fiscal season that drives your financial config, calendar dates, and SCR projections across the app."
+        />
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-[14px] text-slate-900 font-medium">Planning season</div>
+            <div className="text-[12.5px] text-slate-500 mt-0.5">Runs 1 Jul → 30 Jun. Step forward to plan future windows.</div>
+          </div>
+          <SeasonSelector />
+        </div>
+      </Card>
+
       {/* Profile */}
       <Card className="p-6">
         <SectionHeader title="Profile" subtitle="Your name and the email you sign in with." />

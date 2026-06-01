@@ -304,7 +304,11 @@ export function DashboardPage() {
       <Card className="p-6 mb-6">
         <ComplianceGauge
           currentPct={currentPct}
-          projectedPct={currentPct}
+          projectedPct={
+            activeBaseline && activeBaseline.includedCount > 0
+              ? activeBaseline.ratio * 100
+              : currentPct
+          }
           greenPct={greenPct}
           redPct={redPct}
         />

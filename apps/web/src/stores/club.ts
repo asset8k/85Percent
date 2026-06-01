@@ -17,7 +17,9 @@ interface ClubState {
   // logoUrl is optional — omit it to leave the current crest untouched (e.g. on
   // a league switch that shouldn't clear the logo).
   setClub: (id: string, name: string, leagueId: string, logoUrl?: string | null) => void
-  setFinancials: (f: ClubFinancialsResponse) => void
+  // Accepts null to clear financials when switching to a season that has no
+  // configured row yet (the Dashboard then shows its setup empty-state).
+  setFinancials: (f: ClubFinancialsResponse | null) => void
   setScenarios: (scenarios: ScenarioDetail[]) => void
   upsertScenario: (scenario: ScenarioDetail) => void
   removeScenario: (id: string) => void

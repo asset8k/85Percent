@@ -31,6 +31,7 @@ model Club {
   ssrLiquidity      SsrLiquidity[]
   ssrEquity         SsrEquity[]
   invites           Invite[]
+  notifications     Notification[]
 
   @@map("clubs")
 }
@@ -55,9 +56,10 @@ model User {
   passwordResetToken   String?   @map("password_reset_token")
   passwordResetExpires DateTime? @map("password_reset_expires")
 
-  club      Club       @relation(fields: [clubId], references: [id])
-  scenarios Scenario[]
-  auditLogs AuditLog[]
+  club          Club           @relation(fields: [clubId], references: [id])
+  scenarios     Scenario[]
+  auditLogs     AuditLog[]
+  notifications Notification[]
 
   @@map("users")
 }
@@ -300,6 +302,35 @@ model Invite {
 
   @@index([email, acceptedAt])
   @@map("invites")
+}
+
+// Severity of an in-app notification, driving the UI colour-coding
+// (INFO=blue, WARNING=amber, CRITICAL=red).
+enum NotificationType {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+// In-app notification (MVP 2.1). Event-driven alerts surfaced via the TopBar
+// bell. Always club-scoped; `userId` narrows an alert to a single user when set
+// (null = club-wide, visible to every member).
+model Notification {
+  id        String           @id @default(uuid())
+  clubId    String           @map("club_id")
+  userId    String?          @map("user_id") // null = club-wide
+  title     String
+  message   String
+  type      NotificationType @default(INFO)
+  isRead    Boolean          @default(false) @map("is_read")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  club Club  @relation(fields: [clubId], references: [id])
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([clubId, createdAt])
+  @@index([userId, isRead])
+  @@map("notifications")
 }
 
 // ── Template roster dictionary (MVP 2.0 onboarding) ─────────────────────────

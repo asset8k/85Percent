@@ -2154,3 +2154,40 @@ Headroom uses **Supabase Auth** end-to-end: passwords live in Supabase `auth.use
 - **Financials is now its own sidebar entry** (`/financials`, **`FinancialsPage`**), CFO-only, separate from **Settings** (`/setup`) — it's club compliance config, not a personal/workspace setting. `FinancialTab` is exported from `ClubSetupPage` and reused. Settings tabs are now Profile & Security / Team & Access / Activity Log / Danger Zone. Sidebar gained a CFO-only "Financials" item (£ icon, hidden for non-CFO; API still enforces). `AppLayout` title map + the Dashboard/SSR empty-state links now point to `/financials`.
 - **Dashboard "Financial Risk" card restored** (after the gauge): uses engine `calculateLevy` / `calculatePointsDeduction` with the league config. Green → "No sanctions" + headroom; Amber → Estimated Financial Levy + overspend-above-Green; Red → Estimated Points Deduction (pts) + legal-advice note. Mirrors the Scenario builder's SanctionsPanel.
 - Web typecheck + production build clean.
+
+## Session 24 — Dynamic Seasons + In-App Notifications + Interactive Calendar (MVP 2.1)
+
+### Phase 1 — Dynamic Seasons
+- **`stores/season.ts`** (new): zustand + `persist` store keyed on `startYear` (e.g. 2026 → "2026/27", fiscal 1 Jul → 30 Jun). Pure helpers: `seasonLabel`, `seasonKey` (DB "2026-27" format), `seasonStartDate`/`seasonEndDate`, `seasonAsOfDate` (fiscal close — the engine's as-of date for the season), `isWithinSeason`, plus `MIN/MAX_SEASON_START` (2026 launch → +9) and `clampSeasonStart`. `nextSeason`/`prevSeason`/`setStartYear`.
+- **`SeasonSelector.tsx`** (new) in the TopBar (left of the SCR pill): rounded-full dropdown matching the SCR pill / kit; lists selectable seasons, persists choice.
+- **Season now dictates financials**: `ProtectedRoute` fetches `getFinancials(seasonKey)` in a season-scoped effect and **refetches on season change** (a season with no row resolves to `null` → Dashboard shows its setup empty-state). `setFinancials` now accepts `null`. `FinancialTab` (save+refetch) and `RosterPage` use the active season key; `SSRPage` derives `SEASON` + the 12-month grid from the store and refetches per season; `AmortisationTable` highlights the active-season row; footer/labels are dynamic.
+
+### Phase 2 — Notifications backend
+- **schema.prisma**: `enum NotificationType { INFO WARNING CRITICAL }` + `Notification` model (`clubId`, optional `userId` for per-user vs club-wide, `title`, `message`, `type`, `isRead`, `createdAt`; indexes on `(clubId,createdAt)` and `(userId,isRead)`; FKs cascade). Relations added to Club + User. Migration `20260601000004_notifications` **applied to live DB**; client generated.
+- **`lib/notifications.ts`** (new): `createNotification` (fire-and-forget emit primitive) + `createNotificationOnce` (idempotent within a window — dedup by `(club_id,title)`), the foundation other routes emit from.
+- **`routes/notifications.ts`** (new, registered): `GET /notifications` (club-wide + own, desc, limit 50, + `unreadCount`), `PATCH /notifications/:id/read`, `PATCH /notifications/read-all` (both scoped by club + visibility), and `POST /notifications/refresh` — event-driven derivation that raises **contract-expiry** (current contracts ending ≤6 months, CRITICAL ≤2mo) and **compliance** (Levy Zone / Points Risk from season financials, squad costs via the engine) alerts idempotently.
+
+### Phase 3 — Notifications UI
+- **`stores/notifications.ts`** (new): items + unreadCount + load/refresh/markRead(optimistic)/markAllRead/reset.
+- **`NotificationBell.tsx`** (new) in the TopBar: bell + red count badge; popover lists alerts with **type-coded icons (INFO=blue, WARNING=amber, CRITICAL=red)**, a "Mark all as read" button, relative timestamps, click-to-read, empty-state. On mount + season change it calls `refresh(seasonKey)` then polls every 60s. Reset on `SIGNED_OUT`.
+- **`api.ts`**: `notifications.list|markRead|markAllRead|refresh` + `NotificationItem`/`NotificationsResponse`/`NotificationType` types.
+
+### Phase 4 — Interactive Calendar
+- **`CalendarPage.tsx`** rewritten. Fixed EFL dates now **derive their year from the active season** (summer/autumn in start year; Jan→Jun roll into the end year) via real UTC `Date`s sorted chronologically. A **dynamic "N Contracts Expiring" node** is injected from the live roster (players whose current active contract `endDate` falls in the season window, `isWithinSeason`), positioned at the earliest in-season expiry. The node is **clickable → right-anchored side-drawer** (subtle slide; portal + framer) listing each player's position badge, shirt no., exact expiry date, and current annual + weekly wage. ESC / backdrop dismiss.
+
+### Verification
+- Typecheck: **web + api + engine + shared all clean**. Web production build clean.
+- Tests: engine **119/119**, api scripts **40/40**.
+- Live DB smoke (service role): notifications insert (CRITICAL enum), the route's exact `.or(user_id.is.null,user_id.eq.X)` visibility filter, mark-read, delete — **all OK**. New routes return **401** unauthenticated.
+
+### Note for review
+- The Calendar side-drawer uses a subtle horizontal **slide** (drawers conventionally slide, and the spec said "slide out a side-drawer"). The standing "modals = pure fade" rule was about centered dialogs; if you'd rather the drawer fade too, it's a one-line change.
+
+### Session 24 follow-up — Calendar polish + season selector relocation
+- **Season selector moved out of the TopBar** into Settings → Profile & Security (new "Active Season" card, visible to all users). TopBar is back to SCR pill + bell. Store/behaviour unchanged.
+- **Calendar loader** now uses a shimmer `CalendarSkeleton` (new in `page-skeletons.tsx`) that mirrors the timeline layout — consistent with every other page (Spinner removed).
+- **Calendar UI upgraded into a working dashboard**:
+  - **COMPLIANCE TEST nodes** show a right-aligned, colour-coded **Projected SCR** pill pulled from global state (`computeActiveBaseline(financials, includedScenarios)` — same Active Baseline as the TopBar pill), with status label; graceful "Set up financials" state when none.
+  - **CHECKPOINT / DEADLINE nodes** carry a subtle **Pending ↔ Completed** toggle (local `Set<string>` of node ids, reset on season change). Completed → card dims (`opacity-60`) + timeline dot turns success-green.
+  - Clean vertical layout preserved; new pills/toggles use the existing kit palette.
+- Web typecheck + production build clean.
