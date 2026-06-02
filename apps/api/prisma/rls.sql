@@ -217,6 +217,21 @@ CREATE POLICY "manager_contracts: own club only"
 ALTER TABLE public.template_clubs        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.template_roster_items ENABLE ROW LEVEL SECURITY;
 
+-- ── notifications — tenant-scoped, same pattern as players ─────────────────
+-- Shipped in the MVP 2.1 in-app notifications migration without RLS, tripping
+-- Supabase's "RLS Disabled in Public" advisor. Scoped by club_id (a null
+-- user_id means a club-wide notification); the per-user fan-out is handled in
+-- the API, which reads/writes as the service role and bypasses RLS anyway.
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "notifications: own club only" ON public.notifications;
+
+CREATE POLICY "notifications: own club only"
+  ON public.notifications
+  FOR ALL
+  USING  (club_id = public.current_club_id())
+  WITH CHECK (club_id = public.current_club_id());
+
 -- ── _prisma_migrations — Prisma's internal bookkeeping ─────────────────────
 -- Only touched by the migration engine over the privileged direct connection
 -- (table owner / postgres role, which bypasses RLS). Enable RLS with no policy

@@ -333,6 +333,10 @@ const ParseBody = z.object({
 // /roster/commit accepts an array of already-validated staging rows. The server
 // re-validates against the schema before writing — never trust the client.
 const CommitBody = z.object({
+  // 'append' (default) adds the batch on top of the current squad; 'replace'
+  // wipes the existing ACTIVE players + their contracts first (the head coach
+  // and archived players are left untouched).
+  mode: z.enum(['append', 'replace']).optional().default('append'),
   rows: z.array(
     z.object({
       name: z.string().min(1),
@@ -550,6 +554,33 @@ export async function rosterRoutes(app: FastifyInstance) {
     }
 
     try {
+      // Replace mode: wipe the current ACTIVE squad before inserting the new
+      // batch, so a CSV import doesn't stack on top of a pre-filled template.
+      // FK-safe order (no REST transactions): scenario_actions referencing those
+      // players → their contracts → the players. The head coach and any archived
+      // (soft-deleted) players are intentionally preserved.
+      if (parsed.data.mode === 'replace') {
+        const { data: activeRows, error: findErr } = await supabase
+          .from('players')
+          .select('id')
+          .eq('club_id', request.clubId)
+          .eq('is_active', true)
+        if (findErr) throw findErr
+        const activeIds = (activeRows ?? []).map((p) => String(p.id))
+
+        if (activeIds.length > 0) {
+          const { error: saErr } = await supabase.from('scenario_actions').delete().in('player_id', activeIds)
+          if (saErr) throw saErr
+          const { error: cDelErr } = await supabase.from('contracts').delete().in('player_id', activeIds)
+          if (cDelErr) throw cDelErr
+          const { error: pDelErr } = await supabase.from('players').delete().in('id', activeIds)
+          if (pDelErr) throw pDelErr
+          for (const id of activeIds) {
+            await writeAuditLog(request, 'players', id, 'delete', { reason: 'roster CSV replace' })
+          }
+        }
+      }
+
       const nowISO = new Date().toISOString()
       const playersToInsert: Array<Record<string, unknown>> = []
       const contractsToInsert: Array<Record<string, unknown>> = []

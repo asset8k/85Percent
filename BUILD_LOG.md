@@ -2316,6 +2316,17 @@ Web typecheck clean; shared rebuilt.
 
 Web + API typecheck clean.
 
+  - **CSV import replace-vs-append:** `/roster/commit` always *appended*, so
+    importing a CSV on top of a pre-filled template duplicated the squad. Added a
+    `mode: 'append' | 'replace'` to the commit body (default `append` for back-
+    compat). In `replace` mode the server first wipes the current **active**
+    players — FK-safe order: their `scenario_actions` → `contracts` → `players`
+    (head coach + archived players preserved) — then inserts the batch. The CSV
+    modal now shows a Replace / Add-to-squad choice whenever the club already has
+    a squad (defaults to Replace so an import never silently duplicates), with a
+    one-line warning in replace mode and a mode-aware commit button. `existingCount`
+    passed in from `RosterPage`; `api.roster.commit(rows, mode)`.
+
   - **Follow-up (coach contract editable):** with coaches now allowed to have no
     contract (#2 above), the Head-Coach edit drawer hid its contract block
     entirely (`{c && …}`), so wages/fee/dates vanished. The drawer now **always**

@@ -399,10 +399,10 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ csvText }),
       }),
-    commit: (rows: NonNullable<RosterStagingRow['parsed']>[]) =>
+    commit: (rows: NonNullable<RosterStagingRow['parsed']>[], mode: 'append' | 'replace' = 'append') =>
       apiFetch<{ playersCreated: number; contractsCreated: number }>('/roster/commit', {
         method: 'POST',
-        body: JSON.stringify({ rows }),
+        body: JSON.stringify({ rows, mode }),
       }),
     createPlayer: (input: ManualPlayerInput) =>
       apiFetch<{ playerId: string; contractId: string }>('/roster/player', {

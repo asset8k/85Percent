@@ -345,6 +345,7 @@ export function RosterPage() {
         {csvOpen && (
           <CSVUploadModal
             key="csv"
+            existingCount={active.length}
             onClose={() => setCsvOpen(false)}
             onCommitted={async () => {
               setCsvOpen(false)
@@ -1039,10 +1040,51 @@ async function fileToCsvText(file: File): Promise<string> {
   return XLSX.utils.sheet_to_csv(sheet, { blankrows: false, dateNF: 'yyyy-mm-dd' })
 }
 
+// Segmented choice between replacing the current squad and appending to it.
+function ImportModeOption({
+  active,
+  onClick,
+  title,
+  desc,
+}: {
+  active: boolean
+  onClick: () => void
+  title: string
+  desc: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'text-left rounded-lg border px-3 py-2.5 transition-colors',
+        active
+          ? 'border-violet-400 bg-white ring-1 ring-violet-200'
+          : 'border-slate-200 bg-white hover:border-slate-300',
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className={cn(
+            'inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border',
+            active ? 'border-violet-600' : 'border-slate-300',
+          )}
+        >
+          {active && <span className="h-1.5 w-1.5 rounded-full bg-violet-600" />}
+        </span>
+        <span className="text-[13px] font-medium text-slate-900">{title}</span>
+      </div>
+      <p className="mt-1 text-[12px] text-slate-500 pl-[22px] leading-snug">{desc}</p>
+    </button>
+  )
+}
+
 function CSVUploadModal({
+  existingCount,
   onClose,
   onCommitted,
 }: {
+  existingCount: number
   onClose: () => void
   onCommitted: () => void
 }) {
@@ -1051,6 +1093,10 @@ function CSVUploadModal({
   const [committing, setCommitting] = useState(false)
   const [rows, setRows] = useState<RosterStagingRow[]>([])
   const [globalError, setGlobalError] = useState('')
+  // When the club already has a squad (e.g. a pre-filled template), the user
+  // chooses whether to wipe it or add on top. Default to 'replace' so an import
+  // doesn't silently duplicate the existing squad.
+  const [mode, setMode] = useState<'replace' | 'append'>('replace')
 
   const handleFile = async (file: File) => {
     setParsing(true)
@@ -1077,7 +1123,7 @@ function CSVUploadModal({
       const payload = rows
         .filter((r) => r.ok && r.parsed)
         .map((r) => r.parsed!)
-      await api.roster.commit(payload)
+      await api.roster.commit(payload, existingCount > 0 ? mode : 'append')
       onCommitted()
     } catch (e) {
       setGlobalError(e instanceof Error ? e.message : 'Failed to commit roster')
@@ -1131,6 +1177,38 @@ function CSVUploadModal({
           </div>
         </div>
 
+        {/* Replace vs append — only relevant once a valid file is staged and the
+            club already has a squad to act on. */}
+        {rows.length > 0 && existingCount > 0 && (
+          <div className="px-5 pb-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+              <div className="meta-label mb-2">
+                You already have {existingCount} {existingCount === 1 ? 'player' : 'players'}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <ImportModeOption
+                  active={mode === 'replace'}
+                  onClick={() => setMode('replace')}
+                  title="Replace squad"
+                  desc={`Wipe the current ${existingCount} and import these`}
+                />
+                <ImportModeOption
+                  active={mode === 'append'}
+                  onClick={() => setMode('append')}
+                  title="Add to squad"
+                  desc="Keep the current squad and add these on top"
+                />
+              </div>
+              {mode === 'replace' && (
+                <p className="mt-2 text-[12px] text-amber-700">
+                  The current {existingCount} active {existingCount === 1 ? 'player' : 'players'} and their
+                  contracts will be removed. Your head coach is kept.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
         {globalError && (
           <div className="px-5 pb-3">
             <div className="border border-red-200 bg-red-50 rounded-lg px-4 py-3 text-[13px] text-red-700">
@@ -1177,7 +1255,11 @@ function CSVUploadModal({
           </Button>
           <Button onClick={commit} disabled={!allValid || committing}>
             {committing ? <Spinner size={14} /> : null}
-            {committing ? 'Committing…' : `Commit ${rows.filter((r) => r.ok).length} players`}
+            {committing
+              ? 'Committing…'
+              : existingCount > 0 && mode === 'replace'
+              ? `Replace with ${rows.filter((r) => r.ok).length} players`
+              : `Commit ${rows.filter((r) => r.ok).length} players`}
           </Button>
         </div>
       </div>
