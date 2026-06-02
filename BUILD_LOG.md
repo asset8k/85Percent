@@ -2353,3 +2353,18 @@ Web + API typecheck clean.
     structurally equal, via a small `sameJSON` guard); and AppLayout only flashes
     the SCR loading pill on the genuine **first** scenarios load — later refreshes
     reload silently and let the figure animate in place. Web typecheck clean.
+
+  - **SSR Tests redesign (all 3 tabs):** reworked `SSRPage.tsx` to a cohesive,
+    UI-Kit-aligned design while keeping all data/logic untouched. New shared
+    `TestResultBanner` mirrors the SCRResultPanel StatusBanner (coloured left
+    rail + tint, status dot + PASS/FAIL/NO DATA label, test title + plain-English
+    formula, and the test's single headline figure big on the right) — replaces
+    the three ad-hoc headline cards. Added a `ZoneBar` (red/green zones split at
+    the threshold with a marker for where the club sits + axis ticks) to the
+    Liquidity and Equity tabs so pass/fail is visual and intuitive; Liquidity
+    plots net liquid position vs the £85M floor, Equity plots the ratio vs the
+    season cap. Working Capital gained a 12-block "season at a glance" pass/fail
+    strip (green/red/dashed-empty per month with a legend) above the grid, and the
+    grid now tints failing rows + shows a status dot per month. Tabs got numbered
+    pills (1/2/3). Shared `SectionHeader`/`StatBlock`/`LegendDot` primitives for
+    consistency. Web typecheck clean; presentational only.
