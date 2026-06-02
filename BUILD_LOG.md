@@ -2604,3 +2604,51 @@ plus an optional free-text job title.
 - `LoginPage` invite banner uses `inviteAccessSummary()` instead of role label.
 
 API + web typecheck clean; full `pnpm build` green.
+
+## Session — Internationalization (i18n) scaffolding
+
+European-expansion groundwork: English (en, fallback), Spanish (es), French
+(fr), Italian (it). Architecture + UI toggle only — the app text is NOT fully
+translated yet (Sidebar nav is the proof-of-concept).
+
+### Phase 1 & 2 — Config + global init
+- `pnpm add i18next react-i18next` (apps/web).
+- `src/locales/{en,es,fr,it}/translation.json` — structural keys only:
+  `nav.*` (the 7 sidebar items), `common.*` (save/cancel/delete/edit/close/
+  loading), `settings.interfaceLanguage(+Hint)`.
+- `src/lib/i18n.ts` — single global i18next instance (`initReactI18next`, no
+  `<I18nextProvider>` needed). `fallbackLng: 'en'`, `escapeValue: false`.
+  Exports `SUPPORTED_LANGUAGES`, `LANGUAGE_LABELS` (native names), and
+  `setLanguage(lng)` which calls `changeLanguage` + persists to localStorage
+  (`headroom-language`); boot reads the saved choice back.
+- `main.tsx` imports `./lib/i18n` for its init side effect before render.
+
+### Phase 3 — Language toggle (Settings ▸ Profile & Security)
+- `InterfaceLanguageCard` in `ClubSetupPage.tsx`: UI Kit Card + SectionHeader +
+  the native styled `<select>` (same class convention as the currency picker).
+  Options English / Español / Français / Italiano; onChange → `setLanguage`.
+
+### Phase 4 — Locale-aware formatting (dates/numbers, NOT currency)
+- `src/lib/locale.ts` — `activeLocale()` maps the live i18n language → BCP-47
+  (`en-GB`/`es-ES`/`fr-FR`/`it-IT`); `formatDate()` / `formatNumber()` read it
+  at call time. **Money stays currency-locale-based** (`formatMoney`) and is
+  untouched, per the "don't disrupt data formatting" directive.
+- POC wiring: `CalendarPage` `fmtDate` now uses `formatDate` (e.g. "01 juil.
+  2026" in FR, "01 lug 2026" in IT) — removed the hardcoded English `MONTHS`.
+
+### POC text wrapping
+- `Sidebar.tsx` nav items carry `labelKey` (`nav.*`) rendered via
+  `useTranslation().t()` — switching language re-localizes the sidebar live.
+
+Verified: i18next `changeLanguage` returns translated values for all 4 langs;
+Intl date parity confirmed per locale. web typecheck clean; `pnpm build` green.
+Rest of the app intentionally left in English (no mass string conversion).
+
+### Follow-up — UI Kit Select (replaces native dropdowns)
+- New `components/ui/select.tsx` — generic, styled dropdown mirroring
+  `CountryPicker` (trigger button + popup listbox, violet field style, rotating
+  chevron, check on the active row, click-outside/Escape). Each option takes an
+  optional `leading` node.
+- Settings ▸ Base Workspace Currency and Interface Language now use `<Select>`
+  instead of the native `<select>` (fixes the cramped browser arrow/padding).
+  Currency options show a £/€/$ glyph; languages show a `<Flag>` (GB/ES/FR/IT).

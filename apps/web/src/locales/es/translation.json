@@ -1,0 +1,23 @@
+{
+  "nav": {
+    "dashboard": "Panel",
+    "roster": "Plantilla",
+    "scenarios": "Escenarios",
+    "leagueTable": "Clasificación",
+    "calendar": "Calendario",
+    "financials": "Finanzas",
+    "ssrTests": "Pruebas SSR"
+  },
+  "common": {
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "delete": "Eliminar",
+    "edit": "Editar",
+    "close": "Cerrar",
+    "loading": "Cargando…"
+  },
+  "settings": {
+    "interfaceLanguage": "Idioma de la interfaz",
+    "interfaceLanguageHint": "El idioma de los menús, botones y etiquetas. Tus datos nunca se traducen."
+  }
+}

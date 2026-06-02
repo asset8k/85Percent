@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -12,7 +13,7 @@ import { Button } from '@/components/ui/button'
 const navItems = [
   {
     to: '/dashboard',
-    label: 'Dashboard',
+    labelKey: 'nav.dashboard',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
         <path d="M4 18V8" /><path d="M10 18V4" /><path d="M16 18V11" /><path d="M3 21h18" />
@@ -21,7 +22,7 @@ const navItems = [
   },
   {
     to: '/roster',
-    label: 'Roster',
+    labelKey: 'nav.roster',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -33,7 +34,7 @@ const navItems = [
   },
   {
     to: '/scenarios',
-    label: 'Scenarios',
+    labelKey: 'nav.scenarios',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
         <path d="M12 2v20" /><path d="M5 9l7-7 7 7" /><path d="M19 15l-7 7-7-7" />
@@ -42,7 +43,7 @@ const navItems = [
   },
   {
     to: '/league-table',
-    label: 'League Table',
+    labelKey: 'nav.leagueTable',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
         <path d="M3 5h18" /><path d="M3 12h18" /><path d="M3 19h18" />
@@ -52,7 +53,7 @@ const navItems = [
   },
   {
     to: '/calendar',
-    label: 'Calendar',
+    labelKey: 'nav.calendar',
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="5" width="18" height="16" rx="1.5" /><path d="M3 10h18" /><path d="M8 3v4" /><path d="M16 3v4" />
@@ -61,7 +62,7 @@ const navItems = [
   },
   {
     to: '/financials',
-    label: 'Financials',
+    labelKey: 'nav.financials',
     cfoOnly: true,
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
@@ -71,7 +72,7 @@ const navItems = [
   },
   {
     to: '/ssr',
-    label: 'SSR Tests',
+    labelKey: 'nav.ssrTests',
     plOnly: true,
     icon: (
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
@@ -96,6 +97,7 @@ const LogoutIcon = (
 )
 
 export function Sidebar() {
+  const { t } = useTranslation()
   const { clubId, clubName, leagueId, clubLogoUrl } = useClubStore()
   const { signOut } = useAuthStore()
   const navigate = useNavigate()
@@ -178,7 +180,7 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 py-4 flex flex-col gap-0.5 overflow-y-auto">
-        {visibleNavItems.map(({ to, label, icon }) => (
+        {visibleNavItems.map(({ to, labelKey, icon }) => (
           <NavLink
             key={to}
             to={to}
@@ -199,7 +201,7 @@ export function Sidebar() {
                 <span className={cn(isActive ? 'text-violet-600' : 'text-slate-400 group-hover:text-slate-600')}>
                   {icon}
                 </span>
-                <span>{label}</span>
+                <span>{t(labelKey)}</span>
               </>
             )}
           </NavLink>

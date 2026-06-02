@@ -1,0 +1,23 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "roster": "Roster",
+    "scenarios": "Scenarios",
+    "leagueTable": "League Table",
+    "calendar": "Calendar",
+    "financials": "Financials",
+    "ssrTests": "SSR Tests"
+  },
+  "common": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "close": "Close",
+    "loading": "Loading…"
+  },
+  "settings": {
+    "interfaceLanguage": "Interface Language",
+    "interfaceLanguageHint": "The language used across menus, buttons, and labels. Your data is never translated."
+  }
+}

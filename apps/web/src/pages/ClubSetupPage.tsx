@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -27,11 +28,14 @@ function formatPenceNumber(pence: number, symbol = '£') {
 import { Card } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
+import { Select } from '@/components/ui/select'
+import { Flag } from '@/components/ui/flag'
 import { EFL_CHAMPIONSHIP_CONFIG } from '@headroom/shared'
 import { calculatePromotedClubRevenueUplift, PROMOTED_CLUB_DEFAULT_UPLIFT_FACTOR } from '@headroom/engine'
 import { cn } from '@/lib/utils'
 import { useCan } from '@/lib/role'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
+import { SUPPORTED_LANGUAGES, LANGUAGE_LABELS, LANGUAGE_FLAGS, setLanguage, type Language } from '@/lib/i18n'
 import type { ComplianceStatus, Currency } from '@headroom/shared'
 import type { InviteRow, TeamMember, AuditEntry, Permissions } from '@/lib/api'
 
@@ -552,10 +556,10 @@ export function FinancialTab() {
 // so we warn the user when a roster already has financial records.
 // ---------------------------------------------------------------------------
 
-const CURRENCY_OPTIONS: { value: Currency; label: string }[] = [
-  { value: 'GBP', label: '£  GBP — British Pound' },
-  { value: 'EUR', label: '€  EUR — Euro' },
-  { value: 'USD', label: '$  USD — US Dollar' },
+const CURRENCY_OPTIONS: { value: Currency; symbol: string; label: string }[] = [
+  { value: 'GBP', symbol: '£', label: 'GBP — British Pound' },
+  { value: 'EUR', symbol: '€', label: 'EUR — Euro' },
+  { value: 'USD', symbol: '$', label: 'USD — US Dollar' },
 ]
 
 function BaseCurrencyCard({ hasFinancialRecords }: { hasFinancialRecords: boolean }) {
@@ -608,18 +612,18 @@ function BaseCurrencyCard({ hasFinancialRecords }: { hasFinancialRecords: boolea
         </div>
 
         <div className="flex items-center gap-3">
-          <select
+          <Select<Currency>
             value={selected}
-            onChange={(e) => setSelected(e.target.value as Currency)}
+            onChange={(v) => setSelected(v)}
             disabled={!isCfo || saving}
-            className="num w-[220px] px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            {CURRENCY_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+            ariaLabel="Base workspace currency"
+            className="w-[240px]"
+            options={CURRENCY_OPTIONS.map((o) => ({
+              value: o.value,
+              label: o.label,
+              leading: <span className="num w-4 text-center text-slate-500 flex-shrink-0">{o.symbol}</span>,
+            }))}
+          />
           {isCfo && (
             <Button type="button" onClick={save} disabled={!dirty || saving}>
               {saving && <Spinner size={14} />}
@@ -737,6 +741,34 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
       </div>
       {subtitle && <p className="text-[13px] text-slate-500 mt-1 pl-4 max-w-xl">{subtitle}</p>}
     </div>
+  )
+}
+
+// InterfaceLanguageCard — lets the user pick the UI language (English, Español,
+// Français, Italiano). The choice drives i18next and is persisted to
+// localStorage by setLanguage(), so it survives reloads. This affects menus,
+// buttons, and labels only — monetary data stays in the workspace currency.
+function InterfaceLanguageCard() {
+  const { t, i18n } = useTranslation()
+  const current = (SUPPORTED_LANGUAGES as readonly string[]).includes(i18n.language)
+    ? (i18n.language as Language)
+    : 'en'
+
+  return (
+    <Card className="p-6">
+      <SectionHeader title={t('settings.interfaceLanguage')} subtitle={t('settings.interfaceLanguageHint')} />
+      <Select<Language>
+        value={current}
+        onChange={(lng) => setLanguage(lng)}
+        ariaLabel={t('settings.interfaceLanguage')}
+        className="w-[260px]"
+        options={SUPPORTED_LANGUAGES.map((lng) => ({
+          value: lng,
+          label: LANGUAGE_LABELS[lng],
+          leading: <Flag code={LANGUAGE_FLAGS[lng]} title={LANGUAGE_LABELS[lng]} width={20} />,
+        }))}
+      />
+    </Card>
   )
 }
 
@@ -929,6 +961,9 @@ function ProfileSecurityTab() {
           </div>
         </form>
       </Card>
+
+      {/* Interface language */}
+      <InterfaceLanguageCard />
 
       {/* Change password */}
       <Card className="p-6">

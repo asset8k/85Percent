@@ -1,0 +1,23 @@
+{
+  "nav": {
+    "dashboard": "Tableau de bord",
+    "roster": "Effectif",
+    "scenarios": "Scénarios",
+    "leagueTable": "Classement",
+    "calendar": "Calendrier",
+    "financials": "Finances",
+    "ssrTests": "Tests SSR"
+  },
+  "common": {
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "delete": "Supprimer",
+    "edit": "Modifier",
+    "close": "Fermer",
+    "loading": "Chargement…"
+  },
+  "settings": {
+    "interfaceLanguage": "Langue de l'interface",
+    "interfaceLanguageHint": "La langue des menus, boutons et libellés. Vos données ne sont jamais traduites."
+  }
+}

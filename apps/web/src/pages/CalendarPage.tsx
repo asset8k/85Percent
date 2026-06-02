@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card'
 import { CalendarSkeleton } from '@/components/ui/page-skeletons'
 import { api } from '@/lib/api'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
+import { formatDate } from '@/lib/locale'
 import type { PlayerWithContract } from '@headroom/shared'
 import type { ComplianceStatus } from '@headroom/shared'
 import { useClubStore } from '@/stores/club'
@@ -65,11 +66,12 @@ const STATUS_LABEL: Record<ComplianceStatus, string> = {
   red:   'Points Risk',
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-// Format a UTC date as "01 Jul 2026".
+// Format a UTC date as "01 Jul 2026" — localized to the active interface
+// language (e.g. "01 juil. 2026" in French, "01 lug 2026" in Italian). Reads
+// the current i18n locale at call time, so switching language in Settings
+// re-localizes calendar dates without a reload.
 function fmtDate(d: Date): string {
-  return `${String(d.getUTCDate()).padStart(2, '0')} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`
+  return formatDate(d, { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 function utc(year: number, month0: number, day: number): { ts: number; label: string } {

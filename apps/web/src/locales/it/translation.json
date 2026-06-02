@@ -1,0 +1,23 @@
+{
+  "nav": {
+    "dashboard": "Cruscotto",
+    "roster": "Rosa",
+    "scenarios": "Scenari",
+    "leagueTable": "Classifica",
+    "calendar": "Calendario",
+    "financials": "Finanze",
+    "ssrTests": "Test SSR"
+  },
+  "common": {
+    "save": "Salva",
+    "cancel": "Annulla",
+    "delete": "Elimina",
+    "edit": "Modifica",
+    "close": "Chiudi",
+    "loading": "Caricamento…"
+  },
+  "settings": {
+    "interfaceLanguage": "Lingua dell'interfaccia",
+    "interfaceLanguageHint": "La lingua di menu, pulsanti ed etichette. I tuoi dati non vengono mai tradotti."
+  }
+}
