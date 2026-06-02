@@ -39,6 +39,9 @@ export function exportSquadPDF(input: ExportSquadInput): void {
     .map((p) => ({
       playerId: p.id,
       transferFeePence: p.contract!.transferFeePence,
+      // Carried Book Value override replaces the transfer fee as the amortisation
+      // principal when set — keeps the PDF total aligned with the server SCR.
+      carriedBookValuePence: p.contract!.carriedBookValuePence,
       annualWagePence:  p.contract!.annualWagePence,
       agentFeePence:    p.contract!.agentFeePence,
       contractLengthYears: p.contract!.contractLengthYears,

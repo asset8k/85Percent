@@ -189,6 +189,7 @@ export interface RosterStagingRow {
     squadNumber?: number              // shirt number 1–99, optional CSV column
     nationality?: string
     dateOfBirth?: string              // ISO YYYY-MM-DD, optional CSV column
+    joinedDate?: string               // ISO YYYY-MM-DD, optional CSV column (defaults to contract start)
     transferFeePence: number
     carriedBookValuePence?: number | null // optional Carried Book Value override
     annualWagePence: number

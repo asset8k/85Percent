@@ -197,6 +197,10 @@ export function ScenariosPage() {
       .map((p) => ({
         playerId: p.id,
         transferFeePence: p.contract!.transferFeePence,
+        // Carried Book Value override replaces the transfer fee as the amortisation
+        // principal when set — keeps the scenario baseline aligned with the
+        // server-derived currentSquadCosts (and the Dashboard / TopBar pill).
+        carriedBookValuePence: p.contract!.carriedBookValuePence,
         annualWagePence:  p.contract!.annualWagePence,
         agentFeePence:    p.contract!.agentFeePence,
         contractLengthYears: p.contract!.contractLengthYears,

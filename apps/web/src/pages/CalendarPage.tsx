@@ -13,7 +13,7 @@ import {
   useSeasonStore,
   seasonLabel,
   seasonEndYear,
-  isWithinSeason,
+  isExpiringInSeasonView,
 } from '@/stores/season'
 
 // ---------------------------------------------------------------------------
@@ -146,30 +146,39 @@ export function CalendarPage() {
   )
 
   // Players whose current active contract expires inside the active season's
-  // fiscal window (1 Jul startYear → 30 Jun endYear).
+  // view window. For the upcoming season this also includes deals lapsing in
+  // the run-up before 1 July (e.g. a 30 June expiry), so the calendar matches
+  // the expiry notifications instead of silently dropping imminent ones.
   const expiringPlayers = useMemo(
     () =>
       roster
-        .filter((p) => p.isActive && p.contract && isWithinSeason(p.contract.endDate, startYear))
+        .filter((p) => p.isActive && p.contract && isExpiringInSeasonView(p.contract.endDate, startYear))
         .sort((a, b) => (a.contract!.endDate < b.contract!.endDate ? -1 : 1)),
     [roster, startYear],
   )
 
-  // Merge the fixed timeline with the dynamic expiry node (positioned at the
-  // earliest in-season expiry) and order everything chronologically.
+  // Merge the fixed timeline with dynamic expiry nodes. Players are grouped by
+  // their exact expiry date so each date gets its own node positioned
+  // chronologically — rather than lumping everyone onto the earliest date.
   const events = useMemo(() => {
     const list = buildFixedEvents(startYear)
-    if (expiringPlayers.length > 0) {
-      const earliest = expiringPlayers[0]!.contract!.endDate
-      const d = new Date(earliest.slice(0, 10) + 'T00:00:00Z')
+    const byDate = new Map<string, PlayerWithContract[]>()
+    for (const p of expiringPlayers) {
+      const key = p.contract!.endDate.slice(0, 10)
+      const group = byDate.get(key)
+      if (group) group.push(p)
+      else byDate.set(key, [p])
+    }
+    for (const [date, group] of byDate) {
+      const d = new Date(date + 'T00:00:00Z')
       list.push({
-        id: 'expiry',
+        id: `expiry-${date}`,
         ts: d.getTime(),
         dateLabel: fmtDate(d),
         kind: 'expiry',
-        name: `${expiringPlayers.length} Contract${expiringPlayers.length === 1 ? '' : 's'} Expiring`,
-        desc: `${expiringPlayers.length === 1 ? 'A squad member’s contract' : 'Squad members’ contracts'} reach expiry this season. Click to review who, and plan renewals or replacements.`,
-        expiringPlayers,
+        name: `${group.length} Contract${group.length === 1 ? '' : 's'} Expiring`,
+        desc: `${group.length === 1 ? 'A squad member’s contract reaches' : 'Squad members’ contracts reach'} expiry on this date. Click to review who, and plan renewals or replacements.`,
+        expiringPlayers: group,
       })
     }
     return list.sort((a, b) => a.ts - b.ts)

@@ -16,6 +16,7 @@ import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AlertTriangle } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import { api } from '@/lib/api'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -189,7 +190,7 @@ export function RosterPage() {
             {can.mutateRoster && (
               <>
                 <Button variant="secondary" onClick={() => setCsvOpen(true)}>
-                  Upload CSV
+                  Upload CSV / Excel
                 </Button>
                 <Button onClick={() => setManualOpen(true)}>Add Player</Button>
               </>
@@ -255,7 +256,7 @@ export function RosterPage() {
                     {can.mutateRoster && (
                       <div className="mt-3 flex items-center gap-2">
                         <Button size="sm" variant="secondary" onClick={() => setCsvOpen(true)}>
-                          Upload wages CSV
+                          Upload wages CSV / Excel
                         </Button>
                       </div>
                     )}
@@ -1012,8 +1013,31 @@ function EmptyState({ title, hint, action }: { title: string; hint: string; acti
 }
 
 // ---------------------------------------------------------------------------
-// CSV Upload Modal — staging area
+// CSV / Excel Upload Modal — staging area
 // ---------------------------------------------------------------------------
+
+// Read an uploaded file into CSV text. Plain .csv files are read as text;
+// Excel workbooks (.xlsx / .xls) are converted to CSV from their first sheet
+// via SheetJS, so the rest of the pipeline (server parse + validation) is
+// identical regardless of the source format.
+async function fileToCsvText(file: File): Promise<string> {
+  const isExcel =
+    /\.xlsx?$/i.test(file.name) ||
+    file.type.includes('spreadsheetml') ||
+    file.type === 'application/vnd.ms-excel'
+  if (!isExcel) return file.text()
+
+  const buf = await file.arrayBuffer()
+  const wb = XLSX.read(buf, { type: 'array' })
+  const sheetName = wb.SheetNames[0]
+  const sheet = sheetName ? wb.Sheets[sheetName] : undefined
+  if (!sheet) throw new Error('That workbook has no sheets')
+  // blankrows:false drops empty Excel rows. dateNF formats any real date cells
+  // as ISO (YYYY-MM-DD) so contract/DOB/join columns survive the round-trip even
+  // when Excel stored them as date cells rather than plain text.
+  return XLSX.utils.sheet_to_csv(sheet, { blankrows: false, dateNF: 'yyyy-mm-dd' })
+}
+
 function CSVUploadModal({
   onClose,
   onCommitted,
@@ -1031,11 +1055,11 @@ function CSVUploadModal({
     setParsing(true)
     setGlobalError('')
     try {
-      const text = await file.text()
+      const text = await fileToCsvText(file)
       const result = await api.roster.parseCsv(text)
       setRows(result.rows)
     } catch (e) {
-      setGlobalError(e instanceof Error ? e.message : 'Failed to parse CSV')
+      setGlobalError(e instanceof Error ? e.message : 'Failed to parse file')
     } finally {
       setParsing(false)
     }
@@ -1061,23 +1085,26 @@ function CSVUploadModal({
   }
 
   return (
-    <ModalShell onClose={onClose} title="Import roster from CSV">
+    <ModalShell onClose={onClose} title="Import roster from CSV or Excel">
       <div className="max-h-[80vh] flex flex-col">
         <div className="px-5 pb-3">
           <p className="text-[13px] text-slate-600">
-            Required:{' '}
+            Upload a <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded">.csv</code> or{' '}
+            <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded">.xlsx</code> file. Required columns:{' '}
             <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded">
               name, position, transfer_fee_pounds, weekly_wage_pounds, agent_fee_pounds, contract_start, contract_end
             </code>
             . Optional:{' '}
-            <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded">squad_number, nationality, date_of_birth</code>
+            <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded">
+              squad_number, nationality, date_of_birth, joined_date, carried_book_value_pounds
+            </code>
             . Dates as <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded">YYYY-MM-DD</code>.
           </p>
           <div className="flex items-center gap-3 mt-4">
             <input
               ref={fileInputRef}
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
               onChange={(e) => {
                 const f = e.target.files?.[0]
                 if (f) handleFile(f)
@@ -1090,7 +1117,7 @@ function CSVUploadModal({
               disabled={parsing}
             >
               {parsing ? <Spinner size={14} /> : null}
-              {parsing ? 'Parsing…' : rows.length > 0 ? 'Choose different file' : 'Choose CSV file'}
+              {parsing ? 'Parsing…' : rows.length > 0 ? 'Choose different file' : 'Choose CSV or Excel file'}
             </Button>
             {rows.length > 0 && (
               <span className="text-[13px] text-slate-500">
@@ -1271,15 +1298,23 @@ function StagingRowEditor({
       const result = await api.roster.parseCsv(csvText)
       const next = result.rows[0]
       if (next) {
-        // The CSV round-trip doesn't carry the Carried Book Value override, so
-        // merge it back onto the re-validated parsed row before committing.
+        // The synthesized CSV omits the optional Carried Book Value and join
+        // date columns, so merge those back onto the re-validated parsed row
+        // (from the editor state / original row) before committing.
         const carried =
           showCarried && Number.isFinite(carriedPounds) && carriedPounds >= 0
             ? Math.round(carriedPounds * 100)
             : null
         const merged =
           next.parsed != null
-            ? { ...next, parsed: { ...next.parsed, carriedBookValuePence: carried } }
+            ? {
+                ...next,
+                parsed: {
+                  ...next.parsed,
+                  carriedBookValuePence: carried,
+                  ...(row.parsed?.joinedDate ? { joinedDate: row.parsed.joinedDate } : {}),
+                },
+              }
             : next
         onChange({ ...merged, rowIndex: row.rowIndex })
         onClose()

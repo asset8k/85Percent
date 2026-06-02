@@ -54,7 +54,9 @@ const EXPECTED_COLUMNS = [
 ] as const
 
 // Optional CSV columns — accepted when present, ignored otherwise.
-const OPTIONAL_COLUMNS = ['squad_number', 'nationality', 'date_of_birth'] as const
+const OPTIONAL_COLUMNS = [
+  'squad_number', 'nationality', 'date_of_birth', 'joined_date', 'carried_book_value_pounds',
+] as const
 
 type CsvRow = Record<string, string | number | undefined>
 
@@ -86,6 +88,15 @@ function parseOptionalIntCell(v: unknown): number | undefined {
   return Math.round(n)
 }
 
+// Parse an optional £-as-string cell (e.g. carried book value). Blank →
+// undefined (the column is optional); a non-numeric value → NaN (flagged
+// upstream). Accepts "£1,500", "1500", "1500.00" like parsePoundsCell.
+function parseOptionalPoundsCell(v: unknown): number | undefined {
+  const s = normaliseCell(v)
+  if (s === undefined) return undefined
+  return parsePoundsCell(s)
+}
+
 // Compute decimal contract years between two ISO date strings.
 // Used purely for human readability in the breakdown table; engine math uses
 // the actual Date objects, not this value, so float drift is harmless here.
@@ -110,7 +121,12 @@ function buildStagingRow(rowIndex: number, rawRow: CsvRow): RosterStagingRow {
     squad_number:        parseOptionalIntCell(rawRow['squad_number']),
     nationality:         normaliseCell(rawRow['nationality']),
     date_of_birth:       normaliseCell(rawRow['date_of_birth']),
+    // Optional original join date — blank stays undefined.
+    joined_date:         normaliseCell(rawRow['joined_date']),
     transfer_fee_pounds: parsePoundsCell(rawRow['transfer_fee_pounds']),
+    // Optional Carried Book Value override — blank stays undefined; a bad value
+    // becomes NaN and is flagged below.
+    carried_book_value_pounds: parseOptionalPoundsCell(rawRow['carried_book_value_pounds']),
     weekly_wage_pounds:  parsePoundsCell(rawRow['weekly_wage_pounds']),
     agent_fee_pounds:    parsePoundsCell(rawRow['agent_fee_pounds']),
     contract_start:      normaliseCell(rawRow['contract_start']),
@@ -119,10 +135,11 @@ function buildStagingRow(rowIndex: number, rawRow: CsvRow): RosterStagingRow {
 
   // Catch number parse failures with a friendlier message than Zod would give
   for (const [field, label] of [
-    ['squad_number',        'Squad number'],
-    ['transfer_fee_pounds', 'Transfer fee'],
-    ['weekly_wage_pounds',  'Weekly wage'],
-    ['agent_fee_pounds',    'Agent fee'],
+    ['squad_number',              'Squad number'],
+    ['carried_book_value_pounds', 'Carried book value'],
+    ['transfer_fee_pounds',       'Transfer fee'],
+    ['weekly_wage_pounds',        'Weekly wage'],
+    ['agent_fee_pounds',          'Agent fee'],
   ] as const) {
     if (Number.isNaN(candidate[field])) {
       issues.push(`${label}: must be a number (got "${rawRow[field] ?? ''}")`)
@@ -141,14 +158,19 @@ function buildStagingRow(rowIndex: number, rawRow: CsvRow): RosterStagingRow {
       const transferFeePence = r.transfer_fee_pounds * 100
       const annualWagePence  = r.weekly_wage_pounds * 52 * 100
       const agentFeePence    = r.agent_fee_pounds * 100
+      const carriedBookValuePence =
+        r.carried_book_value_pounds !== undefined ? r.carried_book_value_pounds * 100 : null
       const startDate = r.contract_start
       const endDate   = r.contract_end
       const contractLengthYears = yearsBetween(startDate, endDate)
+      // The carried override (when present) replaces the transfer fee as the
+      // amortisation principal, matching the manual-add path.
       const bookValuePence = currentBookValuePence(
         transferFeePence,
         new Date(startDate + 'T00:00:00Z'),
         new Date(endDate   + 'T00:00:00Z'),
-        new Date()
+        new Date(),
+        carriedBookValuePence
       )
 
       return {
@@ -159,7 +181,9 @@ function buildStagingRow(rowIndex: number, rawRow: CsvRow): RosterStagingRow {
           ...(r.squad_number !== undefined ? { squadNumber: r.squad_number } : {}),
           ...(r.nationality !== undefined ? { nationality: r.nationality } : {}),
           ...(r.date_of_birth !== undefined ? { dateOfBirth: r.date_of_birth } : {}),
+          ...(r.joined_date !== undefined ? { joinedDate: r.joined_date } : {}),
           transferFeePence,
+          ...(carriedBookValuePence !== null ? { carriedBookValuePence } : {}),
           annualWagePence,
           agentFeePence,
           startDate,
@@ -315,6 +339,7 @@ const CommitBody = z.object({
       squadNumber: z.number().int().min(1).max(99).optional(),
       nationality: z.string().max(60).optional(),
       dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date of birth must be YYYY-MM-DD').optional(),
+      joinedDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Join date must be YYYY-MM-DD').optional(),
       transferFeePence: z.number().int().min(0),
       // Optional Carried Book Value override (pence) supplied from the staging UI.
       carriedBookValuePence: z.number().int().min(0).nullable().optional(),
@@ -495,7 +520,11 @@ export async function rosterRoutes(app: FastifyInstance) {
         ...(r.squadNumber !== undefined ? { squad_number: r.squadNumber } : {}),
         nationality: r.nationality ?? '',
         date_of_birth: r.dateOfBirth ?? '',
+        joined_date: r.joinedDate ?? '',
         transfer_fee_pounds: Math.floor(r.transferFeePence / 100),
+        ...(r.carriedBookValuePence != null
+          ? { carried_book_value_pounds: Math.floor(r.carriedBookValuePence / 100) }
+          : {}),
         weekly_wage_pounds:  Math.floor(r.annualWagePence / 52 / 100),
         agent_fee_pounds:    Math.floor(r.agentFeePence / 100),
         contract_start: r.startDate,
@@ -540,7 +569,7 @@ export async function rosterRoutes(app: FastifyInstance) {
           squad_number: r.squadNumber ?? null,
           nationality: r.nationality ?? null,
           date_of_birth: r.dateOfBirth ?? null,
-          joined_date: r.startDate, // no separate join date on CSV; use contract start
+          joined_date: r.joinedDate ?? r.startDate, // CSV join date if supplied, else contract start
           is_active: true,
           created_at: nowISO,
           updated_at: nowISO,

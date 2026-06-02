@@ -75,6 +75,10 @@ export function DashboardPage() {
         nationality: p.nationality,
         monthsToExpiry: p.monthsToExpiry,
         transferFeePence: p.contract!.transferFeePence,
+        // Carried Book Value override (when set) replaces the transfer fee as the
+        // amortisation principal — must be passed so the client-side live SCR
+        // matches the server-derived `currentSquadCosts` (and the TopBar pill).
+        carriedBookValuePence: p.contract!.carriedBookValuePence,
         annualWagePence:  p.contract!.annualWagePence,
         agentFeePence:    p.contract!.agentFeePence,
         contractLengthYears: p.contract!.contractLengthYears,

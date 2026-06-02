@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
 import { useAuthStore } from '@/stores/auth'
+import { supabase } from '@/lib/supabase'
 import { useSeasonStore, seasonKey, seasonLabel } from '@/stores/season'
 import { SeasonSelector } from '@/components/layout/SeasonSelector'
 import { Button } from '@/components/ui/button'
@@ -574,7 +575,7 @@ function SettingsShell() {
         <TabButton active={tab === 'profile'} onClick={() => setTab('profile')}>Profile &amp; Security</TabButton>
         {isCfo && <TabButton active={tab === 'team'} onClick={() => setTab('team')}>Team &amp; Access</TabButton>}
         {isCfo && <TabButton active={tab === 'activity'} onClick={() => setTab('activity')}>Activity Log</TabButton>}
-        {isCfo && <TabButton active={tab === 'danger'} onClick={() => setTab('danger')}>Danger Zone</TabButton>}
+        {isCfo && <TabButton active={tab === 'danger'} onClick={() => setTab('danger')}>Delete Workspace</TabButton>}
       </div>
 
       {tab === 'profile'   && <ProfileSecurityTab />}
@@ -614,6 +615,7 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
 }
 
 function ProfileSecurityTab() {
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
 
   // Profile fields
@@ -679,8 +681,26 @@ function ProfileSecurityTab() {
     setSavingPw(true)
     try {
       await api.auth.changePassword(currentPw, newPw)
+      // The server changes the password via the admin API, which revokes the
+      // user's existing refresh tokens — our current session's token would fail
+      // on its next refresh and silently 401 the whole app. Immediately mint a
+      // fresh session with the new password so the user stays signed in with a
+      // valid token (no forced re-login). onAuthStateChange picks up the new
+      // session and updates the auth store.
+      const { error: reauthErr } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: newPw,
+      })
       setCurrentPw(''); setNewPw(''); setConfirmPw('')
-      toast.success('Password changed', 'Use your new password next time you sign in.')
+      if (reauthErr) {
+        // Couldn't silently re-auth (e.g. transient network) — send them to a
+        // clean sign-in rather than leaving a stale token behind.
+        toast.success('Password changed', 'Please sign in again with your new password.')
+        await useAuthStore.getState().signOut()
+        navigate('/login')
+        return
+      }
+      toast.success('Password changed', 'Your new password is now active.')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to change password'
       setPwErr(msg)

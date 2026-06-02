@@ -2191,3 +2191,94 @@ Headroom uses **Supabase Auth** end-to-end: passwords live in Supabase `auth.use
   - **CHECKPOINT / DEADLINE nodes** carry a subtle **Pending ↔ Completed** toggle (local `Set<string>` of node ids, reset on season change). Completed → card dims (`opacity-60`) + timeline dot turns success-green.
   - Clean vertical layout preserved; new pills/toggles use the existing kit palette.
 - Web typecheck + production build clean.
+
+---
+
+## Session 25 — Roster import: Excel support + field parity + sample squad
+
+### Goal
+The roster importer accepted **CSV only** and predated two player-field additions
+(`joined_date`, Carried Book Value). Add **Excel (.xlsx/.xls)** ingestion, bring the
+parser up to date with current player fields, and ship ready-to-upload **sample files**.
+
+### Excel ingestion (client-side, server unchanged)
+- `RosterPage.tsx` → new `fileToCsvText(file)` helper. `.csv` is read as text as
+  before; **`.xlsx`/`.xls` is converted to CSV in-browser via SheetJS** (`xlsx`, already
+  a web dep) — first sheet, `sheet_to_csv(sheet, { blankrows:false, dateNF:'yyyy-mm-dd' })`.
+  `dateNF` guarantees real Excel **date cells** emit ISO `YYYY-MM-DD`, so the rest of the
+  pipeline (server `/roster/parse` + `RosterRowSchema`) is **identical for both formats** —
+  no server changes for Excel.
+- Modal updated: title "Import roster from CSV **or Excel**", `accept` now includes the
+  xlsx/xls MIME + extensions, button label + help text mention Excel. Both "Upload CSV"
+  buttons → "Upload CSV / Excel".
+
+### New optional columns (CSV + Excel)
+- **`joined_date`** (YYYY-MM-DD) — original club join date. Previously the commit
+  hard-coded `joined_date = contract_start`; now uses the column when supplied, else
+  falls back to contract start. Refine: must be in the past and on/before contract end.
+- **`carried_book_value_pounds`** (£) — Carried Book Value override. Feeds
+  `currentBookValuePence(..., carriedBookValuePence)` so amortisation matches the
+  manual-add path. Blank ⇒ standard transfer-fee amortisation.
+- Wired through: `RosterRowSchema` + `RosterStagingRow.parsed` type (shared),
+  `EXPECTED/OPTIONAL_COLUMNS`, `buildStagingRow` (+ `parseOptionalPoundsCell`, NaN guard),
+  `CommitBody`, commit re-validation candidate, and the DB insert. The inline staging-row
+  editor now also merges `joinedDate` back across its re-parse round-trip (it already did
+  this for Carried BV).
+
+### Sample files — `sample-data/`
+- **`manchester-city-squad.csv`** and **`manchester-city-squad.xlsx`** — full 23-player
+  Man City squad, approximate wages/fees. Exercises every column: 9 rows carry a Carried
+  Book Value, 14 have a `joined_date` distinct from contract start, and 9 contracts expire
+  inside the 2026/27 season window (drives the calendar expiry node + expiry notifications).
+  Excel built via AOA so dates are stored as text and money as numbers.
+
+### Verification
+- Typecheck: **web + api + shared all clean**; shared rebuilt. Engine tests **119/119**.
+- End-to-end: both the CSV and the XLSX (through the app's exact `sheet_to_csv` path) parse
+  **23/23 valid** against `RosterRowSchema`. Excel→CSV round-trip preserves ISO dates,
+  blank cells, and numeric values.
+
+### Session 25 fix — Dashboard SCR ignored Carried Book Value (dual-source mismatch)
+- **Symptom:** with carried-book-value players in the squad, the Dashboard "Live Squad
+  Cost Ratio" + "Headroom to Green" cards + Compliance Gauge showed **86.4%** while the
+  TopBar pill, popover, and Financial Risk card showed **78.8%** — same revenue, no scenarios.
+- **Cause:** the server (`club.ts` → `deriveSquadCosts`) feeds `carriedBookValuePence` into
+  `calculateSquadCosts`, so `financials.currentSquadCosts` amortises the (lower) carried book
+  value. Three **client-side** call sites rebuilt `ContractInput[]` from the roster but **omitted
+  `carriedBookValuePence`**, so they amortised the full transfer fee → inflated squad costs.
+- **Fix:** pass `carriedBookValuePence: p.contract!.carriedBookValuePence` in all three:
+  `DashboardPage.tsx` (live SCR + per-player breakdown), `ScenariosPage.tsx` (scenario baseline,
+  which overrides `currentSquadCosts`), and `exports/squadPdf.ts` (PDF total). The engine already
+  supports it via `effectiveFeePence`; no engine change.
+- **Verified:** over the sample Man City squad @ £500M revenue — with carried = £394.3M (78.9%,
+  matches server/pill); without = £432.1M (86.4%, the old bug). Web typecheck clean.
+
+### Session 25 — product feedback pass (5 small fixes)
+1. **Account chip shows the real user** (was hard-coded "CFO / Finance"). New
+   `useMe()` + `roleLabel()` in `lib/role.ts` (fetch `/me` once, cache in
+   localStorage; `useRole` now derives from it). AppLayout renders the user's
+   `fullName`, role label, and initials avatar, with email-prefix fallback.
+2. **Settings "Danger Zone" tab renamed** → **"Delete Workspace"** (the heading
+   was already "Delete Organization"; the tab name now says what it does).
+3. **Calendar missed imminent expiries** (e.g. a 30 Jun 2026 deal — got a
+   notification but no calendar node). New `isExpiringInSeasonView()` in
+   `season.ts`: same as `isWithinSeason` but for the *upcoming* season it pulls
+   the lower bound back to today, surfacing run-up expiries (matches the rolling
+   notification window). Future/past seasons keep the strict 1 Jul–30 Jun window.
+   CalendarPage now uses it. Verified: 2026-06-30 included for 2026/27, excluded
+   for a future 2028/29 view; already-expired excluded.
+4. **Password change no longer logs you out** of the whole app. The server
+   changes the password via the admin API, which revokes refresh tokens → the
+   stale token silently 401'd everything. `changePassword` now re-mints a fresh
+   session client-side via `signInWithPassword(email, newPw)` (falls back to a
+   clean sign-out + redirect to /login if that fails).
+5. **TopBar SCR pill is always present.** When the active season has no
+   financials, instead of disappearing it shows a muted "Current SCR — · Set up
+   financials →" pill linking to /financials.
+
+Web typecheck clean; shared rebuilt.
+
+  - **Follow-up:** the expiry node previously lumped *all* expiring players onto
+    the earliest date (e.g. "7 Contracts Expiring" at 30 Jun 2026 even though 5
+    expired 30 Jun 2027). Now grouped by exact expiry date → one node per date,
+    each positioned chronologically with only that date's players in its drawer.

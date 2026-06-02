@@ -48,7 +48,15 @@ export const RosterRowSchema = z
     // Optional CSV column — accepts blank / missing. Same realism refine as the
     // manual-add path (must be in the past, within the last 70 years).
     date_of_birth: ISODateString.optional().or(z.literal('').transform(() => undefined)),
+    // Optional CSV column — the date the player originally joined the club. When
+    // omitted the API defaults it to the contract start (a new signing joins on
+    // their start date). Drives squad-longevity displays, not compliance math.
+    joined_date: ISODateString.optional().or(z.literal('').transform(() => undefined)),
     transfer_fee_pounds: z.number({ invalid_type_error: 'Transfer fee must be a number' }).int().min(0, 'Transfer fee cannot be negative'),
+    // Optional CSV column — Carried Book Value override (£). When present the
+    // engine amortises this figure instead of the transfer fee (used for players
+    // mid-amortisation when the club first onboards). Blank ⇒ standard fee amortisation.
+    carried_book_value_pounds: z.number({ invalid_type_error: 'Carried book value must be a number' }).int().min(0, 'Carried book value cannot be negative').optional(),
     weekly_wage_pounds:  z.number({ invalid_type_error: 'Weekly wage must be a number' }).int().positive('Weekly wage must be > 0'),
     agent_fee_pounds:    z.number({ invalid_type_error: 'Agent fee must be a number' }).int().min(0, 'Agent fee cannot be negative'),
     contract_start: ISODateString,
@@ -74,6 +82,14 @@ export const RosterRowSchema = z
     const seventyYearsMs = 70 * 365.25 * 24 * 60 * 60 * 1000
     return dob <= now && now - dob <= seventyYearsMs
   }, { message: 'Date of birth must be in the past and within the last 70 years', path: ['date_of_birth'] })
+  .refine((r) => {
+    // The join date can't be in the future, and it can't fall after the contract
+    // it's attached to ends. (Joining after the current contract starts is fine —
+    // e.g. a contract extension signed mid-tenure.)
+    if (!r.joined_date) return true
+    const joined = new Date(r.joined_date + 'T00:00:00Z').getTime()
+    return joined <= Date.now() && joined <= new Date(r.contract_end + 'T00:00:00Z').getTime()
+  }, { message: 'Join date must be in the past and on/before the contract end', path: ['joined_date'] })
 
 export type RosterRowInput = z.infer<typeof RosterRowSchema>
 

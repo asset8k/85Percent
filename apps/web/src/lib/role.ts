@@ -13,35 +13,71 @@ import { api } from '@/lib/api'
 
 export type AppRole = 'cfo' | 'sporting_director' | 'finance_analyst' | 'admin'
 
-const ROLE_CACHE_KEY = 'headroom-role'
+const ME_CACHE_KEY = 'headroom-me'
+
+/** The authenticated user as the API sees them (`GET /me`). */
+export interface AppMe {
+  id: string
+  role: AppRole
+  fullName: string
+  email: string
+  isTotpEnabled: boolean
+}
+
+/** Human-readable role label, shared across the TopBar, Team list, and invites. */
+export const ROLE_LABEL: Record<AppRole, string> = {
+  cfo:               'CFO',
+  sporting_director: 'Sporting Director',
+  finance_analyst:   'Finance Analyst',
+  admin:             'Admin',
+}
+
+export function roleLabel(role: string | null): string {
+  if (role && isAppRole(role)) return ROLE_LABEL[role]
+  return role ?? ''
+}
 
 function isAppRole(s: string): s is AppRole {
   return s === 'cfo' || s === 'sporting_director' || s === 'finance_analyst' || s === 'admin'
 }
 
-export function useRole(): AppRole | null {
+function readCachedMe(): AppMe | null {
+  try {
+    const raw = localStorage.getItem(ME_CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<AppMe>
+    return parsed.role && isAppRole(parsed.role) ? (parsed as AppMe) : null
+  } catch { return null }
+}
+
+/**
+ * Fetch the current user's identity + role once per session (cached in
+ * localStorage so the TopBar paints instantly on reload). The API is the source
+ * of truth; the cache is only a paint hint.
+ */
+export function useMe(): AppMe | null {
   const { session } = useAuthStore()
-  const [role, setRole] = useState<AppRole | null>(() => {
-    try {
-      const cached = localStorage.getItem(ROLE_CACHE_KEY)
-      return cached && isAppRole(cached) ? cached : null
-    } catch { return null }
-  })
+  const [me, setMe] = useState<AppMe | null>(() => readCachedMe())
 
   useEffect(() => {
     if (!session) {
-      setRole(null)
-      try { localStorage.removeItem(ROLE_CACHE_KEY) } catch { /* ignore */ }
+      setMe(null)
+      try { localStorage.removeItem(ME_CACHE_KEY) } catch { /* ignore */ }
       return
     }
     let cancelled = false
     api.me.get()
-      .then((me) => {
-        if (cancelled) return
-        if (isAppRole(me.role)) {
-          setRole(me.role)
-          try { localStorage.setItem(ROLE_CACHE_KEY, me.role) } catch { /* ignore */ }
+      .then((data) => {
+        if (cancelled || !isAppRole(data.role)) return
+        const next: AppMe = {
+          id: data.id,
+          role: data.role,
+          fullName: data.fullName,
+          email: data.email,
+          isTotpEnabled: data.isTotpEnabled,
         }
+        setMe(next)
+        try { localStorage.setItem(ME_CACHE_KEY, JSON.stringify(next)) } catch { /* ignore */ }
       })
       .catch(() => {
         // Leave the cached value (or null) in place. Worst case the UI hides
@@ -50,7 +86,11 @@ export function useRole(): AppRole | null {
     return () => { cancelled = true }
   }, [session])
 
-  return role
+  return me
+}
+
+export function useRole(): AppRole | null {
+  return useMe()?.role ?? null
 }
 
 /** Permission predicates derived from the role matrix in mvp_2.0_plan.md §5.2. */

@@ -68,6 +68,26 @@ export function isWithinSeason(isoDate: string, startYear: number): boolean {
   return d >= seasonStartDate(startYear).getTime() && d <= seasonEndDate(startYear).getTime()
 }
 
+/**
+ * Expiry-window membership for the Calendar's "Contracts Expiring" node.
+ *
+ * Like {@link isWithinSeason}, but for the *upcoming* season — the one whose
+ * window starts within the next year — the lower bound is pulled back to today.
+ * That surfaces contracts lapsing in the short run-up before the fiscal year
+ * formally opens (e.g. a deal ending 30 June, just before a 1 July season),
+ * matching the expiry notifications which use a rolling window from today.
+ * Seasons fully in the past or further in the future keep the strict window.
+ */
+export function isExpiringInSeasonView(isoDate: string, startYear: number, now: number = Date.now()): boolean {
+  const d = new Date(isoDate.slice(0, 10) + 'T00:00:00Z').getTime()
+  const seasonStart = seasonStartDate(startYear).getTime()
+  const seasonEnd = seasonEndDate(startYear).getTime()
+  const ONE_YEAR_MS = 366 * 24 * 60 * 60 * 1000
+  // Only the immediately-upcoming season extends its lower bound back to today.
+  const lower = now < seasonStart && seasonStart - now <= ONE_YEAR_MS ? now : seasonStart
+  return d >= lower && d <= seasonEnd
+}
+
 interface SeasonState {
   /** Start (calendar) year of the active fiscal season, e.g. 2026 for 2026/27. */
   startYear: number

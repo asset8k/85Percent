@@ -6,6 +6,8 @@ import { Sidebar } from './Sidebar'
 import { NotificationBell } from './NotificationBell'
 import { useClubStore } from '@/stores/club'
 import { useSeasonStore, seasonLabel } from '@/stores/season'
+import { useMe, roleLabel } from '@/lib/role'
+import { useAuthStore } from '@/stores/auth'
 import { StatusBadge } from '@/components/ui/badge'
 import { AnimatedNumber } from '@/components/ui/animated-number'
 import { ProgressBar } from '@/components/ui/progress-bar'
@@ -26,10 +28,29 @@ const routeLabel: Record<string, string> = {
   '/setup':     'Settings',
 }
 
+// Initials for the avatar — first + last initial, or the first two letters of a
+// single-word name. Falls back to "?" so the chip is never blank.
+function initialsOf(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase()
+  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase()
+}
+
 export function AppLayout() {
   const { clubName, financials, scenarios, setScenarios } = useClubStore()
   const seasonStartYear = useSeasonStore((s) => s.startYear)
   const location = useLocation()
+
+  // Current user identity for the top-right account chip.
+  const me = useMe()
+  const authEmail = useAuthStore((s) => s.user?.email ?? null)
+  const displayName =
+    me?.fullName?.trim() ||
+    me?.email?.split('@')[0] ||
+    authEmail?.split('@')[0] ||
+    'Account'
+  const displayRole = roleLabel(me?.role ?? null)
 
   const firstSegment = '/' + location.pathname.split('/')[1]
   const pageTitle = routeLabel[firstSegment] ?? firstSegment.replace('/', '')
@@ -79,7 +100,7 @@ export function AppLayout() {
             <span className="capitalize">{pageTitle}</span>
           </div>
 
-          {scrPct !== null && financials && baseline && (
+          {scrPct !== null && financials && baseline ? (
             <SCRBadgePill
               scrPct={scrPct}
               scrStatus={scrStatus}
@@ -90,16 +111,37 @@ export function AppLayout() {
               baseline={baseline}
               scenarios={scenarios}
             />
+          ) : (
+            // No financials configured for this season yet — keep the slot
+            // occupied with a clear call to action rather than an empty gap.
+            <Link
+              to="/financials"
+              className="flex items-center gap-3 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-200 hover:border-slate-300 whitespace-nowrap transition-colors"
+            >
+              <span className="meta-label text-slate-500">Current SCR</span>
+              <span className="num text-[13px] text-slate-400 font-medium">—</span>
+              <span className="w-px h-3.5 bg-slate-200" />
+              <span className="text-[12px] font-medium text-violet-600 inline-flex items-center gap-0.5">
+                Set up financials
+                <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M5 12h14" /><path d="M13 6l6 6-6 6" />
+                </svg>
+              </span>
+            </Link>
           )}
 
           <div className="flex-1 flex items-center justify-end gap-2.5 min-w-0">
             <NotificationBell />
-            <div className="text-right leading-tight">
-              <div className="text-[13px] text-slate-900 font-medium">CFO</div>
-              <div className="text-[11px] text-slate-400">Finance</div>
+            <div className="text-right leading-tight min-w-0">
+              <div className="text-[13px] text-slate-900 font-medium truncate max-w-[180px]">{displayName}</div>
+              {displayRole && <div className="text-[11px] text-slate-400 truncate max-w-[180px]">{displayRole}</div>}
             </div>
-            <span className="inline-flex items-center justify-center rounded-full bg-violet-600 text-white font-medium" style={{ width: 32, height: 32, fontSize: 11, letterSpacing: 0.4 }}>
-              CF
+            <span
+              className="inline-flex items-center justify-center rounded-full bg-violet-600 text-white font-medium flex-shrink-0"
+              style={{ width: 32, height: 32, fontSize: 11, letterSpacing: 0.4 }}
+              title={displayName}
+            >
+              {initialsOf(displayName)}
             </span>
           </div>
         </header>
