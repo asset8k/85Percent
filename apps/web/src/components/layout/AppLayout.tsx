@@ -6,7 +6,7 @@ import { Sidebar } from './Sidebar'
 import { NotificationBell } from './NotificationBell'
 import { useClubStore } from '@/stores/club'
 import { useSeasonStore, seasonLabel } from '@/stores/season'
-import { useMe, roleLabel } from '@/lib/role'
+import { useMe, accessLabel } from '@/lib/role'
 import { useAuthStore } from '@/stores/auth'
 import { StatusBadge } from '@/components/ui/badge'
 import { AnimatedNumber } from '@/components/ui/animated-number'
@@ -52,7 +52,7 @@ export function AppLayout() {
     me?.email?.split('@')[0] ||
     authEmail?.split('@')[0] ||
     'Account'
-  const displayRole = roleLabel(me?.role ?? null)
+  const displayRole = me ? accessLabel(me) : ''
 
   const firstSegment = '/' + location.pathname.split('/')[1]
   const pageTitle = routeLabel[firstSegment] ?? firstSegment.replace('/', '')

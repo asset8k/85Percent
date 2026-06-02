@@ -1,12 +1,13 @@
 import { randomUUID } from 'crypto'
 import type { FastifyRequest, FastifyReply } from 'fastify'
 import { supabase } from '../lib/supabase.js'
+import type { Permissions } from './permissions.js'
 
 declare module 'fastify' {
   interface FastifyRequest {
     userId: string
     clubId: string
-    userRole: string
+    permissions: Permissions
   }
 }
 
@@ -35,7 +36,7 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
 
   let { data: user, error } = await supabase
     .from('users')
-    .select('id, club_id, role')
+    .select('id, club_id, can_edit_roster, can_edit_scenarios, is_workspace_admin')
     .eq('id', authUser.id)
     .maybeSingle()
 
@@ -82,13 +83,17 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
     }
 
     // ── Phase 5: honour a pending invite by email before creating a new club ──
-    // If this email was invited, join the invite's club with the invited role
-    // instead of provisioning a fresh isolated workspace.
-    let inviteMatch: { id: string; club_id: string; role: string } | null = null
+    // If this email was invited, join the invite's club inheriting its explicit
+    // permission grants instead of provisioning a fresh isolated workspace.
+    let inviteMatch: {
+      id: string; club_id: string
+      title: string | null
+      can_edit_roster: boolean; can_edit_scenarios: boolean; is_workspace_admin: boolean
+    } | null = null
     if (authUser.email) {
       const { data: invite } = await supabase
         .from('invites')
-        .select('id, club_id, role, expires_at')
+        .select('id, club_id, title, can_edit_roster, can_edit_scenarios, is_workspace_admin, expires_at')
         .eq('email', authUser.email)
         .is('accepted_at', null)
         .gt('expires_at', new Date().toISOString())
@@ -96,7 +101,13 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
         .limit(1)
         .maybeSingle()
       if (invite) {
-        inviteMatch = { id: invite.id, club_id: invite.club_id, role: invite.role }
+        inviteMatch = {
+          id: invite.id, club_id: invite.club_id,
+          title: (invite.title as string | null) ?? null,
+          can_edit_roster: !!invite.can_edit_roster,
+          can_edit_scenarios: !!invite.can_edit_scenarios,
+          is_workspace_admin: !!invite.is_workspace_admin,
+        }
       }
     }
 
@@ -133,16 +144,27 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
       authUser.email?.split('@')[0] ??
       'New User'
 
+    // Invitees inherit the invite's explicit grants. A founder (no invite)
+    // provisioning their own workspace is the workspace admin with full access.
+    const grants = inviteMatch
+      ? {
+          title: inviteMatch.title,
+          can_edit_roster: inviteMatch.can_edit_roster,
+          can_edit_scenarios: inviteMatch.can_edit_scenarios,
+          is_workspace_admin: inviteMatch.is_workspace_admin,
+        }
+      : { title: null, can_edit_roster: true, can_edit_scenarios: true, is_workspace_admin: true }
+
     const { data: created, error: createErr } = await supabase
       .from('users')
       .insert({
         id: authUser.id,
         club_id: targetClubId,
-        role: inviteMatch ? inviteMatch.role : 'cfo',
         full_name: fullName,
         email: authUser.email,
+        ...grants,
       })
-      .select('id, club_id, role')
+      .select('id, club_id, can_edit_roster, can_edit_scenarios, is_workspace_admin')
       .single()
 
     if (createErr || !created) {
@@ -166,5 +188,9 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
 
   request.userId = user.id
   request.clubId = user.club_id
-  request.userRole = user.role
+  request.permissions = {
+    canEditRoster: !!user.can_edit_roster,
+    canEditScenarios: !!user.can_edit_scenarios,
+    isWorkspaceAdmin: !!user.is_workspace_admin,
+  }
 }

@@ -26,13 +26,14 @@ function formatPenceNumber(pence: number, symbol = '£') {
 }
 import { Card } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
 import { EFL_CHAMPIONSHIP_CONFIG } from '@headroom/shared'
 import { calculatePromotedClubRevenueUplift, PROMOTED_CLUB_DEFAULT_UPLIFT_FACTOR } from '@headroom/engine'
 import { cn } from '@/lib/utils'
 import { useCan } from '@/lib/role'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import type { ComplianceStatus, Currency } from '@headroom/shared'
-import type { InviteRow, TeamMember, AuditEntry, InviteRole } from '@/lib/api'
+import type { InviteRow, TeamMember, AuditEntry, Permissions } from '@/lib/api'
 
 const SetupSchema = z
   .object({
@@ -559,7 +560,7 @@ const CURRENCY_OPTIONS: { value: Currency; label: string }[] = [
 
 function BaseCurrencyCard({ hasFinancialRecords }: { hasFinancialRecords: boolean }) {
   const can = useCan()
-  const isCfo = can.has('cfo')
+  const isCfo = can.isWorkspaceAdmin
   const baseCurrency = useClubStore((s) => s.baseCurrency)
   const setBaseCurrency = useClubStore((s) => s.setBaseCurrency)
 
@@ -658,18 +659,18 @@ function BaseCurrencyCard({ hasFinancialRecords }: { hasFinancialRecords: boolea
 }
 
 // ---------------------------------------------------------------------------
-// SettingsShell — page header + tab nav. Hosts the five Settings tabs:
-//   Profile & Security (all users) · Team & Access (CFO) · Financial (CFO) ·
-//   Activity Log (CFO) · Danger Zone (CFO).
-// The CFO-only tabs are both hidden from the nav AND guarded server-side by
-// requireRole('cfo'); the role predicates here only drive UI affordances.
+// SettingsShell — page header + tab nav. Hosts the Settings tabs:
+//   Profile & Security (all users) · Team & Access (admin) · Financial (admin) ·
+//   Activity Log (admin) · Danger Zone (admin).
+// The admin-only tabs are both hidden from the nav AND guarded server-side by
+// requirePermission('isWorkspaceAdmin'); the predicates here only drive UI.
 // ---------------------------------------------------------------------------
 
 type SettingsTab = 'profile' | 'team' | 'activity' | 'danger'
 
 function SettingsShell() {
   const can = useCan()
-  const isCfo = can.has('cfo')
+  const isCfo = can.isWorkspaceAdmin
 
   const [tab, setTab] = useState<SettingsTab>(() => {
     const h = window.location.hash.replace('#', '') as SettingsTab
@@ -1148,11 +1149,80 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
 const INVITE_LINK_BASE = () =>
   typeof window !== 'undefined' ? `${window.location.origin}/login?invite=` : '/login?invite='
 
-const ROLE_LABEL: Record<string, string> = {
-  cfo: 'CFO',
-  sporting_director: 'Sporting Director',
-  finance_analyst: 'Finance Analyst',
-  admin: 'Admin',
+const NO_GRANTS: Permissions = {
+  canEditRoster: false,
+  canEditScenarios: false,
+  isWorkspaceAdmin: false,
+}
+
+// Small permission tag chip — violet for Admin, slate for an explicit grant,
+// muted for a member with no edit access.
+function PermTag({ tone, children }: { tone: 'violet' | 'slate' | 'muted'; children: React.ReactNode }) {
+  const cls =
+    tone === 'violet' ? 'bg-violet-100 text-violet-700'
+    : tone === 'slate' ? 'bg-slate-100 text-slate-700'
+    : 'bg-slate-50 text-slate-400'
+  return (
+    <span className={cn('inline-block text-[11px] font-medium px-2 py-0.5 rounded-md', cls)}>
+      {children}
+    </span>
+  )
+}
+
+// Compact summary of a member/invite's access, rendered as UI Kit tags. A
+// workspace admin collapses to a single [Admin] tag (it implies everything).
+function PermissionTags({ perms }: { perms: Permissions }) {
+  if (perms.isWorkspaceAdmin) return <PermTag tone="violet">Admin</PermTag>
+  const tags: React.ReactNode[] = []
+  if (perms.canEditRoster) tags.push(<PermTag key="r" tone="slate">Edit Roster</PermTag>)
+  if (perms.canEditScenarios) tags.push(<PermTag key="s" tone="slate">Edit Scenarios</PermTag>)
+  if (tags.length === 0) return <PermTag tone="muted">Read-Only</PermTag>
+  return <span className="inline-flex flex-wrap gap-1.5">{tags}</span>
+}
+
+// The three permission toggles, shared by the invite form and the Manage Access
+// modal. Turning on "Workspace Admin" implies the other two, so they render
+// locked-on while admin is active (mirrors the backend, where admin overrides).
+function PermissionToggles({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: Permissions
+  onChange: (next: Permissions) => void
+  disabled?: boolean
+}) {
+  const rows: { key: keyof Permissions; label: string; hint: string }[] = [
+    { key: 'canEditRoster',    label: 'Edit Roster',    hint: 'Add, edit and delete players and contracts.' },
+    { key: 'canEditScenarios', label: 'Edit Scenarios', hint: 'Create and modify simulation scenarios.' },
+    { key: 'isWorkspaceAdmin', label: 'Workspace Admin (Full Access)', hint: 'Settings, members, base currency — implies all access.' },
+  ]
+  return (
+    <div className="rounded-lg border border-slate-200 divide-y divide-slate-100">
+      {rows.map((row) => {
+        const isAdminRow = row.key === 'isWorkspaceAdmin'
+        // Roster/Scenarios show as on + locked while admin is active.
+        const impliedOn = !isAdminRow && value.isWorkspaceAdmin
+        const checked = isAdminRow ? value.isWorkspaceAdmin : (impliedOn || value[row.key])
+        return (
+          <label
+            key={row.key}
+            className="flex items-center justify-between gap-4 px-4 py-3 cursor-pointer"
+          >
+            <span>
+              <span className="block text-[13px] font-medium text-slate-900">{row.label}</span>
+              <span className="block text-[12px] text-slate-500">{row.hint}</span>
+            </span>
+            <Switch
+              checked={checked}
+              disabled={disabled || impliedOn}
+              onChange={(next) => onChange({ ...value, [row.key]: next })}
+            />
+          </label>
+        )
+      })}
+    </div>
+  )
 }
 
 function TeamTab() {
@@ -1163,7 +1233,8 @@ function TeamTab() {
 
   // Invite form state
   const [inviteEmail, setInviteEmail] = useState('')
-  const [inviteRole, setInviteRole] = useState<InviteRole>('finance_analyst')
+  const [inviteTitle, setInviteTitle] = useState('')
+  const [invitePerms, setInvitePerms] = useState<Permissions>({ ...NO_GRANTS })
   const [creating, setCreating] = useState(false)
   const [justCreated, setJustCreated] = useState<{ token: string; email: string } | null>(null)
   const [copied, setCopied] = useState(false)
@@ -1176,7 +1247,7 @@ function TeamTab() {
 
   // Active-member management (distinct from pending invites).
   const [meId, setMeId] = useState<string | null>(null)
-  const [roleBusyId, setRoleBusyId] = useState<string | null>(null)
+  const [managing, setManaging] = useState<TeamMember | null>(null)
   const [confirmRevokeMemberId, setConfirmRevokeMemberId] = useState<string | null>(null)
   const [revokingMemberId, setRevokingMemberId] = useState<string | null>(null)
 
@@ -1197,18 +1268,10 @@ function TeamTab() {
   useEffect(() => { refresh() }, [])
   useEffect(() => { api.me.get().then((me) => setMeId(me.id)).catch(() => {}) }, [])
 
-  const handleRoleChange = async (id: string, role: InviteRole) => {
-    setRoleBusyId(id)
-    setError('')
-    try {
-      await api.team.updateRole(id, role)
-      setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, role } : m)))
-      toast.success('Role updated', 'The change applies immediately.')
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update role')
-    } finally {
-      setRoleBusyId(null)
-    }
+  const handleManageSaved = (id: string, next: { title: string | null } & Permissions) => {
+    setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, ...next } : m)))
+    setManaging(null)
+    toast.success('Access updated', 'The change applies immediately.')
   }
 
   const handleRevokeMember = async (id: string) => {
@@ -1232,9 +1295,15 @@ function TeamTab() {
     setError('')
     setJustCreated(null)
     try {
-      const result = await api.invites.create({ email: inviteEmail.trim(), role: inviteRole })
+      const result = await api.invites.create({
+        email: inviteEmail.trim(),
+        title: inviteTitle.trim() || null,
+        ...invitePerms,
+      })
       setJustCreated({ token: result.token, email: result.email })
       setInviteEmail('')
+      setInviteTitle('')
+      setInvitePerms({ ...NO_GRANTS })
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send invite')
@@ -1283,34 +1352,42 @@ function TeamTab() {
           Invitees complete the same 8-digit OTP signup as the CFO. The invite link expires in 7 days.
         </p>
 
-        <form onSubmit={handleInvite} className="grid grid-cols-[1fr_220px_auto] gap-3 items-end">
-          <label className="block">
-            <span className="meta-label block mb-1.5">Email</span>
-            <input
-              type="email"
-              required
-              value={inviteEmail}
-              onChange={(e) => setInviteEmail(e.target.value)}
-              placeholder="colleague@yourclub.com"
-              className="w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
-            />
-          </label>
-          <label className="block">
-            <span className="meta-label block mb-1.5">Role</span>
-            <select
-              value={inviteRole}
-              onChange={(e) => setInviteRole(e.target.value as InviteRole)}
-              className="w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
-            >
-              <option value="finance_analyst">Finance Analyst</option>
-              <option value="sporting_director">Sporting Director</option>
-              <option value="cfo">CFO</option>
-            </select>
-          </label>
-          <Button type="submit" disabled={creating || !inviteEmail.trim()}>
-            {creating && <Spinner size={14} />}
-            {creating ? 'Sending…' : 'Send invite'}
-          </Button>
+        <form onSubmit={handleInvite} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="meta-label block mb-1.5">Email</span>
+              <input
+                type="email"
+                required
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="colleague@yourclub.com"
+                className="w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+              />
+            </label>
+            <label className="block">
+              <span className="meta-label block mb-1.5">Job Title (Optional)</span>
+              <input
+                type="text"
+                value={inviteTitle}
+                onChange={(e) => setInviteTitle(e.target.value)}
+                placeholder="e.g. Head of Finance"
+                className="w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+              />
+            </label>
+          </div>
+
+          <div>
+            <span className="meta-label block mb-1.5">Permissions</span>
+            <PermissionToggles value={invitePerms} onChange={setInvitePerms} />
+          </div>
+
+          <div className="flex justify-end">
+            <Button type="submit" disabled={creating || !inviteEmail.trim()}>
+              {creating && <Spinner size={14} />}
+              {creating ? 'Sending…' : 'Send invite'}
+            </Button>
+          </div>
         </form>
 
         {error && (
@@ -1323,7 +1400,7 @@ function TeamTab() {
           <div className="mt-4 border border-violet-100 bg-violet-50/60 rounded-lg p-4">
             <div className="meta-label text-violet-700 mb-2">Invite created for {justCreated.email}</div>
             <p className="text-[12px] text-slate-600 mb-3">
-              Share this link directly with them. The CFO is responsible for verifying the recipient's identity.
+              Share this link directly with them. You are responsible for verifying the recipient's identity.
             </p>
             <div className="flex items-center gap-2">
               <input
@@ -1340,7 +1417,7 @@ function TeamTab() {
         )}
       </Card>
 
-      {/* Members table — active users with role control + revoke */}
+      {/* Members table — active users with permission summary + manage/revoke */}
       <Card className="overflow-hidden">
         <div className="px-6 py-5 border-b border-slate-100 flex items-center gap-3">
           <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
@@ -1351,7 +1428,7 @@ function TeamTab() {
             <tr>
               <Th>Name</Th>
               <Th>Email</Th>
-              <Th>Role</Th>
+              <Th>Permissions</Th>
               <Th>Joined</Th>
               <Th align="right">{''}</Th>
             </tr>
@@ -1365,26 +1442,12 @@ function TeamTab() {
                 <tr key={m.id} className="border-b border-slate-100 last:border-0">
                   <td className="px-6 py-3.5 text-[14px] text-slate-900 font-medium">
                     {m.fullName}
+                    {m.title && <span className="block text-[12px] text-slate-400 font-normal">{m.title}</span>}
                     {isSelf && <span className="ml-2 text-[11px] text-slate-400 font-normal">(you)</span>}
                   </td>
                   <td className="px-6 py-3.5 text-[13px] text-slate-500 num">{m.email}</td>
                   <td className="px-6 py-3.5">
-                    {isSelf ? (
-                      <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
-                        {ROLE_LABEL[m.role] ?? m.role}
-                      </span>
-                    ) : (
-                      <select
-                        value={m.role}
-                        disabled={roleBusyId === m.id}
-                        onChange={(e) => handleRoleChange(m.id, e.target.value as InviteRole)}
-                        className="text-[13px] px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 disabled:opacity-60"
-                      >
-                        <option value="cfo">CFO</option>
-                        <option value="sporting_director">Sporting Director</option>
-                        <option value="finance_analyst">Finance Analyst</option>
-                      </select>
-                    )}
+                    <PermissionTags perms={m} />
                   </td>
                   <td className="px-6 py-3.5 text-[12px] text-slate-500 num">
                     {new Date(m.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
@@ -1413,13 +1476,22 @@ function TeamTab() {
                         </SettingsIconButton>
                       </span>
                     ) : (
-                      <SettingsIconButton
-                        label="Revoke access"
-                        tone="danger"
-                        onClick={() => setConfirmRevokeMemberId(m.id)}
-                      >
-                        <TrashIcon />
-                      </SettingsIconButton>
+                      <span className="inline-flex items-center gap-1.5 justify-end">
+                        <SettingsIconButton
+                          label="Manage access"
+                          tone="violet"
+                          onClick={() => setManaging(m)}
+                        >
+                          <SlidersIcon />
+                        </SettingsIconButton>
+                        <SettingsIconButton
+                          label="Revoke access"
+                          tone="danger"
+                          onClick={() => setConfirmRevokeMemberId(m.id)}
+                        >
+                          <TrashIcon />
+                        </SettingsIconButton>
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -1428,6 +1500,16 @@ function TeamTab() {
           </tbody>
         </table>
       </Card>
+
+      <AnimatePresence>
+        {managing && (
+          <ManageAccessModal
+            member={managing}
+            onClose={() => setManaging(null)}
+            onSaved={handleManageSaved}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Pending invites */}
       {invites.filter((i) => i.status === 'pending').length > 0 && (
@@ -1440,7 +1522,7 @@ function TeamTab() {
             <thead className="bg-slate-50/40 border-b border-slate-100">
               <tr>
                 <Th>Email</Th>
-                <Th>Role</Th>
+                <Th>Permissions</Th>
                 <Th>Expires</Th>
                 <Th align="right">{''}</Th>
               </tr>
@@ -1448,11 +1530,12 @@ function TeamTab() {
             <tbody>
               {invites.filter((i) => i.status === 'pending').map((inv) => (
                 <tr key={inv.id} className="border-b border-slate-100 last:border-0">
-                  <td className="px-6 py-3.5 text-[13px] text-slate-700 num">{inv.email}</td>
+                  <td className="px-6 py-3.5 text-[13px] text-slate-700 num">
+                    {inv.email}
+                    {inv.title && <span className="block text-[12px] text-slate-400">{inv.title}</span>}
+                  </td>
                   <td className="px-6 py-3.5">
-                    <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-700">
-                      {ROLE_LABEL[inv.role] ?? inv.role}
-                    </span>
+                    <PermissionTags perms={inv} />
                   </td>
                   <td className="px-6 py-3.5 text-[12px] text-slate-500 num">
                     {new Date(inv.expiresAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
@@ -1651,6 +1734,122 @@ function CloseIcon() {
       <path d="M18 6 6 18" />
       <path d="M6 6l12 12" />
     </svg>
+  )
+}
+
+function SlidersIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <line x1="4" y1="21" x2="4" y2="14" />
+      <line x1="4" y1="10" x2="4" y2="3" />
+      <line x1="12" y1="21" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12" y2="3" />
+      <line x1="20" y1="21" x2="20" y2="16" />
+      <line x1="20" y1="12" x2="20" y2="3" />
+      <line x1="1" y1="14" x2="7" y2="14" />
+      <line x1="9" y1="8" x2="15" y2="8" />
+      <line x1="17" y1="16" x2="23" y2="16" />
+    </svg>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ManageAccessModal — admin edits a single member's title + permission grants.
+// Uses the shared PermissionToggles + a pure-fade modal (matching CompareModal).
+// ---------------------------------------------------------------------------
+function ManageAccessModal({
+  member,
+  onClose,
+  onSaved,
+}: {
+  member: TeamMember
+  onClose: () => void
+  onSaved: (id: string, next: { title: string | null } & Permissions) => void
+}) {
+  const [title, setTitle] = useState(member.title ?? '')
+  const [perms, setPerms] = useState<Permissions>({
+    canEditRoster: member.canEditRoster,
+    canEditScenarios: member.canEditScenarios,
+    isWorkspaceAdmin: member.isWorkspaceAdmin,
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSave = async () => {
+    setSaving(true)
+    setError('')
+    try {
+      const nextTitle = title.trim() || null
+      const res = await api.team.update(member.id, { title: nextTitle, ...perms })
+      onSaved(member.id, {
+        title: res.title,
+        canEditRoster: res.canEditRoster,
+        canEditScenarios: res.canEditScenarios,
+        isWorkspaceAdmin: res.isWorkspaceAdmin,
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update access')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <motion.div
+      role="dialog"
+      aria-modal="true"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-[2px]"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0, transition: { duration: 0.12 } }}
+        transition={{ duration: 0.16, ease: 'easeOut' }}
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-md border border-slate-200 overflow-hidden"
+      >
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <h2 className="text-[16px] font-semibold text-slate-900">Manage access</h2>
+            <p className="text-[12px] text-slate-500 mt-0.5">{member.fullName} · <span className="num">{member.email}</span></p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1 -m-1" aria-label="Close">
+            <CloseIcon />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <label className="block">
+            <span className="meta-label block mb-1.5">Job Title (Optional)</span>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Head of Finance"
+              className="w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
+            />
+          </label>
+          <div>
+            <span className="meta-label block mb-1.5">Permissions</span>
+            <PermissionToggles value={perms} onChange={setPerms} disabled={saving} />
+          </div>
+          {error && (
+            <div className="border border-red-200 bg-red-50 rounded-lg px-4 py-3 text-[13px] text-red-700">
+              {error}
+            </div>
+          )}
+        </div>
+        <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-2">
+          <Button variant="outline" type="button" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button type="button" onClick={handleSave} disabled={saving}>
+            {saving && <Spinner size={14} />}
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+      </motion.div>
+    </motion.div>
   )
 }
 

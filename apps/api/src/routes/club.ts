@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { requireRole } from '../middleware/roles.js'
+import { requirePermission } from '../middleware/permissions.js'
 import { writeAuditLog } from '../lib/audit.js'
 import { LEAGUE_CONFIGS, getDefaultCurrencyForLeague } from '@headroom/shared'
 import { calculateSquadCosts, type ContractInput, type ManagerCostInput } from '@headroom/engine'
@@ -91,20 +91,24 @@ async function deriveSquadCostsForClub(clubId: string): Promise<{
 export async function clubRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware)
 
-  // GET /me — minimal "who am I" used by the frontend to drive RBAC affordances.
-  // Returns the role + name pulled from public.users for the authenticated user.
+  // GET /me — minimal "who am I" used by the frontend to drive permission
+  // affordances. Returns the explicit permission grants + title + name pulled
+  // from public.users for the authenticated user.
   app.get('/me', async (request, reply) => {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select('id, role, full_name, email, is_totp_enabled')
+        .select('id, title, can_edit_roster, can_edit_scenarios, is_workspace_admin, full_name, email, is_totp_enabled')
         .eq('id', request.userId)
         .maybeSingle()
       if (error) throw error
       if (!data) return reply.status(404).send({ error: 'User record not found' })
       return reply.send({
         id: data.id,
-        role: data.role,
+        title: (data.title as string | null) ?? null,
+        canEditRoster: !!data.can_edit_roster,
+        canEditScenarios: !!data.can_edit_scenarios,
+        isWorkspaceAdmin: !!data.is_workspace_admin,
         fullName: data.full_name,
         email: data.email,
         isTotpEnabled: !!data.is_totp_enabled,
@@ -237,7 +241,7 @@ export async function clubRoutes(app: FastifyInstance) {
   // CFO + Admin only — per Phase 5 role matrix, club financial settings are
   // CFO-controlled. Finance Analyst handles data entry for roster + SSR but
   // not the season-level financial config.
-  app.put('/club/financials', { preHandler: requireRole('cfo') }, async (request, reply) => {
+  app.put('/club/financials', { preHandler: requirePermission('isWorkspaceAdmin') }, async (request, reply) => {
     const parsed = UpdateFinancialsBody.safeParse(request.body)
     if (!parsed.success) {
       return reply.status(400).send({ error: parsed.error.flatten() })
@@ -313,7 +317,7 @@ export async function clubRoutes(app: FastifyInstance) {
 
   // CFO + Admin only — switching the league changes the regulatory framework
   // and triggers SSR availability. Reserved for the CFO.
-  app.patch('/club/league', { preHandler: requireRole('cfo') }, async (request, reply) => {
+  app.patch('/club/league', { preHandler: requirePermission('isWorkspaceAdmin') }, async (request, reply) => {
     const Body = z.object({
       leagueId: z.enum(['efl-championship', 'premier-league']),
     })
@@ -373,7 +377,7 @@ export async function clubRoutes(app: FastifyInstance) {
   // displayed across the workspace. Setting it marks currency_is_custom so a
   // later league change won't silently re-derive it. NO financial records are
   // converted — the engine keeps running on the exact numbers entered.
-  app.patch('/club/currency', { preHandler: requireRole('cfo') }, async (request, reply) => {
+  app.patch('/club/currency', { preHandler: requirePermission('isWorkspaceAdmin') }, async (request, reply) => {
     const Body = z.object({
       baseCurrency: z.enum(['GBP', 'EUR', 'USD']),
     })
@@ -440,7 +444,7 @@ export async function clubRoutes(app: FastifyInstance) {
   // High-friction: the caller must echo the club's exact name. Irreversible.
   // We delete every club-scoped table in child→parent order (no reliance on DB
   // cascade), then remove each member's Supabase auth account, then the club.
-  app.delete('/club', { preHandler: requireRole('cfo') }, async (request, reply) => {
+  app.delete('/club', { preHandler: requirePermission('isWorkspaceAdmin') }, async (request, reply) => {
     const Body = z.object({ confirmName: z.string().min(1) })
     const parsed = Body.safeParse(request.body)
     if (!parsed.success) return reply.status(400).send({ error: 'Confirmation name is required' })

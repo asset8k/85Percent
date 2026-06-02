@@ -177,7 +177,10 @@ async function seed() {
     {
       id:         userId,
       club_id:    resolvedClubId,
-      role:       'cfo',
+      title:              'CFO',
+      can_edit_roster:    true,
+      can_edit_scenarios: true,
+      is_workspace_admin: true,
       full_name:  'Dev Admin',
       email:      SEED_EMAIL,
       created_at: now,

@@ -21,7 +21,8 @@ import Papa from 'papaparse'
 import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { hasRole } from '../middleware/roles.js'
+import { hasPermission } from '../middleware/permissions.js'
+import type { Permissions } from '../middleware/permissions.js'
 import { writeAuditLog } from '../lib/audit.js'
 import {
   RosterRowSchema,
@@ -39,9 +40,9 @@ import {
 } from '@headroom/shared'
 import { currentBookValuePence, calculateRemainingBookValue } from '@headroom/engine'
 
-// Roles permitted to mutate the roster (Phase 5 §5.2 role matrix).
-function canMutateRoster(role: string): boolean {
-  return hasRole(role, 'cfo', 'finance_analyst')
+// Roster mutation requires the explicit canEditRoster grant (admins implicitly).
+function canMutateRoster(permissions: Permissions): boolean {
+  return hasPermission(permissions, 'canEditRoster')
 }
 
 // ---------------------------------------------------------------------------
@@ -460,7 +461,7 @@ export async function rosterRoutes(app: FastifyInstance) {
 
   // ---------------------------------------------------------------------- POST /roster/parse
   app.post('/roster/parse', async (request, reply) => {
-    if (!canMutateRoster(request.userRole)) {
+    if (!canMutateRoster(request.permissions)) {
       return reply.status(403).send({ error: 'Insufficient permissions to import roster' })
     }
 
@@ -504,7 +505,7 @@ export async function rosterRoutes(app: FastifyInstance) {
 
   // ---------------------------------------------------------------------- POST /roster/commit
   app.post('/roster/commit', async (request, reply) => {
-    if (!canMutateRoster(request.userRole)) {
+    if (!canMutateRoster(request.permissions)) {
       return reply.status(403).send({ error: 'Insufficient permissions to import roster' })
     }
 
@@ -659,7 +660,7 @@ export async function rosterRoutes(app: FastifyInstance) {
   // ---------------------------------------------------------------------- POST /roster/player
   // Manual single-player creation (player + active contract).
   app.post('/roster/player', async (request, reply) => {
-    if (!canMutateRoster(request.userRole)) {
+    if (!canMutateRoster(request.permissions)) {
       return reply.status(403).send({ error: 'Insufficient permissions' })
     }
 
@@ -728,7 +729,7 @@ export async function rosterRoutes(app: FastifyInstance) {
 
   // ---------------------------------------------------------------------- PATCH /roster/player/:id
   app.patch('/roster/player/:id', async (request, reply) => {
-    if (!canMutateRoster(request.userRole)) {
+    if (!canMutateRoster(request.permissions)) {
       return reply.status(403).send({ error: 'Insufficient permissions' })
     }
     const { id } = request.params as { id: string }
@@ -776,7 +777,7 @@ export async function rosterRoutes(app: FastifyInstance) {
   // ---------------------------------------------------------------------- PATCH /roster/contract/:id
   // Updates contract fields and recomputes book value.
   app.patch('/roster/contract/:id', async (request, reply) => {
-    if (!canMutateRoster(request.userRole)) {
+    if (!canMutateRoster(request.permissions)) {
       return reply.status(403).send({ error: 'Insufficient permissions' })
     }
     const { id } = request.params as { id: string }
@@ -857,7 +858,7 @@ export async function rosterRoutes(app: FastifyInstance) {
   // ---------------------------------------------------------------------- POST /roster/player/:id/archive
   // Soft-delete: never hard delete. Keeps the row for audit trail.
   app.post('/roster/player/:id/archive', async (request, reply) => {
-    if (!canMutateRoster(request.userRole)) {
+    if (!canMutateRoster(request.permissions)) {
       return reply.status(403).send({ error: 'Insufficient permissions' })
     }
     const { id } = request.params as { id: string }
@@ -915,7 +916,7 @@ export async function rosterRoutes(app: FastifyInstance) {
   // recently-created contract for them (whether or not it has expired — the
   // expiry chip will render "expired" honestly; users can then edit it).
   app.post('/roster/player/:id/restore', async (request, reply) => {
-    if (!canMutateRoster(request.userRole)) {
+    if (!canMutateRoster(request.permissions)) {
       return reply.status(403).send({ error: 'Insufficient permissions' })
     }
     const { id } = request.params as { id: string }
@@ -999,7 +1000,7 @@ export async function rosterRoutes(app: FastifyInstance) {
   //   2. contracts for the player
   //   3. the player row itself
   app.delete('/roster/player/:id', async (request, reply) => {
-    if (!canMutateRoster(request.userRole)) {
+    if (!canMutateRoster(request.permissions)) {
       return reply.status(403).send({ error: 'Insufficient permissions' })
     }
     const { id } = request.params as { id: string }
@@ -1105,7 +1106,7 @@ export async function rosterRoutes(app: FastifyInstance) {
   // is_current on the old row first to respect the one-current partial unique
   // index, then insert; on insert failure we revert the supersede.)
   app.post('/roster/player/:id/extend', async (request, reply) => {
-    if (!canMutateRoster(request.userRole)) {
+    if (!canMutateRoster(request.permissions)) {
       return reply.status(403).send({ error: 'Insufficient permissions' })
     }
     const { id } = request.params as { id: string }
@@ -1206,7 +1207,7 @@ export async function rosterRoutes(app: FastifyInstance) {
   // have no inbound FKs (scenario_actions key off player_id), so the row delete
   // is safe.
   app.delete('/roster/contract/:id', async (request, reply) => {
-    if (!canMutateRoster(request.userRole)) {
+    if (!canMutateRoster(request.permissions)) {
       return reply.status(403).send({ error: 'Insufficient permissions' })
     }
     const { id } = request.params as { id: string }
@@ -1301,7 +1302,7 @@ export async function rosterRoutes(app: FastifyInstance) {
   // -------------------------------------------------------------------- POST /roster/manager
   // Create the Head Coach + their INITIAL contract phase.
   app.post('/roster/manager', async (request, reply) => {
-    if (!canMutateRoster(request.userRole)) {
+    if (!canMutateRoster(request.permissions)) {
       return reply.status(403).send({ error: 'Insufficient permissions' })
     }
     const parsed = ManagerInputSchema.safeParse(request.body)
@@ -1373,7 +1374,7 @@ export async function rosterRoutes(app: FastifyInstance) {
   // -------------------------------------------------------------------- PATCH /roster/manager/:id
   // Update identity fields (name / active flag). Archiving sets is_active=false.
   app.patch('/roster/manager/:id', async (request, reply) => {
-    if (!canMutateRoster(request.userRole)) {
+    if (!canMutateRoster(request.permissions)) {
       return reply.status(403).send({ error: 'Insufficient permissions' })
     }
     const { id } = request.params as { id: string }
@@ -1415,7 +1416,7 @@ export async function rosterRoutes(app: FastifyInstance) {
   // -------------------------------------------------------------------- PATCH /roster/manager-contract/:id
   // Correct the current manager contract phase in place (NOT an extension).
   app.patch('/roster/manager-contract/:id', async (request, reply) => {
-    if (!canMutateRoster(request.userRole)) {
+    if (!canMutateRoster(request.permissions)) {
       return reply.status(403).send({ error: 'Insufficient permissions' })
     }
     const { id } = request.params as { id: string }
@@ -1485,7 +1486,7 @@ export async function rosterRoutes(app: FastifyInstance) {
   // counting toward the Squad Cost Ratio. Rejected if a current contract exists
   // (use the PATCH/extend endpoints to change an existing one).
   app.post('/roster/manager/:id/contract', async (request, reply) => {
-    if (!canMutateRoster(request.userRole)) {
+    if (!canMutateRoster(request.permissions)) {
       return reply.status(403).send({ error: 'Insufficient permissions' })
     }
     const { id } = request.params as { id: string }
@@ -1552,7 +1553,7 @@ export async function rosterRoutes(app: FastifyInstance) {
   // -------------------------------------------------------------------- POST /roster/manager/:id/extend
   // Manager equivalent of the player extension transaction.
   app.post('/roster/manager/:id/extend', async (request, reply) => {
-    if (!canMutateRoster(request.userRole)) {
+    if (!canMutateRoster(request.permissions)) {
       return reply.status(403).send({ error: 'Insufficient permissions' })
     }
     const { id } = request.params as { id: string }
@@ -1646,7 +1647,7 @@ export async function rosterRoutes(app: FastifyInstance) {
   // Manager equivalent of contract-phase deletion. Promotes the most recent
   // remaining phase to current when the live phase is removed.
   app.delete('/roster/manager-contract/:id', async (request, reply) => {
-    if (!canMutateRoster(request.userRole)) {
+    if (!canMutateRoster(request.permissions)) {
       return reply.status(403).send({ error: 'Insufficient permissions' })
     }
     const { id } = request.params as { id: string }

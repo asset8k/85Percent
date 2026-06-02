@@ -20,7 +20,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { hasRole } from '../middleware/roles.js'
+import { requirePermission, hasPermission } from '../middleware/permissions.js'
 import { writeAuditLog } from '../lib/audit.js'
 
 // ---------------------------------------------------------------------------
@@ -88,7 +88,7 @@ export async function scenarioRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware)
 
   // -------------------------------------------------------------------- POST /scenarios
-  app.post('/scenarios', async (request, reply) => {
+  app.post('/scenarios', { preHandler: requirePermission('canEditScenarios') }, async (request, reply) => {
     const parsed = CreateScenarioBody.safeParse(request.body)
     if (!parsed.success) {
       return reply.status(400).send({ error: parsed.error.flatten() })
@@ -245,9 +245,8 @@ export async function scenarioRoutes(app: FastifyInstance) {
   })
 
   // -------------------------------------------------------------------- PATCH /scenarios/:id
-  // Rename is allowed for all authenticated roles. Toggling is_included
-  // affects the Active Baseline visible across the whole club — restricted
-  // to CFO + Sporting Director per Phase 5 role matrix.
+  // Any modification (rename or toggling is_included, which affects the club-wide
+  // Active Baseline) requires the canEditScenarios grant.
   app.patch('/scenarios/:id', async (request, reply) => {
     const { id } = request.params as { id: string }
     const parsed = UpdateScenarioBody.safeParse(request.body)
@@ -255,9 +254,8 @@ export async function scenarioRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: parsed.error.flatten() })
     }
 
-    if (parsed.data.isIncluded !== undefined &&
-        !hasRole(request.userRole, 'cfo', 'sporting_director')) {
-      return reply.status(403).send({ error: 'Only CFO or Sporting Director can toggle Active Baseline' })
+    if (!hasPermission(request.permissions, 'canEditScenarios')) {
+      return reply.status(403).send({ error: 'Insufficient permissions' })
     }
 
     try {
@@ -295,7 +293,7 @@ export async function scenarioRoutes(app: FastifyInstance) {
   })
 
   // -------------------------------------------------------------------- DELETE /scenarios/:id
-  app.delete('/scenarios/:id', async (request, reply) => {
+  app.delete('/scenarios/:id', { preHandler: requirePermission('canEditScenarios') }, async (request, reply) => {
     const { id } = request.params as { id: string }
 
     try {

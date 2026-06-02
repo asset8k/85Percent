@@ -10,7 +10,7 @@
  *   - authMiddleware attaches request.clubId (defence-in-depth on top of RLS)
  *   - PL-only middleware short-circuits with 404 for Championship clubs so we
  *     don't leak the existence of SSR routes to non-PL tenants
- *   - Role guard: CFO + Admin + Finance Analyst can mutate; all can read
+ *   - Permission guard: workspace admins can mutate; all members can read
  */
 
 import { randomUUID } from 'crypto'
@@ -18,7 +18,8 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { hasRole } from '../middleware/roles.js'
+import { hasPermission } from '../middleware/permissions.js'
+import type { Permissions } from '../middleware/permissions.js'
 import { writeAuditLog } from '../lib/audit.js'
 import {
   evaluateWorkingCapital,
@@ -27,9 +28,11 @@ import {
   type WorkingCapitalMonthInput,
 } from '@headroom/engine'
 
-// Roles permitted to mutate SSR data (Phase 5 §5.2 role matrix).
-function canMutateSsr(role: string): boolean {
-  return hasRole(role, 'cfo', 'finance_analyst')
+// SSR (working capital / liquidity / equity) is club-level financial compliance
+// data — entry is gated behind the workspace-admin grant, consistent with the
+// other financial settings (revenue, allowance ratio, base currency).
+function canMutateSsr(permissions: Permissions): boolean {
+  return hasPermission(permissions, 'isWorkspaceAdmin')
 }
 
 // PL-only guard. Returns true if the club is on the premier-league config.
@@ -134,7 +137,7 @@ export async function ssrRoutes(app: FastifyInstance) {
   // PUT /ssr/working-capital — upsert one month
   app.put('/ssr/working-capital', async (request, reply) => {
     if (!(await ensurePremierLeague(request, reply))) return
-    if (!canMutateSsr(request.userRole)) return reply.status(403).send({ error: 'Insufficient permissions' })
+    if (!canMutateSsr(request.permissions)) return reply.status(403).send({ error: 'Insufficient permissions' })
 
     const parsed = WorkingCapitalUpsertBody.safeParse(request.body)
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
@@ -234,7 +237,7 @@ export async function ssrRoutes(app: FastifyInstance) {
 
   app.put('/ssr/liquidity', async (request, reply) => {
     if (!(await ensurePremierLeague(request, reply))) return
-    if (!canMutateSsr(request.userRole)) return reply.status(403).send({ error: 'Insufficient permissions' })
+    if (!canMutateSsr(request.permissions)) return reply.status(403).send({ error: 'Insufficient permissions' })
 
     const parsed = LiquidityUpsertBody.safeParse(request.body)
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
@@ -331,7 +334,7 @@ export async function ssrRoutes(app: FastifyInstance) {
 
   app.put('/ssr/equity', async (request, reply) => {
     if (!(await ensurePremierLeague(request, reply))) return
-    if (!canMutateSsr(request.userRole)) return reply.status(403).send({ error: 'Insufficient permissions' })
+    if (!canMutateSsr(request.permissions)) return reply.status(403).send({ error: 'Insufficient permissions' })
 
     const parsed = EquityUpsertBody.safeParse(request.body)
     if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })

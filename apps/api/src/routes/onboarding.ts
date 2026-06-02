@@ -19,7 +19,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { requireRole } from '../middleware/roles.js'
+import { requirePermission } from '../middleware/permissions.js'
 import { writeAuditLog } from '../lib/audit.js'
 import { getDefaultCurrencyForLeague } from '@headroom/shared'
 import {
@@ -100,9 +100,9 @@ export async function onboardingRoutes(app: FastifyInstance) {
   })
 
   // ------------------------------------------------------------ POST /onboarding/complete
-  // Clone a template roster into the caller's active tenant tables. CFO-only —
+  // Clone a template roster into the caller's active tenant tables. Admin-only —
   // it sets the club's identity (name + league) and seeds the squad.
-  app.post('/onboarding/complete', { preHandler: requireRole('cfo') }, async (request, reply) => {
+  app.post('/onboarding/complete', { preHandler: requirePermission('isWorkspaceAdmin') }, async (request, reply) => {
     const parsed = CompleteBody.safeParse(request.body)
     if (!parsed.success) {
       return reply.status(400).send({ error: parsed.error.flatten() })

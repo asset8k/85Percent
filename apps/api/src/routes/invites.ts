@@ -1,14 +1,15 @@
 /**
  * Invite routes — Phase 5.
  *
- * Three CFO-only endpoints (POST/GET/DELETE) + one public lookup endpoint
+ * Three admin-only endpoints (POST/GET/DELETE) + one public lookup endpoint
  * (GET /invites/lookup?token=…) used by the signup flow before the invitee
  * has an authenticated session.
  *
- * The CFO creates an invite → frontend displays the invite link → invitee
- * follows the link → signs up via the standard 8-digit OTP flow → first call
- * to authMiddleware sees the new auth user, checks invites by email, and
- * links them to the right club + role.
+ * An admin creates an invite (with explicit permission grants) → frontend
+ * displays the invite link → invitee follows the link → signs up via the
+ * standard 8-digit OTP flow → first call to authMiddleware sees the new auth
+ * user, checks invites by email, and links them to the right club inheriting
+ * the invite's permission grants.
  *
  * Email delivery: MVP 2.0 returns the invite link to the inviter for
  * copy/paste. Production should wire this to Supabase mailer or Resend.
@@ -19,7 +20,7 @@ import type { FastifyInstance } from 'fastify'
 import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { requireRole } from '../middleware/roles.js'
+import { requirePermission } from '../middleware/permissions.js'
 import { writeAuditLog } from '../lib/audit.js'
 
 const INVITE_TTL_DAYS = 7
@@ -35,21 +36,33 @@ function generateToken(): string {
   return randomBytes(32).toString('base64url')
 }
 
-const CreateInviteBody = z.object({
+// Explicit permission grants carried by an invite (MVP 2.1). The invitee
+// inherits these on accept. `title` is a free-text display job title only.
+const PermissionGrants = z.object({
+  title: z.string().trim().max(120).optional().nullable(),
+  canEditRoster: z.boolean().default(false),
+  canEditScenarios: z.boolean().default(false),
+  isWorkspaceAdmin: z.boolean().default(false),
+})
+
+const CreateInviteBody = PermissionGrants.extend({
   email: z.string().trim().toLowerCase().email('Invalid email'),
-  role: z.enum(['cfo', 'sporting_director', 'finance_analyst']),
 })
 
 function shapeInvite(row: Record<string, unknown>): {
-  id: string; clubId: string; email: string; role: string;
+  id: string; clubId: string; email: string;
+  title: string | null; canEditRoster: boolean; canEditScenarios: boolean; isWorkspaceAdmin: boolean;
   invitedBy: string; expiresAt: string; acceptedAt: string | null; createdAt: string;
-  token?: string  // included only when CFO creates / fetches an actively pending invite
+  token?: string  // included only when an admin creates / fetches an actively pending invite
 } {
   return {
     id: String(row['id']),
     clubId: String(row['club_id']),
     email: String(row['email']),
-    role: String(row['role']),
+    title: (row['title'] as string | null) ?? null,
+    canEditRoster: !!row['can_edit_roster'],
+    canEditScenarios: !!row['can_edit_scenarios'],
+    isWorkspaceAdmin: !!row['is_workspace_admin'],
     invitedBy: String(row['invited_by']),
     expiresAt: String(row['expires_at']),
     acceptedAt: (row['accepted_at'] as string | null) ?? null,
@@ -71,7 +84,7 @@ export async function inviteRoutes(app: FastifyInstance) {
     try {
       const { data, error } = await supabase
         .from('invites')
-        .select('id, email, role, expires_at, accepted_at, club:clubs!club_id(name)')
+        .select('id, email, title, can_edit_roster, can_edit_scenarios, is_workspace_admin, expires_at, accepted_at, club:clubs!club_id(name)')
         .eq('token', token)
         .maybeSingle()
 
@@ -88,7 +101,10 @@ export async function inviteRoutes(app: FastifyInstance) {
       const clubName = Array.isArray(clubRel) ? clubRel[0]?.name : clubRel?.name
       return reply.send({
         email: data.email,
-        role: data.role,
+        title: (data.title as string | null) ?? null,
+        canEditRoster: !!data.can_edit_roster,
+        canEditScenarios: !!data.can_edit_scenarios,
+        isWorkspaceAdmin: !!data.is_workspace_admin,
         clubName: clubName ?? 'a club',
         expiresAt: data.expires_at,
       })
@@ -99,16 +115,16 @@ export async function inviteRoutes(app: FastifyInstance) {
   })
 
   // -------------------------------------------------------------------- AUTHENTICATED
-  // The rest of the routes require auth + CFO role.
+  // The rest of the routes require auth + workspace-admin permission.
   app.register(async (scoped) => {
     scoped.addHook('preHandler', authMiddleware)
 
-    // POST /invites — create a new invite (CFO only)
-    scoped.post('/invites', { preHandler: requireRole('cfo') }, async (request, reply) => {
+    // POST /invites — create a new invite (workspace admin only)
+    scoped.post('/invites', { preHandler: requirePermission('isWorkspaceAdmin') }, async (request, reply) => {
       const parsed = CreateInviteBody.safeParse(request.body)
       if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
 
-      const { email, role } = parsed.data
+      const { email, title, canEditRoster, canEditScenarios, isWorkspaceAdmin } = parsed.data
 
       try {
         // Reject if the email is already a member of any club
@@ -143,11 +159,18 @@ export async function inviteRoutes(app: FastifyInstance) {
         const expiresAt = expiryFromNow()
         const nowISO = new Date().toISOString()
 
+        const grants = {
+          title: title ?? null,
+          can_edit_roster: canEditRoster,
+          can_edit_scenarios: canEditScenarios,
+          is_workspace_admin: isWorkspaceAdmin,
+        }
+
         const { error: insErr } = await supabase.from('invites').insert({
           id: inviteId,
           club_id: request.clubId,
           email,
-          role,
+          ...grants,
           invited_by: request.userId,
           token,
           expires_at: expiresAt,
@@ -155,13 +178,16 @@ export async function inviteRoutes(app: FastifyInstance) {
         })
         if (insErr) throw insErr
 
-        await writeAuditLog(request, 'invites', inviteId, 'create', { email, role })
+        await writeAuditLog(request, 'invites', inviteId, 'create', { email, ...grants })
 
         return reply.status(201).send({
           id: inviteId,
           email,
-          role,
-          token,             // returned ONLY at creation time — CFO copies into the invite link
+          title: title ?? null,
+          canEditRoster,
+          canEditScenarios,
+          isWorkspaceAdmin,
+          token,             // returned ONLY at creation time — admin copies into the invite link
           expiresAt,
         })
       } catch (err) {
@@ -170,12 +196,12 @@ export async function inviteRoutes(app: FastifyInstance) {
       }
     })
 
-    // GET /invites — list invites for the calling club (CFO only)
-    scoped.get('/invites', { preHandler: requireRole('cfo') }, async (request, reply) => {
+    // GET /invites — list invites for the calling club (workspace admin only)
+    scoped.get('/invites', { preHandler: requirePermission('isWorkspaceAdmin') }, async (request, reply) => {
       try {
         const { data, error } = await supabase
           .from('invites')
-          .select('id, club_id, email, role, invited_by, token, expires_at, accepted_at, created_at')
+          .select('id, club_id, email, title, can_edit_roster, can_edit_scenarios, is_workspace_admin, invited_by, token, expires_at, accepted_at, created_at')
           .eq('club_id', request.clubId)
           .order('created_at', { ascending: false })
 
@@ -201,13 +227,13 @@ export async function inviteRoutes(app: FastifyInstance) {
       }
     })
 
-    // DELETE /invites/:id — revoke an invite (CFO only)
-    scoped.delete('/invites/:id', { preHandler: requireRole('cfo') }, async (request, reply) => {
+    // DELETE /invites/:id — revoke an invite (workspace admin only)
+    scoped.delete('/invites/:id', { preHandler: requirePermission('isWorkspaceAdmin') }, async (request, reply) => {
       const { id } = request.params as { id: string }
       try {
         const { data: existing, error: findErr } = await supabase
           .from('invites')
-          .select('id, email, role, accepted_at')
+          .select('id, email, accepted_at')
           .eq('id', id)
           .eq('club_id', request.clubId)
           .maybeSingle()
@@ -226,7 +252,7 @@ export async function inviteRoutes(app: FastifyInstance) {
         if (delErr) throw delErr
 
         await writeAuditLog(request, 'invites', id, 'delete', undefined, {
-          email: existing.email, role: existing.role,
+          email: existing.email,
         })
 
         return reply.send({ success: true })
@@ -236,13 +262,13 @@ export async function inviteRoutes(app: FastifyInstance) {
       }
     })
 
-    // GET /team — list current users on this club (CFO only). Pairs with the
-    // Settings → Team UI alongside the pending invites table.
-    scoped.get('/team', { preHandler: requireRole('cfo') }, async (request, reply) => {
+    // GET /team — list current users on this club (workspace admin only). Pairs
+    // with the Settings → Team UI alongside the pending invites table.
+    scoped.get('/team', { preHandler: requirePermission('isWorkspaceAdmin') }, async (request, reply) => {
       try {
         const { data, error } = await supabase
           .from('users')
-          .select('id, email, full_name, role, created_at')
+          .select('id, email, full_name, title, can_edit_roster, can_edit_scenarios, is_workspace_admin, created_at')
           .eq('club_id', request.clubId)
           .order('created_at', { ascending: true })
         if (error) throw error
@@ -252,7 +278,10 @@ export async function inviteRoutes(app: FastifyInstance) {
             id: String(u.id),
             email: String(u.email),
             fullName: String(u.full_name),
-            role: String(u.role),
+            title: (u.title as string | null) ?? null,
+            canEditRoster: !!u.can_edit_roster,
+            canEditScenarios: !!u.can_edit_scenarios,
+            isWorkspaceAdmin: !!u.is_workspace_admin,
             createdAt: String(u.created_at),
           })),
         })
@@ -262,40 +291,67 @@ export async function inviteRoutes(app: FastifyInstance) {
       }
     })
 
-    // PATCH /team/:id — change a member's role (CFO only). A CFO can't change
-    // their own role (prevents accidentally locking themselves out of CFO ops).
-    scoped.patch('/team/:id', { preHandler: requireRole('cfo') }, async (request, reply) => {
+    // PATCH /team/:id — change a member's permissions / title (workspace admin
+    // only). An admin can't change their own permissions (prevents accidentally
+    // revoking their own admin access and locking the workspace).
+    scoped.patch('/team/:id', { preHandler: requirePermission('isWorkspaceAdmin') }, async (request, reply) => {
       const { id } = request.params as { id: string }
-      const Body = z.object({ role: z.enum(['cfo', 'sporting_director', 'finance_analyst']) })
+      const Body = z.object({
+        title: z.string().trim().max(120).optional().nullable(),
+        canEditRoster: z.boolean().optional(),
+        canEditScenarios: z.boolean().optional(),
+        isWorkspaceAdmin: z.boolean().optional(),
+      }).refine(
+        (b) => b.title !== undefined || b.canEditRoster !== undefined ||
+               b.canEditScenarios !== undefined || b.isWorkspaceAdmin !== undefined,
+        { message: 'Nothing to update' },
+      )
       const parsed = Body.safeParse(request.body)
-      if (!parsed.success) return reply.status(400).send({ error: 'Invalid role' })
+      if (!parsed.success) return reply.status(400).send({ error: 'Invalid permissions' })
 
       if (id === request.userId) {
-        return reply.status(400).send({ error: "You can't change your own role." })
+        return reply.status(400).send({ error: "You can't change your own permissions." })
       }
 
       try {
         const { data: member, error: findErr } = await supabase
           .from('users')
-          .select('id, role')
+          .select('id, title, can_edit_roster, can_edit_scenarios, is_workspace_admin')
           .eq('id', id)
           .eq('club_id', request.clubId)
           .maybeSingle()
         if (findErr) throw findErr
         if (!member) return reply.status(404).send({ error: 'Team member not found' })
 
+        const patch: Record<string, unknown> = {}
+        if (parsed.data.title !== undefined) patch['title'] = parsed.data.title ?? null
+        if (parsed.data.canEditRoster !== undefined) patch['can_edit_roster'] = parsed.data.canEditRoster
+        if (parsed.data.canEditScenarios !== undefined) patch['can_edit_scenarios'] = parsed.data.canEditScenarios
+        if (parsed.data.isWorkspaceAdmin !== undefined) patch['is_workspace_admin'] = parsed.data.isWorkspaceAdmin
+
         const { error: updErr } = await supabase
           .from('users')
-          .update({ role: parsed.data.role })
+          .update(patch)
           .eq('id', id)
           .eq('club_id', request.clubId)
         if (updErr) throw updErr
 
-        await writeAuditLog(request, 'users', id, 'update', { role: parsed.data.role }, { role: member.role })
-        return reply.send({ success: true, role: parsed.data.role })
+        await writeAuditLog(request, 'users', id, 'update', patch, {
+          title: member.title,
+          can_edit_roster: member.can_edit_roster,
+          can_edit_scenarios: member.can_edit_scenarios,
+          is_workspace_admin: member.is_workspace_admin,
+        })
+        return reply.send({
+          success: true,
+          title: parsed.data.title !== undefined ? (parsed.data.title ?? null) : (member.title as string | null) ?? null,
+          canEditRoster: parsed.data.canEditRoster ?? !!member.can_edit_roster,
+          canEditScenarios: parsed.data.canEditScenarios ?? !!member.can_edit_scenarios,
+          isWorkspaceAdmin: parsed.data.isWorkspaceAdmin ?? !!member.is_workspace_admin,
+        })
       } catch (err) {
         request.log.error({ err }, 'PATCH /team/:id failed')
-        return reply.status(500).send({ error: 'Failed to update role' })
+        return reply.status(500).send({ error: 'Failed to update permissions' })
       }
     })
 
@@ -303,7 +359,7 @@ export async function inviteRoutes(app: FastifyInstance) {
     // tenant membership and their Supabase auth identity. A CFO can't revoke
     // themselves. Authored scenarios + audit rows are cleared first to satisfy
     // the users FK (mirrors the orphan-cleanup in authMiddleware).
-    scoped.delete('/team/:id', { preHandler: requireRole('cfo') }, async (request, reply) => {
+    scoped.delete('/team/:id', { preHandler: requirePermission('isWorkspaceAdmin') }, async (request, reply) => {
       const { id } = request.params as { id: string }
       if (id === request.userId) {
         return reply.status(400).send({ error: "You can't revoke your own access." })
@@ -312,7 +368,7 @@ export async function inviteRoutes(app: FastifyInstance) {
       try {
         const { data: member, error: findErr } = await supabase
           .from('users')
-          .select('id, email, role')
+          .select('id, email')
           .eq('id', id)
           .eq('club_id', request.clubId)
           .maybeSingle()
@@ -348,7 +404,7 @@ export async function inviteRoutes(app: FastifyInstance) {
         if (authErr) request.log.warn({ err: authErr, id }, 'DELETE /team/:id: auth delete failed')
 
         await writeAuditLog(request, 'users', id, 'delete', undefined, {
-          email: member.email, role: member.role,
+          email: member.email,
         })
         return reply.send({ success: true })
       } catch (err) {

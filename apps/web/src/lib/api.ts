@@ -256,14 +256,20 @@ export interface EquityResponse {
 
 // ---- Invites + Team (Phase 5) ---------------------------------------------
 
-export type InviteRole = 'cfo' | 'sporting_director' | 'finance_analyst'
 export type InviteStatus = 'pending' | 'accepted' | 'expired'
 
-export interface InviteRow {
+/** The three explicit permission grants (MVP 2.1). */
+export interface Permissions {
+  canEditRoster: boolean
+  canEditScenarios: boolean
+  isWorkspaceAdmin: boolean
+}
+
+export interface InviteRow extends Permissions {
   id: string
   clubId: string
   email: string
-  role: InviteRole
+  title: string | null
   invitedBy: string
   expiresAt: string
   acceptedAt: string | null
@@ -272,18 +278,18 @@ export interface InviteRow {
   token?: string  // present only on freshly-created or actively-pending rows
 }
 
-export interface InviteLookupResponse {
+export interface InviteLookupResponse extends Permissions {
   email: string
-  role: InviteRole
+  title: string | null
   clubName: string
   expiresAt: string
 }
 
-export interface TeamMember {
+export interface TeamMember extends Permissions {
   id: string
   email: string
   fullName: string
-  role: string
+  title: string | null
   createdAt: string
 }
 
@@ -343,7 +349,16 @@ export interface OnboardingCompleteResponse {
 export const api = {
   me: {
     get: () =>
-      apiFetch<{ id: string; role: string; fullName: string; email: string; isTotpEnabled: boolean }>('/me'),
+      apiFetch<{
+        id: string
+        title: string | null
+        canEditRoster: boolean
+        canEditScenarios: boolean
+        isWorkspaceAdmin: boolean
+        fullName: string
+        email: string
+        isTotpEnabled: boolean
+      }>('/me'),
     update: (patch: { fullName?: string; email?: string }) =>
       apiFetch<{ success: boolean }>('/me', { method: 'PATCH', body: JSON.stringify(patch) }),
   },
@@ -603,8 +618,8 @@ export const api = {
   },
   invites: {
     list: () => apiFetch<{ invites: InviteRow[] }>('/invites'),
-    create: (input: { email: string; role: InviteRole }) =>
-      apiFetch<{ id: string; email: string; role: InviteRole; token: string; expiresAt: string }>('/invites', {
+    create: (input: { email: string; title?: string | null } & Permissions) =>
+      apiFetch<{ id: string; email: string; title: string | null; token: string; expiresAt: string } & Permissions>('/invites', {
         method: 'POST',
         body: JSON.stringify(input),
       }),
@@ -622,10 +637,10 @@ export const api = {
   },
   team: {
     list: () => apiFetch<{ members: TeamMember[] }>('/team'),
-    updateRole: (id: string, role: InviteRole) =>
-      apiFetch<{ success: boolean; role: InviteRole }>(`/team/${id}`, {
+    update: (id: string, patch: Partial<{ title: string | null } & Permissions>) =>
+      apiFetch<{ success: boolean; title: string | null } & Permissions>(`/team/${id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ role }),
+        body: JSON.stringify(patch),
       }),
     revoke: (id: string) =>
       apiFetch<{ success: boolean }>(`/team/${id}`, { method: 'DELETE' }),

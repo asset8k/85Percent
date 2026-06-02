@@ -36,11 +36,21 @@ type SignUpData = z.infer<typeof SignUpSchema>
 
 const INPUT = 'w-full px-3 py-2.5 text-sm text-slate-900 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent'
 
-const ROLE_LABEL: Record<string, string> = {
-  cfo:               'CFO',
-  sporting_director: 'Sporting Director',
-  finance_analyst:   'Finance Analyst',
-  admin:             'Admin',
+// Human phrase summarising the access an invite grants. A job title wins when
+// present; otherwise we describe the explicit permission grants.
+function inviteAccessSummary(invite: {
+  title: string | null
+  canEditRoster: boolean
+  canEditScenarios: boolean
+  isWorkspaceAdmin: boolean
+}): string {
+  if (invite.title && invite.title.trim()) return invite.title.trim()
+  if (invite.isWorkspaceAdmin) return 'a workspace admin'
+  const parts: string[] = []
+  if (invite.canEditRoster) parts.push('edit the roster')
+  if (invite.canEditScenarios) parts.push('edit scenarios')
+  if (parts.length === 0) return 'a read-only member'
+  return `a member who can ${parts.join(' and ')}`
 }
 
 // ── Root ────────────────────────────────────────────────────────────────────
@@ -103,7 +113,7 @@ export function LoginPage() {
           <div className="mb-5 rounded-xl border border-violet-100 bg-violet-50/60 px-5 py-4">
             <div className="meta-label text-violet-700">Invitation to {invite.clubName}</div>
             <p className="text-[13px] text-slate-700 mt-1.5">
-              You've been invited to join as <span className="font-medium">{ROLE_LABEL[invite.role] ?? invite.role}</span>. Create your account using the email <span className="num">{invite.email}</span>.
+              You've been invited to join as <span className="font-medium">{inviteAccessSummary(invite)}</span>. Create your account using the email <span className="num">{invite.email}</span>.
             </p>
           </div>
         )}

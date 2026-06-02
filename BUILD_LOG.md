@@ -2535,3 +2535,72 @@ currency-aware so most call sites needed no change. `SCRResultPanel` /
 `AmortisationTable` under `components/simulator/` were left as-is — they're dead
 code (not imported/rendered anywhere; only `ComplianceGauge`, which shows no money,
 is used). Web typecheck + full `pnpm build` clean.
+
+---
+
+## Session — Granular Permissions (replace enum roles) (2026-06-03)
+
+### What changed
+
+Ripped out the single enum-`role` access model (`cfo` / `sporting_director` /
+`finance_analyst` / `admin`) and replaced it with three explicit boolean grants
+plus an optional free-text job title.
+
+**Permission model (per user + per invite):**
+- `canEditRoster` — add/edit/delete players + contracts (else roster is read-only)
+- `canEditScenarios` — create/modify simulation scenarios (else read-only)
+- `isWorkspaceAdmin` — Settings, members, base currency, league, financials, SSR,
+  audit log, onboarding. **Admin implicitly satisfies every permission check.**
+- `title` — display-only job title (e.g. "Head of Finance"); no access of its own.
+
+### Phase 1 — DB
+- `apps/api/prisma/schema.prisma`: `User` and `Invite` drop `role` (it was a
+  `String`, not a Prisma enum), gain `title String?` + the 3 booleans
+  (`@map` snake_case). Schema validates + formatted.
+- Migration `prisma/migrations/20260603000001_granular_permissions/migration.sql`:
+  additive + backfill + drop, idempotent. Backfill mapping from legacy role:
+  admin/cfo → admin+roster+scenarios; finance_analyst → roster+scenarios;
+  everyone → scenarios (old `mutateScenarios` was open to all); `title` set from
+  the old role label. **NOT auto-applied** — runtime uses Supabase client, so run
+  `cd apps/api && npx prisma migrate deploy` (or paste the SQL into Supabase)
+  before the new columns exist in the live DB.
+- `prisma/seed.ts`: dev user seeded as admin (all three true, title 'CFO').
+
+### Phase 2 — Backend
+- New `apps/api/src/middleware/permissions.ts` (`requirePermission(perm)`,
+  `hasPermission(perms, perm)`, `Permissions` type, `PERMISSION_LABEL`).
+  Deleted `middleware/roles.ts`.
+- `middleware/auth.ts`: selects the 3 bool columns, attaches
+  `request.permissions` (replaces `request.userRole`); invite-linking + founder
+  provisioning carry/grant permissions (founder = full admin; invitee inherits
+  the invite's grants).
+- Route guard remap: roster mutations → `canEditRoster`; scenario
+  create/modify/delete → `canEditScenarios` (added preHandlers to POST + DELETE,
+  inline check on PATCH); financials/league/currency/delete-club, onboarding,
+  audit, **and SSR** → `isWorkspaceAdmin`; invites + team CRUD → `isWorkspaceAdmin`.
+- `GET /me` now returns `{ title, canEditRoster, canEditScenarios,
+  isWorkspaceAdmin, ... }`. `PATCH /team/:id` accepts a permission/title patch
+  (admins can't edit their own grants). `POST /invites` + `GET /invites` +
+  `/invites/lookup` carry the grants.
+
+### Phases 3 & 4 — Frontend
+- `lib/role.ts` repurposed: `AppMe`/`Permissions`, `useMe()`, `accessLabel()`,
+  and `useCan()` (admin overrides everything; same predicate names —
+  `mutateRoster`, `toggleActiveBaseline`, `switchLeague`, etc. — so existing
+  consumers needed no change). `has('cfo')` call sites → `isWorkspaceAdmin`.
+- `lib/api.ts`: `Permissions` type; `InviteRow`/`TeamMember`/`InviteLookupResponse`
+  extend it + `title`; `invites.create` takes title+grants; `team.update` replaces
+  `team.updateRole`.
+- `ClubSetupPage.tsx` Team & Access tab rebuilt with UI Kit components:
+  - Invite card: Email + **Job Title (Optional)** inputs + a **PermissionToggles**
+    group (UI Kit `Switch`) for Edit Roster / Edit Scenarios / Workspace Admin
+    (admin toggle locks the other two on). No more Role dropdown.
+  - Active users table: **Permissions** column rendering `<PermissionTags>`
+    ([Admin] / [Edit Roster][Edit Scenarios] / [Read-Only]); per-row **Manage
+    access** (sliders icon) opens `ManageAccessModal` (pure-fade) with the same
+    toggles + title, saving via `api.team.update`.
+  - Pending invites table also shows permission tags + title.
+- `AppLayout` account chip shows `accessLabel(me)` (title → tier fallback).
+- `LoginPage` invite banner uses `inviteAccessSummary()` instead of role label.
+
+API + web typecheck clean; full `pnpm build` green.

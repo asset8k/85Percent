@@ -1,5 +1,5 @@
 /**
- * Audit log viewer — CFO-only read endpoint for the Settings → Activity Log tab.
+ * Audit log viewer — admin-only read endpoint for the Settings → Activity Log tab.
  * Pagination + optional date / user / table filters.
  *
  * Note: the log itself is written from every mutating route via writeAuditLog.
@@ -9,7 +9,7 @@
 import type { FastifyInstance } from 'fastify'
 import { supabase } from '../lib/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
-import { requireRole } from '../middleware/roles.js'
+import { requirePermission } from '../middleware/permissions.js'
 
 type AuditRow = {
   id: string
@@ -28,7 +28,7 @@ export async function auditRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware)
 
   // GET /audit?from=YYYY-MM-DD&to=YYYY-MM-DD&user=<userId>&table=<name>&page=1&limit=50
-  app.get('/audit', { preHandler: requireRole('cfo') }, async (request, reply) => {
+  app.get('/audit', { preHandler: requirePermission('isWorkspaceAdmin') }, async (request, reply) => {
     const q = request.query as Record<string, string>
 
     // Pagination — defensive parse mirroring scenarios.ts
