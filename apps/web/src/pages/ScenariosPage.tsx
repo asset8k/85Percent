@@ -30,7 +30,7 @@ function formatPenceNumber(pence: number) {
   return '£' + Math.round(pence / 100).toLocaleString('en-GB')
 }
 import { ComplianceGauge } from '@/components/simulator/ComplianceGauge'
-import { computeActiveBaseline, computeDryRun, computeThresholds, actionToEngineInput } from '@/lib/scr'
+import { computeActiveBaseline, computeDryRun, computeThresholds, actionToEngineInput, scenarioMoneyImpact } from '@/lib/scr'
 import { calculateSquadCosts, type ContractInput } from '@headroom/engine'
 import type { ScenarioActionInput, ScenarioActionType } from '@headroom/engine'
 import type { PlayerWithContract } from '@headroom/shared'
@@ -370,6 +370,7 @@ export function ScenariosPage() {
                     <ScenarioListItem
                       key={s.id}
                       scenario={s}
+                      financials={liveFinancials}
                       isEditing={editingScenarioId === s.id}
                       canToggle={can.toggleActiveBaseline}
                       onLoad={() => handleLoadScenario(s)}
@@ -544,9 +545,10 @@ function PageHeader({
 // action — "include in active baseline" was confusing as a tick.
 // ---------------------------------------------------------------------------
 function ScenarioListItem({
-  scenario, isEditing, canToggle, onLoad, onDelete, onToggle,
+  scenario, financials, isEditing, canToggle, onLoad, onDelete, onToggle,
 }: {
   scenario: ScenarioDetail
+  financials: ClubFinancialsResponse | null
   isEditing: boolean
   canToggle: boolean
   onLoad: () => void
@@ -556,6 +558,11 @@ function ScenarioListItem({
   const [deleting, setDeleting] = useState(false)
   const inPlan = scenario.isIncluded
   const actionCount = scenario.actionCount ?? scenario.actions.length
+  // Per-scenario SCR worth: its net effect on headroom to the Green threshold.
+  // + (green) frees room; − (red) consumes it. Needs the loaded action detail.
+  const impact = financials && scenario.actions.length > 0
+    ? scenarioMoneyImpact(financials, scenario)
+    : null
 
   return (
     <li
@@ -581,12 +588,31 @@ function ScenarioListItem({
         )}
         aria-hidden="true"
       />
-      <div className="flex items-center gap-2 pl-3.5 pr-2 py-2.5">
+      <div className="group flex items-center gap-2 pl-3.5 pr-2 py-2.5">
         <button onClick={onLoad} className="flex-1 text-left min-w-0">
           <div className="text-[13px] font-medium text-slate-900 truncate">{scenario.name}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">
-            {actionCount} {actionCount === 1 ? 'action' : 'actions'} · {scenario.season}
-            {inPlan && <span className="ml-1.5 text-violet-600 font-medium">· In plan</span>}
+          <div className="flex items-center gap-1.5 mt-1 min-w-0">
+            <span className="text-[11px] text-slate-500 whitespace-nowrap">
+              {actionCount} {actionCount === 1 ? 'action' : 'actions'}
+            </span>
+            {impact && (
+              <>
+                <span className="text-slate-300" aria-hidden>·</span>
+                <span
+                  title={
+                    `Net SCR headroom: ${signedPence(impact.headroomDeltaPence)}\n` +
+                    `Squad costs: ${signedPence(-impact.costDeltaPence)} room` +
+                    (impact.revenueDeltaPence !== 0 ? `\nRevenue: ${signedPence(impact.revenueDeltaPence)}` : '')
+                  }
+                  className={cn(
+                    'text-[11px] font-semibold num whitespace-nowrap',
+                    impact.headroomDeltaPence >= 0 ? 'text-green-700' : 'text-red-700',
+                  )}
+                >
+                  {compactSignedPence(impact.headroomDeltaPence)}
+                </span>
+              </>
+            )}
           </div>
         </button>
         {canToggle ? (
@@ -620,7 +646,7 @@ function ScenarioListItem({
             try { await onDelete() } finally { setDeleting(false) }
           }}
           disabled={deleting}
-          className="text-slate-400 hover:text-red-600 p-1.5 rounded-md hover:bg-red-50 transition-colors"
+          className="text-slate-300 hover:text-red-600 p-1.5 rounded-md hover:bg-red-50 transition-all opacity-60 group-hover:opacity-100 focus-visible:opacity-100"
           aria-label="Delete scenario"
         >
           {deleting ? <Spinner size={11} /> : (
@@ -1249,6 +1275,17 @@ function signedPence(p: number): string {
   if (p === 0) return '£0'
   if (p > 0) return '+' + formatPence(p)
   return '−' + formatPence(Math.abs(p))
+}
+
+// Compact signed £ for tight chips: "+£8.2M", "−£450K", "£0".
+function compactSignedPence(pence: number): string {
+  const pounds = Math.round(pence / 100)
+  if (pounds === 0) return '£0'
+  const sign = pounds > 0 ? '+' : '−'
+  const abs = Math.abs(pounds)
+  if (abs >= 1_000_000) return `${sign}£${(abs / 1_000_000).toFixed(1)}M`
+  if (abs >= 1_000) return `${sign}£${(abs / 1_000).toFixed(0)}K`
+  return `${sign}£${abs}`
 }
 
 // ---------------------------------------------------------------------------

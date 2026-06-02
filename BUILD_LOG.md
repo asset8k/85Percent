@@ -2368,3 +2368,82 @@ Web + API typecheck clean.
     grid now tints failing rows + shows a status dot per month. Tabs got numbered
     pills (1/2/3). Shared `SectionHeader`/`StatBlock`/`LegendDot` primitives for
     consistency. Web typecheck clean; presentational only.
+
+  - **Consequence Engine (live league table + breach impact visualiser):**
+    surfaces the real-world consequence of a Red-Threshold breach.
+    - *Backend:* new `apps/api/src/routes/league-table.ts` → `GET /league-table`
+      (auth'd, registered in `server.ts`). Resolves the caller's league from
+      their club, proxies football-data.org v4 standings (`PL` / `ELC`) using a
+      server-side `FOOTBALL_DATA_API_KEY` (added to `.env.example`; key never
+      reaches the browser). On missing key / upstream error / 6s timeout it
+      returns a bundled end-of-2025-26 snapshot (`source: 'fallback'`) so the
+      endpoint never hard-fails. Response: `{ leagueId, competition, season,
+      source, fetchedAt, standings: LeagueTableRow[] }`.
+    - *Existing logic reused:* points deduction comes from the engine's
+      `calculatePointsDeduction` — the Dashboard already computes `pointsDeduction`
+      + `riskStatus` on the active baseline; `isBreach = riskStatus === 'red'`.
+    - *Frontend data:* `api.leagueTable.get()` + types in `api.ts`; shared
+      `useLeagueTable` hook (`lib/useLeagueTable.ts`) fetches the table and
+      fuzzy-matches the user's club row (`normaliseTeam`/`findClubRow`, strips
+      FC/AFC etc.).
+    - *New League Table tab:* `pages/LeagueTablePage.tsx` + nav item (table icon)
+      in `Sidebar.tsx` + `/league-table` route in `App.tsx` + `routeLabel` in
+      `AppLayout.tsx`. Pure read-only standings using UI-Kit table styling
+      (matches the Dashboard squad table); highlights the user's row (violet
+      "You" chip), promotion/play-off/relegation zone rails + legend, live/cached
+      data-source tag, crest-with-initials fallback, skeleton loader, and an
+      error/retry fallback card.
+    - *Dashboard impact:* below the SCR hero, when `riskStatus === 'red'` a
+      `ConsequenceAlert` danger banner ("Regulatory Breach Detected: Estimated
+      Sanction of −X Points") plus `components/dashboard/LeagueImpactTable.tsx`.
+      The impact table clones the live standings, subtracts the sanction from the
+      club's points, re-sorts (pts → GD → GF), shows Current → Projected position
+      (e.g. 12th → 18th) with a "▼ N places" chip, and renders the projected
+      table with the club's row highlighted red + per-row move arrows. Degrades
+      to a skeleton while loading and a contained notice if the table is
+      unreachable or the club can't be matched. Source standings are never
+      mutated. API + web typecheck clean; web prod build passes; API boots with
+      the route registered (401 without auth, i.e. not 404).
+    - *Follow-up (logos + cache):* the fallback snapshot rows now carry real
+      crest URLs (`https://crests.football-data.org/{id}.png`, football-data team
+      ids hard-coded per club) so logos render even offline; the browser onError
+      degrades a 404 crest to the initials chip. All 44 PL+ELC ids verified 200.
+      Added a 6h in-memory per-league cache of the last successful LIVE fetch so
+      the rate-limited free tier isn't hit on every dashboard load (process-local;
+      restart re-fetches). NOTE: the snapshot's positions/points are illustrative
+      placeholders (league composition is 25/26-correct, but exact standings are
+      only real when `FOOTBALL_DATA_API_KEY` is set → live mode).
+
+  - **Dashboard refinements (consequence + scenarios):**
+    1. *Interactive scenario inclusion* — new `ScenarioInclusionCard` on the
+       Dashboard lists every scenario with a `Switch`; toggling calls
+       `setScenarioInclusion` (optimistic) + `api.scenarios.update`, so the SCR
+       %, Headroom card, gauge and Consequence section all recompute live.
+       Gated by `can.toggleActiveBaseline` (disabled switch + tooltip otherwise).
+       Replaces the read-only status-only view with a control surface.
+    2. *De-duplicated points deduction* — `FinancialRiskCard` no longer renders
+       in the red zone (dropped its `pointsDeduction` prop + red branch); the
+       figure now appears once, in the Consequence Engine section.
+    3. *League impact → 5-club before/after* — `LeagueImpactTable` rewritten to
+       show a tight 5-club window (2 up · club · 2 down) BEFORE (live) and AFTER
+       (−pts applied) side by side, with crest logos + initials fallback and the
+       club row highlighted (violet before, red after), keeping the Current →
+       Projected ordinal summary + "▼ N places" chip. No full table on the dash.
+    4. *Headroom to Green now scenario-aware* — the hero Headroom stat uses the
+       active baseline (`riskHeadroomPence` / `riskThresholds.greenPence` /
+       `riskRevenuePence`) instead of settings-only, with an "incl. N scenarios"
+       tag. Web typecheck + prod build clean.
+
+  - **Per-scenario money impact ("how much is each scenario worth?"):** new
+    `scenarioMoneyImpact(financials, scenario)` in `lib/scr.ts` returns
+    `{ costDeltaPence, revenueDeltaPence, headroomDeltaPence }`. The engine's
+    cost/revenue deltas are additive (independent of baseline), so a scenario's
+    worth is a stable property — read by applying its actions to the settings
+    baseline and diffing. Headline figure = `headroomDeltaPence`
+    (= 0.85·Δrevenue − Δcost), the net change in headroom to the Green threshold:
+    **+ (green) frees SCR room, − (red) consumes it**. Verified vs engine
+    (£40M+£10M/yr buy → −£20M; £30M sale w/ £6M wage relief → +£27.25M).
+    Surfaced as a compact signed chip ("+£8.2M") with a cost/revenue tooltip:
+    (a) on every row of the Scenarios list (`ScenarioListItem`, gains a
+    `financials` prop), and (b) on the Dashboard `ScenarioInclusionCard` —
+    shown **only for included (turned-on) scenarios** per the requested rule.

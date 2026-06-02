@@ -105,6 +105,30 @@ export interface NotificationsResponse {
   unreadCount: number
 }
 
+export interface LeagueTableRow {
+  position: number
+  team: string
+  shortName: string
+  crest: string | null
+  played: number
+  won: number
+  drawn: number
+  lost: number
+  goalsFor: number
+  goalsAgainst: number
+  goalDifference: number
+  points: number
+}
+
+export interface LeagueTableResponse {
+  leagueId: 'premier-league' | 'efl-championship'
+  competition: string
+  season: string
+  source: 'live' | 'fallback'
+  fetchedAt: string
+  standings: LeagueTableRow[]
+}
+
 export interface ClubFinancialsResponse {
   id: string
   clubId: string
@@ -586,6 +610,12 @@ export const api = {
       }),
     revoke: (id: string) =>
       apiFetch<{ success: boolean }>(`/team/${id}`, { method: 'DELETE' }),
+  },
+  leagueTable: {
+    // Live real-world standings for the caller's league (PL or Championship),
+    // proxied through our API. Falls back to a bundled snapshot server-side, so
+    // this resolves even when the upstream sports API is down.
+    get: () => apiFetch<LeagueTableResponse>('/league-table'),
   },
   audit: {
     list: (params: {

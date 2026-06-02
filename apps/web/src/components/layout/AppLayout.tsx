@@ -23,6 +23,7 @@ const routeLabel: Record<string, string> = {
   '/dashboard': 'Dashboard',
   '/roster':    'Roster',
   '/scenarios': 'Scenarios',
+  '/league-table': 'League Table',
   '/calendar':  'Calendar',
   '/financials':'Financials',
   '/setup':     'Settings',

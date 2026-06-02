@@ -15,15 +15,20 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api } from '@/lib/api'
+import { api, type ScenarioDetail, type ClubFinancialsResponse } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { StatusBadge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
+import { useCan } from '@/lib/role'
 import { Spinner } from '@/components/ui/spinner'
 import { DashboardSkeleton } from '@/components/ui/page-skeletons'
 import { ComplianceGauge } from '@/components/simulator/ComplianceGauge'
-import { computeActiveBaseline, computeThresholds, statusFromRatio } from '@/lib/scr'
+import { LeagueImpactTable } from '@/components/dashboard/LeagueImpactTable'
+import { useLeagueTable, type UseLeagueTableResult } from '@/lib/useLeagueTable'
+import { Skeleton } from '@/components/ui/skeleton'
+import { computeActiveBaseline, computeThresholds, statusFromRatio, scenarioMoneyImpact } from '@/lib/scr'
 import { exportSquadPDF } from '@/lib/exports/squadPdf'
 import { calculateSquadCosts, calculateLevy, calculatePointsDeduction, type ContractInput } from '@headroom/engine'
 import type { PlayerWithContract } from '@headroom/shared'
@@ -44,13 +49,19 @@ type SortKey = 'squadNumber' | 'name' | 'position' | 'wage' | 'amortisation' | '
 type SortDir = 'asc' | 'desc'
 
 export function DashboardPage() {
-  const { financials, scenarios, scenariosLoaded, clubName, leagueId } = useClubStore()
+  const { financials, scenarios, scenariosLoaded, clubName, leagueId, setScenarioInclusion } = useClubStore()
+  const can = useCan()
   const [players, setPlayers] = useState<PlayerWithContract[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('total')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [filter, setFilter] = useState<'all' | 'expiring' | 'GK' | 'DEF' | 'MID' | 'FWD'>('all')
+
+  // Live real-world standings — feeds the Consequence Engine (breach → impact
+  // visualiser). Fetched unconditionally so the hook order is stable across the
+  // page's early returns; the result is only consumed when a breach is detected.
+  const leagueTable = useLeagueTable()
 
   useEffect(() => {
     let cancelled = false
@@ -135,7 +146,6 @@ export function DashboardPage() {
     : 0
   const status = financials ? statusFromRatio(ratio, financials.currentAllowanceRatio) : 'green'
   const thresholds = baseline ? computeThresholds(baseline.revenuePence, financials!.currentAllowanceRatio) : null
-  const headroomPence = thresholds ? thresholds.greenPence - totalSquadCostsPence : 0
 
   const activeBaseline = useMemo(
     () => financials ? computeActiveBaseline(financials, scenarios) : null,
@@ -224,6 +234,19 @@ export function DashboardPage() {
     ? 'text-red-700'
     : activeStatus === 'amber' ? 'text-amber-700' : 'text-green-700'
 
+  // Toggle a scenario's inclusion straight from the dashboard. Optimistic — the
+  // store update recomputes the Active Baseline immediately, so the hero %,
+  // headroom, gauge and consequence section all move the moment the switch
+  // flips; the API call is reconciled in the background (rolled back on error).
+  const handleToggleInclude = async (id: string, next: boolean) => {
+    setScenarioInclusion(id, next)
+    try {
+      await api.scenarios.update(id, { isIncluded: next })
+    } catch {
+      setScenarioInclusion(id, !next)
+    }
+  }
+
   const handleExport = () => {
     if (!financials || players.length === 0) return
     exportSquadPDF({
@@ -288,25 +311,52 @@ export function DashboardPage() {
           )}
         </Card>
 
-        {/* Threshold stat */}
+        {/* Threshold stat — reflects the ACTIVE position (live squad costs plus
+            any included scenarios), so it stays in step with the SCR pill rather
+            than reporting the bare settings-only headroom. */}
         <Card className="p-6 flex flex-col">
-          <div className="meta-label">Headroom to Green</div>
+          <div className="flex items-center justify-between">
+            <div className="meta-label">Headroom to Green</div>
+            {includedCount > 0 && (
+              <span className="text-[10px] font-medium uppercase tracking-wide text-violet-600 bg-violet-50 rounded px-1.5 py-0.5">
+                incl. {includedCount} {includedCount === 1 ? 'scenario' : 'scenarios'}
+              </span>
+            )}
+          </div>
           <AnimatedNumber
-            value={headroomPence}
+            value={riskHeadroomPence}
             format={(n) => (n >= 0 ? formatPenceNumber(n) : `−${formatPenceNumber(Math.abs(n))}`)}
             className={cn(
               'num text-[28px] font-semibold leading-none mt-3',
-              headroomPence >= 0 ? 'text-slate-900' : 'text-red-700'
+              riskHeadroomPence >= 0 ? 'text-slate-900' : 'text-red-700'
             )}
           />
           <div className="text-[12px] text-slate-400 mt-2 num">
-            Green threshold: {formatPence(thresholds!.greenPence)}
+            Green threshold: {formatPence(riskThresholds.greenPence)}
           </div>
           <div className="text-[12px] text-slate-400 num">
-            Revenue: {formatPence(baseline!.revenuePence)}
+            Revenue: {formatPence(riskRevenuePence)}
           </div>
         </Card>
       </div>
+
+      {/* Scenario inclusion — toggle planned scenarios into the live position.
+          Each switch recomputes the Active Baseline, moving the SCR %, headroom
+          and gauge above in real time. */}
+      {scenarios.length > 0 && (
+        <ScenarioInclusionCard
+          scenarios={scenarios}
+          financials={financials}
+          canToggle={can.toggleActiveBaseline}
+          onToggle={handleToggleInclude}
+        />
+      )}
+
+      {/* Consequence Engine — regulatory breach → real-world league impact.
+          Renders only in the red (points-deduction) zone. */}
+      {riskStatus === 'red' && (
+        <ConsequenceSection pointsDeducted={pointsDeduction} leagueTable={leagueTable} />
+      )}
 
       {/* Compliance Gauge */}
       <Card className="p-6 mb-6">
@@ -322,15 +372,18 @@ export function DashboardPage() {
         />
       </Card>
 
-      {/* Financial risk — projected sanctions at the active ratio (incl. scenarios) */}
-      <FinancialRiskCard
-        status={riskStatus}
-        levyPence={levyPence}
-        pointsDeduction={pointsDeduction}
-        overspendGreenPence={overspendGreenPence}
-        headroomPence={riskHeadroomPence}
-        includedCount={includedCount}
-      />
+      {/* Financial risk — levy (amber) / headroom (green). In the red zone the
+          points deduction is shown once, by the Consequence Engine above, so we
+          drop this card to avoid repeating the same figure. */}
+      {riskStatus !== 'red' && (
+        <FinancialRiskCard
+          status={riskStatus}
+          levyPence={levyPence}
+          overspendGreenPence={overspendGreenPence}
+          headroomPence={riskHeadroomPence}
+          includedCount={includedCount}
+        />
+      )}
 
       {/* Breakdown table */}
       <Card className="overflow-hidden">
@@ -445,16 +498,16 @@ function PageHeader({
   )
 }
 
-// Projected regulatory sanctions for the current SCR position. Mirrors the
-// Scenario builder's SanctionsPanel, plus a positive "compliant" state so the
-// element is always present on the dashboard (it shows the financial risk —
-// levy in the amber zone, points deduction in the red zone).
+// Projected regulatory risk for the current SCR position — the GREEN (no
+// sanction, shows headroom) and AMBER (financial levy) states only. The RED
+// points-deduction zone is owned by the Consequence Engine section, which
+// renders the figure once with the league-table impact, so this card is not
+// shown in that state.
 function FinancialRiskCard({
-  status, levyPence, pointsDeduction, overspendGreenPence, headroomPence, includedCount,
+  status, levyPence, overspendGreenPence, headroomPence, includedCount,
 }: {
   status: 'green' | 'amber' | 'red'
   levyPence: number
-  pointsDeduction: number
   overspendGreenPence: number
   headroomPence: number
   includedCount: number
@@ -499,22 +552,206 @@ function FinancialRiskCard({
           <div className="num text-[32px] font-semibold text-amber-700 leading-none flex-shrink-0">{formatPence(levyPence)}</div>
         </div>
       )}
+    </Card>
+  )
+}
 
-      {status === 'red' && (
-        <div className="rounded-xl border border-slate-200 border-l-4 border-red-600 bg-red-50 p-5 flex items-start justify-between gap-4">
-          <div>
-            <div className="meta-label text-red-700">Estimated Points Deduction</div>
-            <p className="text-[13px] text-slate-700 mt-2 max-w-xl">
-              Squad costs exceed the Red Threshold. Points deductions are imposed in the same season the breach occurs.
-            </p>
-            <p className="text-[12px] text-red-700 mt-3 font-medium">Seek independent legal advice before proceeding.</p>
-          </div>
-          <div className="num text-[32px] font-semibold text-red-700 leading-none whitespace-nowrap flex-shrink-0">
-            {pointsDeduction} pts
-          </div>
+// ---------------------------------------------------------------------------
+// Scenario inclusion — interactive switches that fold planned scenarios into
+// the live Active Baseline. Toggling recomputes the SCR % / headroom / gauge
+// above instantly (optimistic store update).
+// ---------------------------------------------------------------------------
+function ScenarioInclusionCard({
+  scenarios, financials, canToggle, onToggle,
+}: {
+  scenarios: ScenarioDetail[]
+  financials: ClubFinancialsResponse
+  canToggle: boolean
+  onToggle: (id: string, next: boolean) => void
+}) {
+  const includedCount = scenarios.filter((s) => s.isIncluded).length
+  return (
+    <Card className="p-6 mb-6">
+      <div className="flex items-center gap-3 mb-4">
+        <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
+        <div className="flex-1">
+          <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">Scenario Planning</h3>
+          <p className="text-[12px] text-slate-500 mt-0.5">
+            Toggle a scenario to fold it into your live SCR — the figures above update instantly.
+          </p>
+        </div>
+        <span className="text-[12px] text-slate-400 num whitespace-nowrap">
+          {includedCount} of {scenarios.length} included
+        </span>
+      </div>
+
+      <div className="space-y-1.5">
+        {scenarios.map((s) => {
+          const impact = scenarioMoneyImpact(financials, s)
+          return (
+            <div
+              key={s.id}
+              className={cn(
+                'flex items-center justify-between gap-3 rounded-xl border px-4 py-3 transition-colors',
+                s.isIncluded ? 'border-violet-200 bg-violet-50/60' : 'border-slate-200 bg-white',
+              )}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className={cn('inline-block w-1.5 h-1.5 rounded-full flex-shrink-0', s.isIncluded ? 'bg-violet-500' : 'bg-slate-300')} />
+                <div className="min-w-0">
+                  <Link
+                    to="/scenarios"
+                    className="text-[14px] font-medium text-slate-900 hover:text-violet-700 transition-colors truncate block"
+                  >
+                    {s.name}
+                  </Link>
+                  <div className="text-[11px] text-slate-400 num">
+                    {s.actions.length} {s.actions.length === 1 ? 'action' : 'actions'}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 flex-shrink-0">
+                {/* SCR money impact — shown only while the scenario is included
+                    in the live calculation, per the inclusion rule. */}
+                {s.isIncluded ? (
+                  <ScenarioImpactBadge impact={impact} />
+                ) : (
+                  <span className="text-[11px] font-medium text-slate-400">Excluded</span>
+                )}
+                <Switch
+                  checked={s.isIncluded}
+                  onChange={(next) => onToggle(s.id, next)}
+                  disabled={!canToggle}
+                  tooltip={canToggle ? undefined : 'Only a CFO or Sporting Director can change the active baseline.'}
+                  aria-label={`Include ${s.name} in the live SCR`}
+                />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </Card>
+  )
+}
+
+// Compact signed money figure for a scenario's effect on SCR headroom.
+// + (green) frees room toward the Green threshold; − (red) consumes it. The
+// title surfaces the cost / revenue split behind the net figure.
+function ScenarioImpactBadge({ impact }: { impact: ReturnType<typeof scenarioMoneyImpact> }) {
+  const net = impact.headroomDeltaPence
+  const frees = net >= 0
+  const title =
+    `Net SCR headroom: ${signedCompactPence(net)}\n` +
+    `Squad costs: ${signedCompactPence(-impact.costDeltaPence)} room` +
+    (impact.revenueDeltaPence !== 0 ? `\nRevenue: ${signedCompactPence(impact.revenueDeltaPence)}` : '')
+  return (
+    <span
+      title={title}
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-semibold num whitespace-nowrap',
+        frees ? 'text-green-700 bg-green-50 border border-green-200' : 'text-red-700 bg-red-50 border border-red-200',
+      )}
+    >
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+        {frees ? <path d="M12 19V5M5 12l7-7 7 7" /> : <path d="M12 5v14M19 12l-7 7-7-7" />}
+      </svg>
+      {signedCompactPence(net)}
+    </span>
+  )
+}
+
+// Pence → compact signed £ string: "+£8.2M", "−£450K", "£0".
+function signedCompactPence(pence: number): string {
+  const pounds = Math.round(pence / 100)
+  if (pounds === 0) return '£0'
+  const sign = pounds > 0 ? '+' : '−'
+  const abs = Math.abs(pounds)
+  let body: string
+  if (abs >= 1_000_000) body = `£${(abs / 1_000_000).toFixed(1)}M`
+  else if (abs >= 1_000) body = `£${(abs / 1_000).toFixed(0)}K`
+  else body = `£${abs}`
+  return `${sign}${body}`
+}
+
+// The Consequence Engine block: a high-visibility breach alert plus the
+// real-world league-impact visualiser. Shown only when the club is in the
+// points-deduction zone. The league table is fetched independently, so this
+// gracefully degrades — skeleton while loading, and a contained notice if the
+// standings can't be reached or the club isn't matched in the table.
+function ConsequenceSection({
+  pointsDeducted,
+  leagueTable,
+}: {
+  pointsDeducted: number
+  leagueTable: UseLeagueTableResult
+}) {
+  const { data, loading, error, clubRowIndex } = leagueTable
+  return (
+    <div className="mb-6">
+      <ConsequenceAlert pointsDeducted={pointsDeducted} />
+
+      {loading && (
+        <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
+          <Skeleton className="h-5 w-56" />
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-4">
+              <Skeleton className="h-4 w-5" />
+              <Skeleton className="h-4 flex-1 max-w-[200px]" />
+              <Skeleton className="h-4 w-8 ml-auto" />
+            </div>
+          ))}
         </div>
       )}
-    </Card>
+
+      {!loading && data && clubRowIndex !== -1 && (
+        <LeagueImpactTable
+          standings={data.standings}
+          clubRowIndex={clubRowIndex}
+          pointsDeducted={pointsDeducted}
+          competition={data.competition}
+        />
+      )}
+
+      {!loading && (error || !data || clubRowIndex === -1) && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-5">
+          <p className="text-[13px] text-slate-600">
+            {error || !data
+              ? 'Live league standings are unavailable right now, so the projected table drop can’t be shown. The estimated sanction above still applies.'
+              : 'We couldn’t match your club to a row in the live league table, so the projected drop can’t be shown. The estimated sanction above still applies.'}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// "Regulatory Breach Detected" banner — danger-styled, mirrors the result-panel
+// rail pattern used across the app (rounded-xl + left rail + tint).
+function ConsequenceAlert({ pointsDeducted }: { pointsDeducted: number }) {
+  return (
+    <div className="rounded-xl border border-red-200 border-l-4 border-l-red-600 bg-red-50 p-5 mb-4 flex items-start gap-4">
+      <span className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-red-100 text-red-600 flex-shrink-0">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+          <path d="M12 9v4" /><path d="M12 17h.01" />
+        </svg>
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="meta-label text-red-700">Regulatory Breach Detected</span>
+          <StatusBadge status="red">Points Risk</StatusBadge>
+        </div>
+        <p className="text-[14px] text-slate-800 mt-1.5 leading-snug">
+          Estimated Sanction of{' '}
+          <span className="num font-semibold text-red-700">−{pointsDeducted} {pointsDeducted === 1 ? 'point' : 'points'}</span>.
+          Squad costs exceed the Red Threshold — a points deduction would be imposed in the same season the breach occurs.
+        </p>
+      </div>
+      <div className="num text-[34px] font-semibold text-red-700 leading-none whitespace-nowrap flex-shrink-0 self-center">
+        −{pointsDeducted}
+        <span className="text-[14px] font-medium text-red-500 ml-1">pts</span>
+      </div>
+    </div>
   )
 }
 

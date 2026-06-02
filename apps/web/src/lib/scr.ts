@@ -190,6 +190,51 @@ export function computeDryRun(
 }
 
 // ---------------------------------------------------------------------------
+// Per-scenario money impact
+// ---------------------------------------------------------------------------
+// "How much is this scenario worth?" — its standalone effect on the SCR
+// position, in money. The engine's cost/revenue deltas are additive (each
+// action shifts squad costs / revenue by a fixed sum, independent of the
+// baseline), so a scenario's impact is a stable property: we read it by
+// applying its actions to the settings baseline and diffing.
+//
+//   costDeltaPence     — change in annual squad costs (+ adds cost)
+//   revenueDeltaPence  — change in SCR revenue        (+ adds revenue)
+//   headroomDeltaPence — change in headroom to the Green threshold. This is the
+//                        single "worth" figure: + frees room (helps compliance),
+//                        − consumes room. Folds both cost and revenue in via
+//                        Green = revenue × 0.85, so it answers "net SCR effect".
+
+const GREEN_RATIO = 0.85
+
+export interface ScenarioMoneyImpact {
+  costDeltaPence: number
+  revenueDeltaPence: number
+  headroomDeltaPence: number
+}
+
+export function scenarioMoneyImpact(
+  financials: ClubFinancialsResponse,
+  scenario: ScenarioDetail,
+): ScenarioMoneyImpact {
+  const ownerEquity = financials.ownerEquityUsed1yr ?? 0
+  const base = {
+    squadCostsPence: financials.currentSquadCosts,
+    revenuePence: financials.footballRelatedRevenue + ownerEquity,
+  }
+  const actions: ScenarioActionInput[] = scenario.actions.map(actionToEngineInput)
+  const projection = applyScenarioActions(base, actions)
+
+  const costDeltaPence = projection.projectedSquadCostsPence - base.squadCostsPence
+  const revenueDeltaPence = projection.projectedRevenuePence - base.revenuePence
+  // Δheadroom = Green(rev_after) − cost_after − (Green(rev_before) − cost_before)
+  //           = GREEN_RATIO·Δrevenue − Δcost
+  const headroomDeltaPence = Math.round(GREEN_RATIO * revenueDeltaPence) - costDeltaPence
+
+  return { costDeltaPence, revenueDeltaPence, headroomDeltaPence }
+}
+
+// ---------------------------------------------------------------------------
 // Thresholds (in pence) given a financials snapshot.
 // Replaces inline math in pages so the gauge always renders consistently.
 // ---------------------------------------------------------------------------
