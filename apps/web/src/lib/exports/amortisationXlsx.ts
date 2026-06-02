@@ -11,18 +11,21 @@
  */
 
 import * as XLSX from 'xlsx'
-import type { PlayerWithContract } from '@headroom/shared'
+import type { PlayerWithContract, Currency } from '@headroom/shared'
 import { generateAmortisationSchedule } from '@headroom/engine'
 import {
-  GBP_FORMAT, COLUMN_WIDTHS, poundsCell,
+  moneyFormat, COLUMN_WIDTHS, poundsCell,
   filenameTimestamp, applyNumberFormatToColumn, freezeHeaderRow,
   downloadWorkbook, safeSheetName,
 } from './excelBase'
+import { setExportCurrency } from './exportCurrency'
 
 interface ExportAmortisationInput {
   clubName: string
   season: string
   players: PlayerWithContract[]
+  /** Workspace base currency for money formatting. Defaults to GBP. */
+  currency?: Currency
 }
 
 // "2026-27" → starting year integer 2026
@@ -42,6 +45,7 @@ function playerSheetName(p: PlayerWithContract, index: number): string {
 }
 
 export function exportAmortisationXLSX(input: ExportAmortisationInput): void {
+  setExportCurrency(input.currency ?? 'GBP')
   const wb = XLSX.utils.book_new()
   const startYear = seasonStartYear(input.season)
 
@@ -141,7 +145,7 @@ export function exportAmortisationXLSX(input: ExportAmortisationInput): void {
 
     // Apply £ format to columns B–G (data rows start at row 2)
     for (const col of ['B', 'C', 'D', 'E', 'F', 'G']) {
-      applyNumberFormatToColumn(sheet, col, GBP_FORMAT, 2)
+      applyNumberFormatToColumn(sheet, col, moneyFormat(), 2)
     }
     freezeHeaderRow(sheet)
 
@@ -175,8 +179,8 @@ export function exportAmortisationXLSX(input: ExportAmortisationInput): void {
     COLUMN_WIDTHS.money, COLUMN_WIDTHS.money,
     COLUMN_WIDTHS.date, COLUMN_WIDTHS.text,
   ]
-  applyNumberFormatToColumn(indexSheet, 'D', GBP_FORMAT, 2)
-  applyNumberFormatToColumn(indexSheet, 'E', GBP_FORMAT, 2)
+  applyNumberFormatToColumn(indexSheet, 'D', moneyFormat(), 2)
+  applyNumberFormatToColumn(indexSheet, 'E', moneyFormat(), 2)
   freezeHeaderRow(indexSheet)
   // Insert Index as the first sheet
   wb.SheetNames.unshift('Index')
@@ -203,7 +207,7 @@ export function exportAmortisationXLSX(input: ExportAmortisationInput): void {
     COLUMN_WIDTHS.money, COLUMN_WIDTHS.money,
   ]
   for (const col of ['B', 'C', 'D', 'E']) {
-    applyNumberFormatToColumn(summarySheet, col, GBP_FORMAT, 2)
+    applyNumberFormatToColumn(summarySheet, col, moneyFormat(), 2)
   }
   freezeHeaderRow(summarySheet)
   XLSX.utils.book_append_sheet(wb, summarySheet, 'Summary')

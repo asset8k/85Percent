@@ -16,6 +16,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { randomUUID } from 'crypto'
+import { getDefaultCurrencyForLeague } from '@headroom/shared'
 
 const supabaseUrl = process.env['SUPABASE_URL']
 const serviceKey  = process.env['SUPABASE_SERVICE_ROLE_KEY']
@@ -158,6 +159,8 @@ async function seed() {
       name:       SEED_CLUB_NAME,
       short_name: SEED_CLUB_SHORT,
       league_id:  'efl-championship',
+      // Smart default from the league; the CFO can override in Settings.
+      base_currency: getDefaultCurrencyForLeague('efl-championship'),
       created_at: now,
       updated_at: now,
     })

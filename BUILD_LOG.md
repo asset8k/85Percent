@@ -2447,3 +2447,91 @@ Web + API typecheck clean.
     (a) on every row of the Scenarios list (`ScenarioListItem`, gains a
     `financials` prop), and (b) on the Dashboard `ScenarioInclusionCard` —
     shown **only for included (turned-on) scenarios** per the requested rule.
+
+---
+
+## Currency Architecture — workspace base currency (GBP / EUR / USD)
+
+Every club now runs all financial data (input, storage, FFP engine) in a single
+**base currency**. There is **no conversion anywhere** — the base currency only
+selects the display symbol (£ / € / $); the engine keeps running on the exact
+integer pence values entered.
+
+- **Shared (`packages/shared`)**
+  - `types.ts`: new `Currency = 'GBP' | 'EUR' | 'USD'`.
+  - `money.ts`: `CURRENCY_SYMBOLS`, `currencySymbol(c)`, and `formatMoney(pence, currency, opts)`
+    (Intl currency formatting; per-currency locale). `formatPence` is now a thin
+    GBP wrapper around `formatMoney` (back-compat).
+  - `configs.ts`: `getDefaultCurrencyForLeague(league)` — PL / Championship → GBP;
+    La Liga / Serie A / Bundesliga / Ligue 1 → EUR; **fallback EUR**. Accepts both
+    app league ids ('premier-league') and human names ('Premier League').
+
+- **Schema + migration**
+  - `Club.baseCurrency Currency @default(GBP)` + `Club.currencyIsCustom Boolean @default(false)`,
+    plus a `Currency` enum. Migration `20260602000001_club_base_currency`
+    (CREATE TYPE + two `ADD COLUMN IF NOT EXISTS`). **Additive/idempotent; not auto-applied.**
+    Apply with `cd apps/api && npx prisma migrate deploy` (or run the SQL in Supabase).
+
+- **Backend (`apps/api`)**
+  - `getDefaultCurrencyForLeague` drives the default on: club seed insert
+    (`prisma/seed.ts`), onboarding-complete (adopts league → re-derives currency
+    unless `currency_is_custom`), and `PATCH /club/league` (re-derives unless custom).
+  - New `PATCH /club/currency` (CFO only): sets `base_currency` + `currency_is_custom = true`.
+    No financial records are converted.
+  - `GET /club` now returns `baseCurrency`. League-change/onboarding responses carry it too.
+
+- **Frontend (`apps/web`)**
+  - `lib/api.ts`: `Currency` type wired through `club.get`, `setLeague`, new `club.setCurrency`,
+    and `OnboardingCompleteResponse`.
+  - `stores/club.ts`: `baseCurrency` (default GBP) + `setBaseCurrency`; threaded through `setClub`.
+    Hydrated by `ProtectedRoute` and `OnboardingPage`.
+  - `lib/useWorkspaceCurrency.ts` (NEW): `{ currency, symbol, format }` — single source of truth
+    for the symbol everywhere. Changing the setting re-renders all consumers instantly.
+  - **Settings → Financial tab**: new `BaseCurrencyCard` (CFO-only) — styled select
+    (£ GBP / € EUR / $ USD), pre-selected to current, Save calls `setCurrency`. Shows a
+    standard **amber warning alert** when changing with a populated roster
+    (`contractCount > 0`): "Changing the base currency does not convert existing
+    financial records…". FinancialTab inputs/labels/threshold previews now use the symbol.
+  - **Dynamic symbols** applied via the hook across the named surfaces:
+    - RosterPage: `PoundInput` (modal fee/wage/agent inputs), `FinancialCell` (squad table
+      money), `Field` (auto-swaps "(£)" → symbol in all modal labels), staging table
+      headers + agent cell, player/manager drawers, contract ledger, carried-book-value field.
+    - DashboardPage: SCR hero headroom/threshold/revenue, cost-breakdown table + total,
+      green/amber risk card, scenario impact badge (`signedCompactPence` now symbol-aware).
+
+Typecheck (api + web) and full `pnpm build` clean. Pure helpers unit-verified
+(symbols, formatMoney GBP/EUR/USD, league→currency mapping incl. fallback).
+
+**Manual step:** apply the migration to the DB before relying on the new columns —
+`cd apps/api && npx prisma migrate deploy` (or paste
+`prisma/migrations/20260602000001_club_base_currency/migration.sql` into Supabase SQL editor).
+
+### Currency follow-up — full-project dynamic sweep
+
+After the initial pass, swept every remaining money surface so the symbol
+(£ / € / $) is dynamic everywhere (no conversion — same pence, new label):
+
+- **TopBar SCR pill** (`AppLayout.tsx`): `fmtGBP` → `fmtMoneyCompact(pence, symbol)`;
+  `SCRBreakdownPopover` now reads `useWorkspaceCurrency` (revenue / squad costs /
+  adjusted revenue).
+- **SSR Tests** (`SSRPage.tsx`): `Field` auto-swaps "(£)" labels; `PoundInput`,
+  `PoundCell`, `SignedPence` currency-aware; `fmtCompactPence(pence, symbol)`;
+  Working Capital tooltip + table header + cells, Liquidity preview/threshold/chart
+  ticks, and the £12.5M / £85M threshold copy all use the symbol.
+- **Calendar** (`CalendarPage.tsx`): expiring-contracts drawer player wages.
+- **Scenarios** (`ScenariosPage.tsx`): `Field` auto-swap, `PoundInput`,
+  `formatPenceNumber(pence, symbol)`, `signedPence(p, fmt)`,
+  `compactSignedPence(pence, symbol)`; ScenarioListItem impact chip, ProjectionPanel
+  cost tiles, PlayerPicker wage, CompareModal Δ stats, CompareColumn costs/revenue.
+- **Exports (PDF + Excel)**: new `lib/exports/exportCurrency.ts` holds the active
+  export currency (set once per export — they're synchronous/non-overlapping).
+  `pdfMoney` → `exportMoney`; Excel `GBP_FORMAT` const → `moneyFormat()` (dynamic
+  `${symbol}#,##0;[Red]−${symbol}#,##0`). Entry points `exportSquadPDF`,
+  `exportComparisonPDF`, `exportAmortisationXLSX` gained an optional `currency`
+  prop; the three call sites pass it from the workspace currency.
+
+Reusable leaf components (`Field`, `PoundInput`, `FinancialCell`, etc.) were made
+currency-aware so most call sites needed no change. `SCRResultPanel` /
+`AmortisationTable` under `components/simulator/` were left as-is — they're dead
+code (not imported/rendered anywhere; only `ComplianceGauge`, which shows no money,
+is used). Web typecheck + full `pnpm build` clean.

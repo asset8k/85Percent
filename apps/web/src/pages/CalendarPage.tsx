@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Card } from '@/components/ui/card'
 import { CalendarSkeleton } from '@/components/ui/page-skeletons'
 import { api } from '@/lib/api'
-import { formatPence } from '@headroom/shared'
+import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import type { PlayerWithContract } from '@headroom/shared'
 import type { ComplianceStatus } from '@headroom/shared'
 import { useClubStore } from '@/stores/club'
@@ -390,6 +390,7 @@ function ExpiringContractsDrawer({
   seasonLabel: string
   onClose: () => void
 }) {
+  const { format: fmtMoney } = useWorkspaceCurrency()
   // ESC dismiss
   useEffect(() => {
     if (!players) return
@@ -462,8 +463,8 @@ function ExpiringContractsDrawer({
                         </div>
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <div className="num text-[13px] font-medium text-slate-900">{formatPence(p.contract?.annualWagePence ?? 0)}</div>
-                        <div className="num text-[11px] text-slate-400">{formatPence(weekly)}/wk</div>
+                        <div className="num text-[13px] font-medium text-slate-900">{fmtMoney(p.contract?.annualWagePence ?? 0)}</div>
+                        <div className="num text-[11px] text-slate-400">{fmtMoney(weekly)}/wk</div>
                       </div>
                     </div>
                   )

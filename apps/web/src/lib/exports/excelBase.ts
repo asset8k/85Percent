@@ -9,9 +9,14 @@
  */
 
 import * as XLSX from 'xlsx'
+import { exportMoneyFormat } from './exportCurrency'
 
-/** GBP number format used for every money column in every sheet. */
-export const GBP_FORMAT = '£#,##0;[Red]−£#,##0'
+/** Number format used for every money column in every sheet, in the active
+ *  export currency (£ / € / $). A function (not a const) so it reflects the
+ *  currency set by the entry point at export time. */
+export function moneyFormat(): string {
+  return exportMoneyFormat()
+}
 
 /** Standard column widths so headers + values stay readable. */
 export const COLUMN_WIDTHS = {
@@ -23,8 +28,8 @@ export const COLUMN_WIDTHS = {
   large:   { wch: 28 },
 }
 
-/** Convert a pence integer to pounds (number). Used in cell values so the
- *  GBP_FORMAT applies — string cells would lose the formatting. */
+/** Convert a pence integer to a major-unit number. Used in cell values so the
+ *  money format applies — string cells would lose the formatting. */
 export function poundsCell(pence: number): number {
   if (!Number.isFinite(pence)) return 0
   return Math.round(pence) / 100

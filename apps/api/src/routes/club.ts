@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { requireRole } from '../middleware/roles.js'
 import { writeAuditLog } from '../lib/audit.js'
-import { LEAGUE_CONFIGS } from '@headroom/shared'
+import { LEAGUE_CONFIGS, getDefaultCurrencyForLeague } from '@headroom/shared'
 import { calculateSquadCosts, type ContractInput, type ManagerCostInput } from '@headroom/engine'
 
 const UpdateFinancialsBody = z
@@ -171,7 +171,7 @@ export async function clubRoutes(app: FastifyInstance) {
     try {
       const { data: club, error } = await supabase
         .from('clubs')
-        .select('id, name, short_name, league_id, logo_url')
+        .select('id, name, short_name, league_id, logo_url, base_currency')
         .eq('id', request.clubId)
         .maybeSingle()
 
@@ -184,6 +184,7 @@ export async function clubRoutes(app: FastifyInstance) {
         shortName: club.short_name,
         leagueId: club.league_id,
         logoUrl: (club.logo_url as string | null) ?? null,
+        baseCurrency: (club.base_currency as string | null) ?? 'GBP',
       })
     } catch (err) {
       request.log.error({ err }, 'GET /club failed')
@@ -322,19 +323,33 @@ export async function clubRoutes(app: FastifyInstance) {
     try {
       const { data: existing, error: findErr } = await supabase
         .from('clubs')
-        .select('id, league_id')
+        .select('id, league_id, base_currency, currency_is_custom')
         .eq('id', request.clubId)
         .maybeSingle()
       if (findErr) throw findErr
       if (!existing) return reply.status(404).send({ error: 'Club not found' })
 
       if (existing.league_id === parsed.data.leagueId) {
-        return reply.send({ success: true, leagueId: existing.league_id })
+        return reply.send({
+          success: true,
+          leagueId: existing.league_id,
+          baseCurrency: (existing.base_currency as string | null) ?? 'GBP',
+        })
       }
+
+      // Re-derive the base currency from the new league UNLESS the CFO has
+      // explicitly pinned a custom currency — then we leave it untouched.
+      const nextCurrency = existing.currency_is_custom
+        ? ((existing.base_currency as string | null) ?? 'GBP')
+        : getDefaultCurrencyForLeague(parsed.data.leagueId)
 
       const { error: updateErr } = await supabase
         .from('clubs')
-        .update({ league_id: parsed.data.leagueId, updated_at: new Date().toISOString() })
+        .update({
+          league_id: parsed.data.leagueId,
+          base_currency: nextCurrency,
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', request.clubId)
       if (updateErr) throw updateErr
 
@@ -343,14 +358,60 @@ export async function clubRoutes(app: FastifyInstance) {
         'clubs',
         request.clubId,
         'update',
-        { leagueId: parsed.data.leagueId },
-        { leagueId: existing.league_id },
+        { leagueId: parsed.data.leagueId, baseCurrency: nextCurrency },
+        { leagueId: existing.league_id, baseCurrency: existing.base_currency },
       )
 
-      return reply.send({ success: true, leagueId: parsed.data.leagueId })
+      return reply.send({ success: true, leagueId: parsed.data.leagueId, baseCurrency: nextCurrency })
     } catch (err) {
       request.log.error({ err }, 'PATCH /club/league failed')
       return reply.status(500).send({ error: 'Failed to switch league' })
+    }
+  })
+
+  // CFO + Admin only — the base currency governs how every monetary figure is
+  // displayed across the workspace. Setting it marks currency_is_custom so a
+  // later league change won't silently re-derive it. NO financial records are
+  // converted — the engine keeps running on the exact numbers entered.
+  app.patch('/club/currency', { preHandler: requireRole('cfo') }, async (request, reply) => {
+    const Body = z.object({
+      baseCurrency: z.enum(['GBP', 'EUR', 'USD']),
+    })
+    const parsed = Body.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+
+    try {
+      const { data: existing, error: findErr } = await supabase
+        .from('clubs')
+        .select('id, base_currency')
+        .eq('id', request.clubId)
+        .maybeSingle()
+      if (findErr) throw findErr
+      if (!existing) return reply.status(404).send({ error: 'Club not found' })
+
+      const { error: updateErr } = await supabase
+        .from('clubs')
+        .update({
+          base_currency: parsed.data.baseCurrency,
+          currency_is_custom: true,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', request.clubId)
+      if (updateErr) throw updateErr
+
+      await writeAuditLog(
+        request,
+        'clubs',
+        request.clubId,
+        'update',
+        { baseCurrency: parsed.data.baseCurrency },
+        { baseCurrency: existing.base_currency },
+      )
+
+      return reply.send({ success: true, baseCurrency: parsed.data.baseCurrency })
+    } catch (err) {
+      request.log.error({ err }, 'PATCH /club/currency failed')
+      return reply.status(500).send({ error: 'Failed to update currency' })
     }
   })
 

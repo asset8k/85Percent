@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { FormPageSkeleton } from '@/components/ui/page-skeletons'
 import { NumericInput } from '@/components/ui/numeric-input'
-import { formatPence } from '@headroom/shared'
+import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import { cn } from '@/lib/utils'
 import type {
   WorkingCapitalResponse,
@@ -146,6 +146,7 @@ function monthsOfSeason(startYear: number): Array<{ key: string; label: string; 
 }
 
 function WorkingCapitalTab() {
+  const { format: fmtMoney, symbol } = useWorkspaceCurrency()
   const seasonStartYear = useSeasonStore((s) => s.startYear)
   const SEASON = seasonKey(seasonStartYear)
   const MONTHS_OF_SEASON = useMemo(() => monthsOfSeason(seasonStartYear), [seasonStartYear])
@@ -236,7 +237,7 @@ function WorkingCapitalTab() {
         statusText={status === 'fail' ? `${failingCount} month${failingCount === 1 ? '' : 's'} fail` : undefined}
         title="Working Capital"
         description={
-          <>Each fiscal month must clear <Num>£12,500,000</Num> of adjusted cashflow + qualifying funds.</>
+          <>Each fiscal month must clear <Num>{symbol}12,500,000</Num> of adjusted cashflow + qualifying funds.</>
         }
         metricLabel="Worst monthly headroom"
         metric={
@@ -260,7 +261,7 @@ function WorkingCapitalTab() {
             const state = hr === undefined ? 'empty' : hr < 0 ? 'fail' : 'pass'
             return (
               <div key={m.key} className="flex flex-col items-center gap-1.5" title={
-                hr === undefined ? `${m.label}: no data` : `${m.label}: ${(hr < 0 ? '−' : '') + formatPence(Math.abs(hr))} headroom`
+                hr === undefined ? `${m.label}: no data` : `${m.label}: ${(hr < 0 ? '−' : '') + fmtMoney(Math.abs(hr))} headroom`
               }>
                 <div
                   className={cn(
@@ -293,8 +294,8 @@ function WorkingCapitalTab() {
           <thead className="border-b border-slate-100 bg-slate-50/60">
             <tr>
               <Th>Month</Th>
-              <Th align="right">Adjusted Cashflow (£)</Th>
-              <Th align="right">Qualifying Funds (£)</Th>
+              <Th align="right">Adjusted Cashflow ({symbol})</Th>
+              <Th align="right">Qualifying Funds ({symbol})</Th>
               <Th align="right">Headroom</Th>
               <Th align="right">{''}</Th>
             </tr>
@@ -327,7 +328,7 @@ function WorkingCapitalTab() {
                     'px-6 py-3 text-[13px] num text-right',
                     headroom === undefined ? 'text-slate-300' : failing ? 'text-red-700 font-medium' : 'text-green-700'
                   )}>
-                    {headroom === undefined ? '—' : (headroom < 0 ? '−' : '') + formatPence(Math.abs(headroom))}
+                    {headroom === undefined ? '—' : (headroom < 0 ? '−' : '') + fmtMoney(Math.abs(headroom))}
                   </td>
                   <td className="px-6 py-3 text-right w-px">
                     {edit?.dirty && (
@@ -358,6 +359,7 @@ function WorkingCapitalTab() {
 const LIQUIDITY_THRESHOLD_PENCE = 85_000_000_00
 
 function LiquidityTab() {
+  const { format: fmtMoney, symbol } = useWorkspaceCurrency()
   const seasonStartYear = useSeasonStore((s) => s.startYear)
   const SEASON = seasonKey(seasonStartYear)
   const [data, setData] = useState<LiquidityResponse | null>(null)
@@ -432,7 +434,7 @@ function LiquidityTab() {
         status={status}
         title="Liquidity"
         description={
-          <>Liquid assets + 40% of squad market value − liquid liabilities must clear the <Num>£85,000,000</Num> stress test.</>
+          <>Liquid assets + 40% of squad market value − liquid liabilities must clear the <Num>{symbol}85,000,000</Num> stress test.</>
         }
         metricLabel="Liquidity headroom"
         metric={preview ? <SignedPence pence={preview.headroom} /> : <span className="text-slate-300">—</span>}
@@ -465,26 +467,26 @@ function LiquidityTab() {
                 value={preview.net}
                 threshold={LIQUIDITY_THRESHOLD_PENCE}
                 goodSide="above"
-                thresholdLabel="£85M floor"
-                formatTick={fmtCompactPence}
-                valueLabel={fmtCompactPence(preview.net)}
+                thresholdLabel={`${symbol}85M floor`}
+                formatTick={(n) => fmtCompactPence(n, symbol)}
+                valueLabel={fmtCompactPence(preview.net, symbol)}
               />
             </div>
 
             <div className="mt-6 pt-5 border-t border-slate-100 grid grid-cols-3 gap-5">
               <StatBlock
                 label="Effective Liquid Assets"
-                value={formatPence(preview.effective)}
+                value={fmtMoney(preview.effective)}
                 sub="Includes 40% squad market value"
               />
               <StatBlock
                 label="Stress Test Threshold"
-                value="£85,000,000"
+                value={fmtMoney(LIQUIDITY_THRESHOLD_PENCE)}
                 sub="PL solvency buffer"
               />
               <StatBlock
                 label="Liquidity Headroom"
-                value={`${preview.headroom < 0 ? '−' : ''}${formatPence(Math.abs(preview.headroom))}`}
+                value={`${preview.headroom < 0 ? '−' : ''}${fmtMoney(Math.abs(preview.headroom))}`}
                 valueClass={preview.headroom < 0 ? 'text-red-700' : 'text-green-700'}
                 sub={preview.headroom < 0 ? 'Short of the required floor' : 'Above the required floor'}
               />
@@ -805,20 +807,22 @@ function ErrorCard({ message }: { message: string }) {
 }
 
 function SignedPence({ pence }: { pence: number }) {
-  return <>{(pence < 0 ? '−' : '') + formatPence(Math.abs(pence))}</>
+  const { format } = useWorkspaceCurrency()
+  return <>{(pence < 0 ? '−' : '') + format(Math.abs(pence))}</>
 }
 
 function Num({ children }: { children: React.ReactNode }) {
   return <span className="num text-slate-900">{children}</span>
 }
 
-// Compact pence → "£85M" / "£250k" for axis ticks.
-function fmtCompactPence(pence: number): string {
+// Compact pence → "£85M" / "€250k" for axis ticks. Symbol from the active
+// workspace currency (defaults to £).
+function fmtCompactPence(pence: number, symbol = '£'): string {
   const sign = pence < 0 ? '−' : ''
   const abs = Math.abs(pence) / 100
-  if (abs >= 1_000_000) return `${sign}£${(abs / 1_000_000).toFixed(abs >= 10_000_000 ? 0 : 1).replace(/\.0$/, '')}M`
-  if (abs >= 1_000) return `${sign}£${Math.round(abs / 1_000)}k`
-  return `${sign}£${Math.round(abs)}`
+  if (abs >= 1_000_000) return `${sign}${symbol}${(abs / 1_000_000).toFixed(abs >= 10_000_000 ? 0 : 1).replace(/\.0$/, '')}M`
+  if (abs >= 1_000) return `${sign}${symbol}${Math.round(abs / 1_000)}k`
+  return `${sign}${symbol}${Math.round(abs)}`
 }
 
 function fmtPctTick(ratio: number): string {
@@ -847,9 +851,13 @@ const inputBase =
   'w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-colors'
 
 function Field({ label, helper, children }: { label: string; helper?: string; children: React.ReactNode }) {
+  // String labels carry a "(£)" money hint; swap it for the workspace symbol so
+  // every field re-labels instantly when the currency changes.
+  const { symbol } = useWorkspaceCurrency()
+  const rendered = symbol !== '£' ? label.replaceAll('£', symbol) : label
   return (
     <label className="block">
-      <span className="meta-label block mb-1.5">{label}</span>
+      <span className="meta-label block mb-1.5">{rendered}</span>
       {children}
       {helper && <span className="block text-[11px] text-slate-400 mt-1">{helper}</span>}
     </label>
@@ -857,18 +865,20 @@ function Field({ label, helper, children }: { label: string; helper?: string; ch
 }
 
 function PoundInput({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  const { symbol } = useWorkspaceCurrency()
   return (
     <div className="relative">
-      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[14px]">£</span>
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[14px]">{symbol}</span>
       <NumericInput value={value} onChange={onChange} className={inputBase + ' pl-7 num'} placeholder="0" />
     </div>
   )
 }
 
 function PoundCell({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  const { symbol } = useWorkspaceCurrency()
   return (
     <div className="relative">
-      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-[12px]">£</span>
+      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-[12px]">{symbol}</span>
       <NumericInput
         value={value}
         onChange={onChange}

@@ -9,7 +9,7 @@
  */
 
 import jsPDF from 'jspdf'
-import { formatPence } from '@headroom/shared'
+import { exportMoney } from './exportCurrency'
 
 // Colour tokens copied from design/UI Kit.html so the PDFs match the app.
 export const COLOR = {
@@ -53,12 +53,13 @@ export function statusLabel(s: ComplianceStatus): string {
 }
 
 // Currency formatting that matches the app exactly. Accepts pence; returns
-// a string like "£14,820,000". For negatives we use the same minus glyph
-// as the UI (Unicode U+2212) so jspdf doesn't reflow to a hyphen.
+// a string like "£14,820,000" in the active export currency. For negatives we
+// use the same minus glyph as the UI (Unicode U+2212) so jspdf doesn't reflow
+// to a hyphen.
 export function pdfMoney(pence: number, opts?: { signed?: boolean }): string {
   if (pence == null || !Number.isFinite(pence)) return '—'
   const abs = Math.abs(pence)
-  const body = formatPence(Math.round(abs))
+  const body = exportMoney(Math.round(abs))
   if (opts?.signed && pence > 0) return '+' + body
   if (pence < 0) return '−' + body
   return body

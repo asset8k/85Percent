@@ -21,6 +21,7 @@ import { supabase } from '../lib/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { requireRole } from '../middleware/roles.js'
 import { writeAuditLog } from '../lib/audit.js'
+import { getDefaultCurrencyForLeague } from '@headroom/shared'
 import {
   buildHydratedRoster,
   leagueIdToTemplate,
@@ -198,6 +199,19 @@ export async function onboardingRoutes(app: FastifyInstance) {
       // 6. Adopt the club's identity (name + league + crest) from the template.
       const { name: clubName, shortName, leagueId } = hydrated.identity
       const logoUrl = (template.logo_url as string | null) ?? null
+
+      // Re-derive the base currency from the adopted league unless the CFO has
+      // already pinned a custom currency. No financial conversion — onboarding
+      // only seeds template data; the figures stay as entered.
+      const { data: currentClub } = await supabase
+        .from('clubs')
+        .select('base_currency, currency_is_custom')
+        .eq('id', clubId)
+        .maybeSingle()
+      const baseCurrency = currentClub?.currency_is_custom
+        ? ((currentClub.base_currency as string | null) ?? 'GBP')
+        : getDefaultCurrencyForLeague(leagueId)
+
       const { error: clubErr } = await supabase
         .from('clubs')
         .update({
@@ -205,6 +219,7 @@ export async function onboardingRoutes(app: FastifyInstance) {
           short_name: shortName,
           league_id: leagueId,
           logo_url: logoUrl,
+          base_currency: baseCurrency,
           updated_at: nowISO,
         })
         .eq('id', clubId)
@@ -223,7 +238,7 @@ export async function onboardingRoutes(app: FastifyInstance) {
       return reply.status(201).send({
         playersCreated: hydrated.players.length,
         managerCreated,
-        club: { name: clubName, leagueId, logoUrl },
+        club: { name: clubName, leagueId, logoUrl, baseCurrency },
       })
     } catch (err) {
       request.log.error({ err }, 'POST /onboarding/complete failed')

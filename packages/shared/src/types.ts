@@ -83,6 +83,14 @@ export interface SCRResult {
 export type UserRole = 'cfo' | 'sporting_director' | 'finance_analyst' | 'admin'
 export type ComplianceStatus = 'green' | 'amber' | 'red'
 
+/**
+ * The workspace base currency. ALL financial data is entered, stored, and run
+ * through the FFP engine in this single currency — there are no conversions. It
+ * only drives which symbol the UI renders (£ / € / $). Mirrors the Prisma
+ * `Currency` enum on the Club model.
+ */
+export type Currency = 'GBP' | 'EUR' | 'USD'
+
 /** Mirrors the engine's ScenarioActionType — duplicated here so frontend types
  *  don't need to depend on @headroom/engine directly. */
 export type ScenarioActionType = 'buy' | 'sell' | 'loan_in' | 'loan_out' | 'release'

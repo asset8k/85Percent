@@ -32,7 +32,7 @@ import { useSeasonStore, seasonKey } from '@/stores/season'
 import { exportAmortisationXLSX } from '@/lib/exports/amortisationXlsx'
 import { findCountry } from '@/lib/countries'
 import { Flag } from '@/components/ui/flag'
-import { formatPence } from '@headroom/shared'
+import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import type {
   PlayerWithContract,
   PlayerPosition,
@@ -182,6 +182,7 @@ export function RosterPage() {
                 clubName: clubName ?? 'Headroom FC',
                 season: financials?.season ?? seasonKey(useSeasonStore.getState().startYear),
                 players: active,
+                currency: useClubStore.getState().baseCurrency,
               })}
               disabled={active.length === 0}
               title="Download per-player amortisation schedules as an Excel workbook"
@@ -433,6 +434,7 @@ function PlayerTable({
   onCancelDelete?: () => void
 }) {
   const showActions = archived && canMutate && !!onRestore && !!onRequestDelete && !!onConfirmDelete && !!onCancelDelete
+  const { format: fmtMoney } = useWorkspaceCurrency()
 
   // Column sorting — defaults to shirt number ascending (unassigned last), the
   // order sporting directors expect when scanning a squad sheet. Clicking a
@@ -524,11 +526,11 @@ function PlayerTable({
                       '—'
                     ) : needsWage ? (
                       <span className="inline-flex items-center justify-end gap-1.5 text-slate-400">
-                        {formatPence(0)}
+                        {fmtMoney(0)}
                         <FinancialWarning />
                       </span>
                     ) : (
-                      formatPence(p.contract.annualWagePence)
+                      fmtMoney(p.contract.annualWagePence)
                     )}
                   </td>
                 )
@@ -541,11 +543,11 @@ function PlayerTable({
                       '—'
                     ) : needsFee ? (
                       <span className="inline-flex items-center justify-end gap-1.5 text-slate-400">
-                        {formatPence(0)}
+                        {fmtMoney(0)}
                         <FinancialWarning />
                       </span>
                     ) : (
-                      formatPence(p.contract.bookValuePence)
+                      fmtMoney(p.contract.bookValuePence)
                     )}
                   </td>
                 )
@@ -788,16 +790,17 @@ function FinancialWarning({ className }: { className?: string }) {
 // A read-only money cell that shows the value, or £0 + a warning icon when the
 // figure is missing (null) or zero. Keeps the column tidy (no red fill).
 function FinancialCell({ pence }: { pence: number | null }) {
+  const { format } = useWorkspaceCurrency()
   if (pence == null) return <span className="text-slate-400">—</span>
   if (pence <= 0) {
     return (
       <span className="inline-flex items-center justify-end gap-1.5 text-slate-400">
-        {formatPence(0)}
+        {format(0)}
         <FinancialWarning />
       </span>
     )
   }
-  return <>{formatPence(pence)}</>
+  return <>{format(pence)}</>
 }
 
 // Wraps a staging-table money input; floats the warning icon inside the field's
@@ -1088,6 +1091,7 @@ function CSVUploadModal({
   onClose: () => void
   onCommitted: () => void
 }) {
+  const { symbol } = useWorkspaceCurrency()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [parsing, setParsing] = useState(false)
   const [committing, setCommitting] = useState(false)
@@ -1227,9 +1231,9 @@ function CSVUploadModal({
                   <Th>Pos</Th>
                   <Th align="right">Shirt</Th>
                   <Th>DOB</Th>
-                  <Th align="right">Fee (£)</Th>
-                  <Th align="right">Wage £/wk</Th>
-                  <Th align="right">Agent (£)</Th>
+                  <Th align="right">Fee ({symbol})</Th>
+                  <Th align="right">Wage {symbol}/wk</Th>
+                  <Th align="right">Agent ({symbol})</Th>
                   <Th>Start</Th>
                   <Th>End</Th>
                 </tr>
@@ -1280,6 +1284,7 @@ function StagingRowDisplay({
   row: RosterStagingRow
   onChange: (next: RosterStagingRow) => void
 }) {
+  const { format: fmtMoney } = useWorkspaceCurrency()
   const [editing, setEditing] = useState(false)
   const p = row.parsed
 
@@ -1300,7 +1305,7 @@ function StagingRowDisplay({
       <td className="px-5 py-3 text-[13px] num text-right">
         <FinancialCell pence={p ? Math.floor(p.annualWagePence / 52) : null} />
       </td>
-      <td className="px-5 py-3 text-[13px] num text-right">{p ? formatPence(p.agentFeePence) : '—'}</td>
+      <td className="px-5 py-3 text-[13px] num text-right">{p ? fmtMoney(p.agentFeePence) : '—'}</td>
       <td className="px-5 py-3 text-[13px] text-slate-500 num">{p?.startDate ?? '—'}</td>
       <td className="px-5 py-3 text-[13px] text-slate-500 num">
         <div className="flex items-center justify-between gap-2">
@@ -1662,6 +1667,7 @@ function PlayerEditDrawer({
   onSaved: () => void
 }) {
   const can = useCan()
+  const { format: fmtMoney } = useWorkspaceCurrency()
   const c = player.contract
   const [name, setName] = useState(player.name)
   const [position, setPosition] = useState<PlayerPosition>(player.position ?? 'MID')
@@ -1911,7 +1917,7 @@ function PlayerEditDrawer({
               </div>
 
               <p className="mt-2 text-[12px] text-slate-500">
-                Current book value: <span className="num text-slate-700">{formatPence(c.bookValuePence)}</span>
+                Current book value: <span className="num text-slate-700">{fmtMoney(c.bookValuePence)}</span>
               </p>
 
               {/* Contract ledger — only meaningful once there's history beyond
@@ -2003,6 +2009,7 @@ function ManagerCard({
   onAdd: () => void
   onEdit: () => void
 }) {
+  const { format } = useWorkspaceCurrency()
   if (!manager) {
     return (
       <Card className="mb-5 p-5 border-dashed">
@@ -2026,6 +2033,7 @@ function ManagerCard({
 
   const c = manager.contract
   const needsWage = !!c && c.annualWagePence === 0
+  const fmtMoney = format
 
   // Minimalist row that echoes a player row: flag · name · "Head Coach" tag on
   // the left; annual wage + contract end on the right; Edit at the far end. The
@@ -2055,11 +2063,11 @@ function ManagerCard({
                 '—'
               ) : needsWage ? (
                 <span className="inline-flex items-center justify-end gap-1.5 text-slate-400">
-                  {formatPence(0)}
+                  {fmtMoney(0)}
                   <FinancialWarning />
                 </span>
               ) : (
-                formatPence(c.annualWagePence)
+                fmtMoney(c.annualWagePence)
               )}
             </div>
           </div>
@@ -2165,6 +2173,7 @@ function ManagerDrawer({
   onSaved: () => void
 }) {
   const can = useCan()
+  const { format: fmtMoney } = useWorkspaceCurrency()
   const c = manager.contract
   const [name, setName] = useState(manager.name)
   const [nationality, setNationality] = useState<string | null>(manager.nationality)
@@ -2302,9 +2311,9 @@ function ManagerDrawer({
           </div>
           {c && (
             <p className="mt-2 text-[12px] text-slate-500">
-              Current book value: <span className="num text-slate-700">{formatPence(c.bookValuePence)}</span>
+              Current book value: <span className="num text-slate-700">{fmtMoney(c.bookValuePence)}</span>
               {c.feePence > 0 && (
-                <> · Amortised <span className="num text-slate-700">{formatPence(annualAmortisation(c.feePence, c.contractLengthYears))}/yr</span></>
+                <> · Amortised <span className="num text-slate-700">{fmtMoney(annualAmortisation(c.feePence, c.contractLengthYears))}/yr</span></>
               )}
             </p>
           )}
@@ -2390,6 +2399,7 @@ function ContractLedger({
   canEdit?: boolean
   onChanged?: () => void
 }) {
+  const { format: fmtMoney } = useWorkspaceCurrency()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -2488,9 +2498,9 @@ function ContractLedger({
               />
             ) : (
               <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-3 gap-2 text-[12px]">
-                <LedgerCell label="Fee" value={formatPence(p.feePence)} />
-                <LedgerCell label="Wage/yr" value={formatPence(p.annualWagePence)} />
-                <LedgerCell label={p.isCurrent ? 'Book value' : 'Carried out'} value={formatPence(p.bookValuePence)} />
+                <LedgerCell label="Fee" value={fmtMoney(p.feePence)} />
+                <LedgerCell label="Wage/yr" value={fmtMoney(p.annualWagePence)} />
+                <LedgerCell label={p.isCurrent ? 'Book value' : 'Carried out'} value={fmtMoney(p.bookValuePence)} />
               </div>
             )}
           </div>
@@ -2909,9 +2919,15 @@ const fieldClass =
   'w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-colors'
 
 function Field({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
+  // String labels carry a "(£)" money hint; swap it for the workspace symbol so
+  // every form field re-labels instantly when the currency changes. Non-money
+  // labels contain no "£" and are unaffected; JSX labels pass through untouched.
+  const { symbol } = useWorkspaceCurrency()
+  const rendered =
+    typeof label === 'string' && symbol !== '£' ? label.replaceAll('£', symbol) : label
   return (
     <label className="block">
-      <span className="meta-label block mb-1.5">{label}</span>
+      <span className="meta-label block mb-1.5">{rendered}</span>
       {children}
     </label>
   )
@@ -2924,12 +2940,13 @@ function PoundInput({
 }: {
   value: number
   onChange: (n: number) => void
-  // Red-rings the field — used to flag a £0 wage as a validation error.
+  // Red-rings the field — used to flag a zero wage as a validation error.
   invalid?: boolean
 }) {
+  const { symbol } = useWorkspaceCurrency()
   return (
     <div className="relative">
-      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[14px]">£</span>
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[14px]">{symbol}</span>
       <NumericInput
         value={value}
         onChange={onChange}
@@ -2963,6 +2980,7 @@ function CarriedBookValueField({
   onChange: (n: number) => void
   onHide: () => void
 }) {
+  const { symbol } = useWorkspaceCurrency()
   if (!show) {
     return (
       <button
@@ -2992,7 +3010,7 @@ function CarriedBookValueField({
         label={
           <span className="inline-flex items-center gap-1.5">
             {needsAudit && <AlertTriangle size={13} strokeWidth={2} className="text-amber-500" />}
-            Carried Book Value (£)
+            Carried Book Value ({symbol})
             <InfoTooltip text={CARRIED_BOOK_VALUE_TOOLTIP} />
           </span>
         }

@@ -32,17 +32,19 @@ import { computeActiveBaseline, computeThresholds, statusFromRatio, scenarioMone
 import { exportSquadPDF } from '@/lib/exports/squadPdf'
 import { calculateSquadCosts, calculateLevy, calculatePointsDeduction, type ContractInput } from '@headroom/engine'
 import type { PlayerWithContract } from '@headroom/shared'
-import { formatPence, LEAGUE_CONFIGS } from '@headroom/shared'
+import { LEAGUE_CONFIGS } from '@headroom/shared'
+import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import { findCountry } from '@/lib/countries'
 import { Flag } from '@/components/ui/flag'
 import { AnimatedNumber } from '@/components/ui/animated-number'
 import { cn } from '@/lib/utils'
 
-// Format a pence integer as a pretty £ string ("£1,234,567") — used by the
+// Format a pence integer as a pretty symbol string ("£1,234,567") — used by the
 // AnimatedNumber `format` callback so the intermediate frames during the
-// count-up still render in the same shape as the final value.
-function formatPenceNumber(pence: number) {
-  return '£' + Math.round(pence / 100).toLocaleString('en-GB')
+// count-up still render in the same shape as the final value. The symbol comes
+// from the active workspace currency (defaults to £).
+function formatPenceNumber(pence: number, symbol = '£') {
+  return symbol + Math.round(pence / 100).toLocaleString('en-GB')
 }
 
 type SortKey = 'squadNumber' | 'name' | 'position' | 'wage' | 'amortisation' | 'agentFee' | 'total' | 'expiry'
@@ -51,6 +53,7 @@ type SortDir = 'asc' | 'desc'
 export function DashboardPage() {
   const { financials, scenarios, scenariosLoaded, clubName, leagueId, setScenarioInclusion } = useClubStore()
   const can = useCan()
+  const { format: fmtMoney, symbol, currency } = useWorkspaceCurrency()
   const [players, setPlayers] = useState<PlayerWithContract[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -254,6 +257,7 @@ export function DashboardPage() {
       leagueId: leagueId ?? 'efl-championship',
       financials,
       players,
+      currency,
     })
   }
 
@@ -325,17 +329,17 @@ export function DashboardPage() {
           </div>
           <AnimatedNumber
             value={riskHeadroomPence}
-            format={(n) => (n >= 0 ? formatPenceNumber(n) : `−${formatPenceNumber(Math.abs(n))}`)}
+            format={(n) => (n >= 0 ? formatPenceNumber(n, symbol) : `−${formatPenceNumber(Math.abs(n), symbol)}`)}
             className={cn(
               'num text-[28px] font-semibold leading-none mt-3',
               riskHeadroomPence >= 0 ? 'text-slate-900' : 'text-red-700'
             )}
           />
           <div className="text-[12px] text-slate-400 mt-2 num">
-            Green threshold: {formatPence(riskThresholds.greenPence)}
+            Green threshold: {fmtMoney(riskThresholds.greenPence)}
           </div>
           <div className="text-[12px] text-slate-400 num">
-            Revenue: {formatPence(riskRevenuePence)}
+            Revenue: {fmtMoney(riskRevenuePence)}
           </div>
         </Card>
       </div>
@@ -443,10 +447,10 @@ export function DashboardPage() {
                 <td className="px-6 py-3.5">
                   <PositionPill position={row.position} />
                 </td>
-                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-700">{formatPence(row.wagePence)}</td>
-                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-700">{formatPence(row.amortisationPence)}</td>
-                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-700">{formatPence(row.annualisedAgentFeePence)}</td>
-                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-900 font-medium">{formatPence(row.totalAnnualCostPence)}</td>
+                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-700">{fmtMoney(row.wagePence)}</td>
+                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-700">{fmtMoney(row.amortisationPence)}</td>
+                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-700">{fmtMoney(row.annualisedAgentFeePence)}</td>
+                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-900 font-medium">{fmtMoney(row.totalAnnualCostPence)}</td>
                 <td className="px-6 py-3.5 text-right">
                   <ExpiryChip months={row.monthsToExpiry} />
                 </td>
@@ -457,7 +461,7 @@ export function DashboardPage() {
             <tr>
               <td className="px-6 py-3.5 text-[12px] meta-label" colSpan={6}>Total — {filteredBreakdown.length} {filteredBreakdown.length === 1 ? 'player' : 'players'}</td>
               <td className="px-6 py-3.5 text-[14px] num text-right text-slate-900 font-semibold">
-                {formatPence(filteredBreakdown.reduce((s, r) => s + r.totalAnnualCostPence, 0))}
+                {fmtMoney(filteredBreakdown.reduce((s, r) => s + r.totalAnnualCostPence, 0))}
               </td>
               <td />
             </tr>
@@ -512,6 +516,7 @@ function FinancialRiskCard({
   headroomPence: number
   includedCount: number
 }) {
+  const { format: fmtMoney } = useWorkspaceCurrency()
   return (
     <Card className="p-6 mb-6">
       <div className="flex items-center gap-3 mb-4">
@@ -536,7 +541,7 @@ function FinancialRiskCard({
           </div>
           <div className="text-right flex-shrink-0">
             <div className="meta-label">Headroom to Green</div>
-            <div className="num text-[24px] font-semibold text-green-700 leading-none mt-1.5">{formatPence(headroomPence)}</div>
+            <div className="num text-[24px] font-semibold text-green-700 leading-none mt-1.5">{fmtMoney(headroomPence)}</div>
           </div>
         </div>
       )}
@@ -546,10 +551,10 @@ function FinancialRiskCard({
           <div>
             <div className="meta-label text-amber-700">Estimated Financial Levy</div>
             <p className="text-[13px] text-slate-700 mt-2 max-w-xl">
-              Based on <span className="num text-amber-700">{formatPence(overspendGreenPence)}</span> overspend above the Green Threshold. A levy applies but no points are deducted.
+              Based on <span className="num text-amber-700">{fmtMoney(overspendGreenPence)}</span> overspend above the Green Threshold. A levy applies but no points are deducted.
             </p>
           </div>
-          <div className="num text-[32px] font-semibold text-amber-700 leading-none flex-shrink-0">{formatPence(levyPence)}</div>
+          <div className="num text-[32px] font-semibold text-amber-700 leading-none flex-shrink-0">{fmtMoney(levyPence)}</div>
         </div>
       )}
     </Card>
@@ -638,12 +643,13 @@ function ScenarioInclusionCard({
 // + (green) frees room toward the Green threshold; − (red) consumes it. The
 // title surfaces the cost / revenue split behind the net figure.
 function ScenarioImpactBadge({ impact }: { impact: ReturnType<typeof scenarioMoneyImpact> }) {
+  const { symbol } = useWorkspaceCurrency()
   const net = impact.headroomDeltaPence
   const frees = net >= 0
   const title =
-    `Net SCR headroom: ${signedCompactPence(net)}\n` +
-    `Squad costs: ${signedCompactPence(-impact.costDeltaPence)} room` +
-    (impact.revenueDeltaPence !== 0 ? `\nRevenue: ${signedCompactPence(impact.revenueDeltaPence)}` : '')
+    `Net SCR headroom: ${signedCompactPence(net, symbol)}\n` +
+    `Squad costs: ${signedCompactPence(-impact.costDeltaPence, symbol)} room` +
+    (impact.revenueDeltaPence !== 0 ? `\nRevenue: ${signedCompactPence(impact.revenueDeltaPence, symbol)}` : '')
   return (
     <span
       title={title}
@@ -655,21 +661,22 @@ function ScenarioImpactBadge({ impact }: { impact: ReturnType<typeof scenarioMon
       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
         {frees ? <path d="M12 19V5M5 12l7-7 7 7" /> : <path d="M12 5v14M19 12l-7 7-7-7" />}
       </svg>
-      {signedCompactPence(net)}
+      {signedCompactPence(net, symbol)}
     </span>
   )
 }
 
-// Pence → compact signed £ string: "+£8.2M", "−£450K", "£0".
-function signedCompactPence(pence: number): string {
+// Pence → compact signed money string: "+£8.2M", "−€450K", "$0". Symbol comes
+// from the active workspace currency (defaults to £).
+function signedCompactPence(pence: number, symbol = '£'): string {
   const pounds = Math.round(pence / 100)
-  if (pounds === 0) return '£0'
+  if (pounds === 0) return `${symbol}0`
   const sign = pounds > 0 ? '+' : '−'
   const abs = Math.abs(pounds)
   let body: string
-  if (abs >= 1_000_000) body = `£${(abs / 1_000_000).toFixed(1)}M`
-  else if (abs >= 1_000) body = `£${(abs / 1_000).toFixed(0)}K`
-  else body = `£${abs}`
+  if (abs >= 1_000_000) body = `${symbol}${(abs / 1_000_000).toFixed(1)}M`
+  else if (abs >= 1_000) body = `${symbol}${(abs / 1_000).toFixed(0)}K`
+  else body = `${symbol}${abs}`
   return `${sign}${body}`
 }
 

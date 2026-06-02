@@ -19,9 +19,10 @@ import { AnimatedNumber } from '@/components/ui/animated-number'
 import { toast } from '@/components/ui/toast'
 
 // Same format helper as the Dashboard — used by AnimatedNumber so intermediate
-// frames render as £-prefixed integers, not raw decimals.
-function formatPenceNumber(pence: number) {
-  return '£' + Math.round(pence / 100).toLocaleString('en-GB')
+// frames render as symbol-prefixed integers, not raw decimals. The symbol is
+// supplied by the active workspace currency (defaults to £).
+function formatPenceNumber(pence: number, symbol = '£') {
+  return symbol + Math.round(pence / 100).toLocaleString('en-GB')
 }
 import { Card } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/badge'
@@ -29,7 +30,8 @@ import { EFL_CHAMPIONSHIP_CONFIG } from '@headroom/shared'
 import { calculatePromotedClubRevenueUplift, PROMOTED_CLUB_DEFAULT_UPLIFT_FACTOR } from '@headroom/engine'
 import { cn } from '@/lib/utils'
 import { useCan } from '@/lib/role'
-import type { ComplianceStatus } from '@headroom/shared'
+import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
+import type { ComplianceStatus, Currency } from '@headroom/shared'
 import type { InviteRow, TeamMember, AuditEntry, InviteRole } from '@/lib/api'
 
 const SetupSchema = z
@@ -68,6 +70,12 @@ export function ClubSetupPage() {
 
 export function FinancialTab() {
   const { financials, setFinancials, leagueId } = useClubStore()
+  // Roster has financial records once any contract exists — used to gate the
+  // currency-change warning (changing currency never converts those records).
+  const hasFinancialRecords = (financials?.contractCount ?? 0) > 0
+  const { symbol } = useWorkspaceCurrency()
+  // Workspace-currency money formatter for the live threshold previews.
+  const fmtMoney = (pence: number) => formatPenceNumber(pence, symbol)
   const seasonStartYear = useSeasonStore((s) => s.startYear)
   const activeSeasonKey = seasonKey(seasonStartYear)
   const [saved, setSaved] = useState(false)
@@ -234,7 +242,7 @@ export function FinancialTab() {
                       <label className="block">
                         <span className="meta-label block mb-1.5">Championship revenue</span>
                         <div className="relative">
-                          <span className="num absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">£</span>
+                          <span className="num absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">{symbol}</span>
                           <NumericInput
                             value={championshipRevenuePounds}
                             onChange={setChampionshipRevenuePounds}
@@ -272,7 +280,7 @@ export function FinancialTab() {
                         <div className="meta-label">Estimated PL revenue</div>
                         <div className="num text-[20px] font-semibold text-slate-900 leading-none mt-1.5 tabular-nums">
                           {upliftPence > 0 ? (
-                            <AnimatedNumber value={upliftPence} format={formatPenceNumber} duration={0.45} />
+                            <AnimatedNumber value={upliftPence} format={fmtMoney} duration={0.45} />
                           ) : (
                             '—'
                           )}
@@ -305,6 +313,10 @@ export function FinancialTab() {
         )}
       </Card>
 
+      {/* Base workspace currency (CFO) — sets the symbol every financial figure
+          is displayed with. No conversion of existing records. */}
+      <BaseCurrencyCard hasFinancialRecords={hasFinancialRecords} />
+
       <div className="grid gap-6" style={{ gridTemplateColumns: '1fr 360px' }}>
         {/* Main form */}
         <Card className="p-6">
@@ -320,12 +332,12 @@ export function FinancialTab() {
           <form onSubmit={form.handleSubmit(onSubmit)}>
             <div className="grid grid-cols-2 gap-5">
               <FieldWrapper
-                label="Football-Related Revenue (£)"
+                label={`Football-Related Revenue (${symbol})`}
                 helper="Broadcast, matchday, commercial — excludes player trading."
                 error={errs.footballRelatedRevenuePounds?.message}
               >
                 <div className="relative">
-                  <span className="num absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">£</span>
+                  <span className="num absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">{symbol}</span>
                   <Controller
                     control={form.control}
                     name="footballRelatedRevenuePounds"
@@ -362,7 +374,7 @@ export function FinancialTab() {
                   />
                   {watchMode === 'manual' ? (
                     <div className="relative">
-                      <span className="num absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">£</span>
+                      <span className="num absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">{symbol}</span>
                       <Controller
                         control={form.control}
                         name="manualSquadCostsPounds"
@@ -380,7 +392,7 @@ export function FinancialTab() {
                     </div>
                   ) : (
                     <div className="relative">
-                      <span className="num absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">£</span>
+                      <span className="num absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">{symbol}</span>
                       <input
                         type="text"
                         value={derivedSquadCostsPounds != null ? derivedSquadCostsPounds.toLocaleString('en-GB') : '—'}
@@ -415,12 +427,12 @@ export function FinancialTab() {
               {/* Owner equity top-up — Championship only. PL clubs do not have this allowance. */}
               {leagueId !== 'premier-league' && (
                 <FieldWrapper
-                  label="Owner Equity Top-Up (£)"
+                  label={`Owner Equity Top-Up (${symbol})`}
                   helper="Counts as revenue under EFL SCR rules — increases your Green Threshold. Max £15M/season."
                   error={errs.ownerEquityUsedCurrentSeasonPounds?.message}
                 >
                   <div className="relative">
-                    <span className="num absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">£</span>
+                    <span className="num absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">{symbol}</span>
                     <Controller
                       control={form.control}
                       name="ownerEquityUsedCurrentSeasonPounds"
@@ -476,7 +488,7 @@ export function FinancialTab() {
                 {greenThreshold !== null ? (
                   <AnimatedNumber
                     value={greenThreshold}
-                    format={formatPenceNumber}
+                    format={fmtMoney}
                     className="num text-[28px] font-semibold text-green-700 leading-none"
                   />
                 ) : (
@@ -491,7 +503,7 @@ export function FinancialTab() {
                 {redThreshold !== null ? (
                   <AnimatedNumber
                     value={redThreshold}
-                    format={formatPenceNumber}
+                    format={fmtMoney}
                     className="num text-[28px] font-semibold text-red-600 leading-none"
                   />
                 ) : (
@@ -518,7 +530,7 @@ export function FinancialTab() {
                     <span className="text-slate-500">Headroom to Green</span>
                     <AnimatedNumber
                       value={headroom}
-                      format={(n) => (n < 0 ? '−' + formatPenceNumber(Math.abs(n)) : '+' + formatPenceNumber(n))}
+                      format={(n) => (n < 0 ? '−' + fmtMoney(Math.abs(n)) : '+' + fmtMoney(n))}
                       className={`num font-medium ${headroom < 0 ? 'text-red-600' : 'text-slate-900'}`}
                     />
                   </div>
@@ -529,6 +541,119 @@ export function FinancialTab() {
         </Card>
       </div>
     </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// BaseCurrencyCard — CFO-only control for the workspace base currency. Every
+// monetary figure across the app is displayed in this currency. Changing it
+// NEVER converts existing records — the same numbers are simply re-labelled —
+// so we warn the user when a roster already has financial records.
+// ---------------------------------------------------------------------------
+
+const CURRENCY_OPTIONS: { value: Currency; label: string }[] = [
+  { value: 'GBP', label: '£  GBP — British Pound' },
+  { value: 'EUR', label: '€  EUR — Euro' },
+  { value: 'USD', label: '$  USD — US Dollar' },
+]
+
+function BaseCurrencyCard({ hasFinancialRecords }: { hasFinancialRecords: boolean }) {
+  const can = useCan()
+  const isCfo = can.has('cfo')
+  const baseCurrency = useClubStore((s) => s.baseCurrency)
+  const setBaseCurrency = useClubStore((s) => s.setBaseCurrency)
+
+  const [selected, setSelected] = useState<Currency>(baseCurrency)
+  const [saving, setSaving] = useState(false)
+
+  // Keep the dropdown in sync if the store currency changes elsewhere.
+  useEffect(() => {
+    setSelected(baseCurrency)
+  }, [baseCurrency])
+
+  const dirty = selected !== baseCurrency
+  // The warning only matters when an actual change is pending against an
+  // already-populated roster — exactly the case the directive calls out.
+  const showWarning = dirty && hasFinancialRecords
+
+  const save = async () => {
+    if (!dirty) return
+    setSaving(true)
+    try {
+      const res = await api.club.setCurrency(selected)
+      setBaseCurrency(res.baseCurrency)
+      toast.success('Currency updated', `Figures now display in ${res.baseCurrency}.`)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to update currency'
+      toast.error('Update failed', msg)
+      setSelected(baseCurrency)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card className="p-6 mb-6">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <div className="flex items-center gap-3 mb-1">
+            <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
+            <h2 className="text-[15px] font-semibold text-slate-900">Base Workspace Currency</h2>
+          </div>
+          <p className="text-[13px] text-slate-500 pl-4 max-w-xl">
+            The currency every financial figure is entered and displayed in across the workspace.
+            Defaulted from your league; the engine runs purely on the numbers you enter — no conversion.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <select
+            value={selected}
+            onChange={(e) => setSelected(e.target.value as Currency)}
+            disabled={!isCfo || saving}
+            className="num w-[220px] px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {CURRENCY_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          {isCfo && (
+            <Button type="button" onClick={save} disabled={!dirty || saving}>
+              {saving && <Spinner size={14} />}
+              {saving ? 'Saving…' : 'Save'}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {showWarning && (
+        <div className="mt-4 ml-4 flex items-start gap-2.5 border border-amber-200 bg-amber-50 rounded-lg px-4 py-3">
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="text-amber-500 mt-0.5 flex-shrink-0"
+            aria-hidden="true"
+          >
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+            <path d="M12 9v4" />
+            <path d="M12 17h.01" />
+          </svg>
+          <p className="text-[13px] text-amber-800 leading-relaxed">
+            <span className="font-semibold">Warning:</span> Changing the base currency does not convert
+            existing financial records. Existing contract values will remain the same but will be treated
+            as the new currency.
+          </p>
+        </div>
+      )}
+    </Card>
   )
 }
 

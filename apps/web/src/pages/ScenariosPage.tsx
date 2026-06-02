@@ -26,8 +26,8 @@ import { Switch } from '@/components/ui/switch'
 import { AnimatedNumber } from '@/components/ui/animated-number'
 import { toast } from '@/components/ui/toast'
 
-function formatPenceNumber(pence: number) {
-  return '£' + Math.round(pence / 100).toLocaleString('en-GB')
+function formatPenceNumber(pence: number, symbol = '£') {
+  return symbol + Math.round(pence / 100).toLocaleString('en-GB')
 }
 import { ComplianceGauge } from '@/components/simulator/ComplianceGauge'
 import { computeActiveBaseline, computeDryRun, computeThresholds, actionToEngineInput, scenarioMoneyImpact } from '@/lib/scr'
@@ -35,6 +35,7 @@ import { calculateSquadCosts, type ContractInput } from '@headroom/engine'
 import type { ScenarioActionInput, ScenarioActionType } from '@headroom/engine'
 import type { PlayerWithContract } from '@headroom/shared'
 import { formatPence } from '@headroom/shared'
+import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import type { ScenarioDetail, ScenarioAction, ClubFinancialsResponse } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useCan } from '@/lib/role'
@@ -555,6 +556,7 @@ function ScenarioListItem({
   onDelete: () => void
   onToggle: (v: boolean) => void
 }) {
+  const { format: fmtMoney, symbol } = useWorkspaceCurrency()
   const [deleting, setDeleting] = useState(false)
   const inPlan = scenario.isIncluded
   const actionCount = scenario.actionCount ?? scenario.actions.length
@@ -600,16 +602,16 @@ function ScenarioListItem({
                 <span className="text-slate-300" aria-hidden>·</span>
                 <span
                   title={
-                    `Net SCR headroom: ${signedPence(impact.headroomDeltaPence)}\n` +
-                    `Squad costs: ${signedPence(-impact.costDeltaPence)} room` +
-                    (impact.revenueDeltaPence !== 0 ? `\nRevenue: ${signedPence(impact.revenueDeltaPence)}` : '')
+                    `Net SCR headroom: ${signedPence(impact.headroomDeltaPence, fmtMoney)}\n` +
+                    `Squad costs: ${signedPence(-impact.costDeltaPence, fmtMoney)} room` +
+                    (impact.revenueDeltaPence !== 0 ? `\nRevenue: ${signedPence(impact.revenueDeltaPence, fmtMoney)}` : '')
                   }
                   className={cn(
                     'text-[11px] font-semibold num whitespace-nowrap',
                     impact.headroomDeltaPence >= 0 ? 'text-green-700' : 'text-red-700',
                   )}
                 >
-                  {compactSignedPence(impact.headroomDeltaPence)}
+                  {compactSignedPence(impact.headroomDeltaPence, symbol)}
                 </span>
               </>
             )}
@@ -906,6 +908,7 @@ function ActionFields({
 function PlayerPicker({
   roster, value, onChange,
 }: { roster: PlayerWithContract[]; value: string | null; onChange: (id: string | null) => void }) {
+  const { format: fmtMoney } = useWorkspaceCurrency()
   return (
     <Field label="Player from roster">
       <select
@@ -916,7 +919,7 @@ function PlayerPicker({
         <option value="">— select a player —</option>
         {roster.filter((p) => p.contract).map((p) => (
           <option key={p.id} value={p.id}>
-            {p.name} ({p.position ?? '—'}) — {formatPence(p.contract!.annualWagePence)} / yr
+            {p.name} ({p.position ?? '—'}) — {fmtMoney(p.contract!.annualWagePence)} / yr
           </option>
         ))}
       </select>
@@ -944,6 +947,8 @@ function ProjectionPanel({
   /** Number of OTHER included scenarios feeding the baseline tile. */
   otherIncludedCount: number
 }) {
+  const { symbol } = useWorkspaceCurrency()
+  const fmtMoneyNum = (pence: number) => formatPenceNumber(pence, symbol)
   const { before, after } = dryRun
   const thresholds = computeThresholds(after.adjustedRevenue, financials.currentAllowanceRatio)
   const currentPct = before.ratio * 100
@@ -1002,7 +1007,7 @@ function ProjectionPanel({
             />
           </div>
           <div className="text-[11px] text-slate-400 mt-2 num">
-            Costs: <AnimatedNumber value={before.baselineSquadCosts} format={formatPenceNumber} />
+            Costs: <AnimatedNumber value={before.baselineSquadCosts} format={fmtMoneyNum} />
           </div>
           <div className="text-[11px] text-slate-500 mt-1.5">{baselineSubtitle}</div>
         </div>
@@ -1028,7 +1033,7 @@ function ProjectionPanel({
             />
           </div>
           <div className="text-[11px] text-slate-500 mt-2 num">
-            Costs: <AnimatedNumber value={after.baselineSquadCosts} format={formatPenceNumber} />
+            Costs: <AnimatedNumber value={after.baselineSquadCosts} format={fmtMoneyNum} />
           </div>
           <div className="mt-3 flex items-center gap-2 flex-wrap">
             <StatusBadge status={status}>
@@ -1134,6 +1139,7 @@ function CompareModal({
   clubName: string
   onClose: () => void
 }) {
+  const { format: fmtMoney, currency } = useWorkspaceCurrency()
   const [aId, setAId] = useState<string>(scenarios[0]?.id ?? '')
   const [bId, setBId] = useState<string>(scenarios[1]?.id ?? '')
 
@@ -1200,6 +1206,7 @@ function CompareModal({
                       financials,
                       scenarioA: a,
                       scenarioB: b,
+                      currency,
                     })}
                     className="text-[12px] font-medium text-violet-600 hover:text-violet-700"
                   >
@@ -1209,8 +1216,8 @@ function CompareModal({
               </div>
               <div className="grid grid-cols-3 gap-4">
                 <Stat label="ΔSCR" value={`${((projB.ratio - projA.ratio) * 100).toFixed(2)} pp`} />
-                <Stat label="ΔCosts" value={signedPence(projB.baselineSquadCosts - projA.baselineSquadCosts)} />
-                <Stat label="ΔRevenue" value={signedPence(projB.adjustedRevenue - projA.adjustedRevenue)} />
+                <Stat label="ΔCosts" value={signedPence(projB.baselineSquadCosts - projA.baselineSquadCosts, fmtMoney)} />
+                <Stat label="ΔRevenue" value={signedPence(projB.adjustedRevenue - projA.adjustedRevenue, fmtMoney)} />
               </div>
             </Card>
           </div>
@@ -1232,6 +1239,7 @@ function CompareColumn({
   financials: ClubFinancialsResponse
 }) {
   void financials
+  const { format: fmtMoney } = useWorkspaceCurrency()
   return (
     <div className="space-y-4">
       <div>
@@ -1253,8 +1261,8 @@ function CompareColumn({
             </span>
           </div>
           <div className="text-[11px] text-slate-400 mt-3 num">
-            Costs: {formatPence(projection.baselineSquadCosts)}<br />
-            Revenue: {formatPence(projection.adjustedRevenue)}
+            Costs: {fmtMoney(projection.baselineSquadCosts)}<br />
+            Revenue: {fmtMoney(projection.adjustedRevenue)}
           </div>
         </Card>
       )}
@@ -1271,21 +1279,24 @@ function Stat({ label, value }: { label: string; value: string }) {
   )
 }
 
-function signedPence(p: number): string {
-  if (p === 0) return '£0'
-  if (p > 0) return '+' + formatPence(p)
-  return '−' + formatPence(Math.abs(p))
+// `fmt` is the workspace-currency formatter (from useWorkspaceCurrency); falls
+// back to GBP. Zero renders via fmt too so the symbol matches ("€0").
+function signedPence(p: number, fmt: (n: number) => string = formatPence): string {
+  if (p === 0) return fmt(0)
+  if (p > 0) return '+' + fmt(p)
+  return '−' + fmt(Math.abs(p))
 }
 
-// Compact signed £ for tight chips: "+£8.2M", "−£450K", "£0".
-function compactSignedPence(pence: number): string {
+// Compact signed money for tight chips: "+£8.2M", "−€450K", "$0". Symbol from
+// the active workspace currency (defaults to £).
+function compactSignedPence(pence: number, symbol = '£'): string {
   const pounds = Math.round(pence / 100)
-  if (pounds === 0) return '£0'
+  if (pounds === 0) return `${symbol}0`
   const sign = pounds > 0 ? '+' : '−'
   const abs = Math.abs(pounds)
-  if (abs >= 1_000_000) return `${sign}£${(abs / 1_000_000).toFixed(1)}M`
-  if (abs >= 1_000) return `${sign}£${(abs / 1_000).toFixed(0)}K`
-  return `${sign}£${abs}`
+  if (abs >= 1_000_000) return `${sign}${symbol}${(abs / 1_000_000).toFixed(1)}M`
+  if (abs >= 1_000) return `${sign}${symbol}${(abs / 1_000).toFixed(0)}K`
+  return `${sign}${symbol}${abs}`
 }
 
 // ---------------------------------------------------------------------------
@@ -1295,9 +1306,13 @@ const inputBase =
   'w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-colors'
 
 function Field({ label, helper, children }: { label: string; helper?: string; children: React.ReactNode }) {
+  // String labels carry a "(£)" money hint; swap it for the workspace symbol so
+  // every field re-labels instantly when the currency changes.
+  const { symbol } = useWorkspaceCurrency()
+  const rendered = symbol !== '£' ? label.replaceAll('£', symbol) : label
   return (
     <label className="block">
-      <span className="meta-label block mb-1.5">{label}</span>
+      <span className="meta-label block mb-1.5">{rendered}</span>
       {children}
       {helper && <span className="block text-[11px] text-slate-400 mt-1">{helper}</span>}
     </label>
@@ -1305,9 +1320,10 @@ function Field({ label, helper, children }: { label: string; helper?: string; ch
 }
 
 function PoundInput({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  const { symbol } = useWorkspaceCurrency()
   return (
     <div className="relative">
-      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[14px]">£</span>
+      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[14px]">{symbol}</span>
       <NumericInput value={value} onChange={onChange} className={inputBase + ' pl-7 num'} placeholder="0" />
     </div>
   )

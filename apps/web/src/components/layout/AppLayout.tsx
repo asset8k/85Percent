@@ -14,6 +14,7 @@ import { ProgressBar } from '@/components/ui/progress-bar'
 import { ToastHost } from '@/components/ui/toast'
 import { api, type ClubFinancialsResponse, type ScenarioDetail } from '@/lib/api'
 import { computeActiveBaseline, type ActiveBaseline } from '@/lib/scr'
+import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import type { ComplianceStatus } from '@headroom/shared'
 
 const DISCLAIMER =
@@ -196,11 +197,13 @@ export function AppLayout() {
 // was computed — squad-cost source, revenue composition, and which scenarios
 // (if any) are stacked on top of the Settings baseline.
 
-function fmtGBP(pence: number): string {
+// Compact money for the SCR breakdown popover. Symbol comes from the active
+// workspace currency (defaults to £); no conversion — same value, new label.
+function fmtMoneyCompact(pence: number, symbol = '£'): string {
   const pounds = Math.round(pence / 100)
-  if (Math.abs(pounds) >= 1_000_000) return `£${(pounds / 1_000_000).toFixed(1)}M`
-  if (Math.abs(pounds) >= 1_000)     return `£${(pounds / 1_000).toFixed(0)}K`
-  return `£${pounds.toLocaleString('en-GB')}`
+  if (Math.abs(pounds) >= 1_000_000) return `${symbol}${(pounds / 1_000_000).toFixed(1)}M`
+  if (Math.abs(pounds) >= 1_000)     return `${symbol}${(pounds / 1_000).toFixed(0)}K`
+  return `${symbol}${pounds.toLocaleString('en-GB')}`
 }
 
 interface SCRBadgePillProps {
@@ -366,6 +369,8 @@ function SCRBreakdownPopover({
   scenarios,
   onClose,
 }: SCRBreakdownPopoverProps) {
+  const { symbol } = useWorkspaceCurrency()
+  const fmtGBP = (pence: number) => fmtMoneyCompact(pence, symbol)
   const included = useMemo(() => scenarios.filter((s) => s.isIncluded), [scenarios])
 
   // "Settings-only" SCR — what the pill would read with no scenarios stacked.

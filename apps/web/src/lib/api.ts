@@ -12,6 +12,7 @@ import type {
   ExtendContractInput,
   PhasePatchInput,
   ContractPhase,
+  Currency,
 } from '@headroom/shared'
 
 const BASE = '/api'
@@ -330,7 +331,12 @@ export interface OnboardingClub {
 export interface OnboardingCompleteResponse {
   playersCreated: number
   managerCreated: boolean
-  club: { name: string; leagueId: 'premier-league' | 'efl-championship'; logoUrl: string | null }
+  club: {
+    name: string
+    leagueId: 'premier-league' | 'efl-championship'
+    logoUrl: string | null
+    baseCurrency: Currency
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -384,7 +390,15 @@ export const api = {
       }),
   },
   club: {
-    get: () => apiFetch<{ id: string; name: string; shortName: string; leagueId: string; logoUrl: string | null }>('/club'),
+    get: () =>
+      apiFetch<{
+        id: string
+        name: string
+        shortName: string
+        leagueId: string
+        logoUrl: string | null
+        baseCurrency: Currency
+      }>('/club'),
     deleteOrganization: (confirmName: string) =>
       apiFetch<{ success: boolean }>('/club', {
         method: 'DELETE',
@@ -407,9 +421,14 @@ export const api = {
       }),
     getLeagueConfig: () => apiFetch<Record<string, unknown>>('/club/league-config'),
     setLeague: (leagueId: 'efl-championship' | 'premier-league') =>
-      apiFetch<{ success: boolean; leagueId: string }>('/club/league', {
+      apiFetch<{ success: boolean; leagueId: string; baseCurrency: Currency }>('/club/league', {
         method: 'PATCH',
         body: JSON.stringify({ leagueId }),
+      }),
+    setCurrency: (baseCurrency: Currency) =>
+      apiFetch<{ success: boolean; baseCurrency: Currency }>('/club/currency', {
+        method: 'PATCH',
+        body: JSON.stringify({ baseCurrency }),
       }),
   },
   roster: {

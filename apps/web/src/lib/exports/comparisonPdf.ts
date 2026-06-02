@@ -12,6 +12,8 @@ import type { ScenarioDetail, ClubFinancialsResponse } from '@/lib/api'
 import { actionToEngineInput, computeActiveBaseline, computeThresholds, statusFromRatio } from '@/lib/scr'
 import type { ScenarioActionInput } from '@headroom/engine'
 import { applyScenarioActions } from '@headroom/engine'
+import type { Currency } from '@headroom/shared'
+import { setExportCurrency } from './exportCurrency'
 import {
   addHeader, addSectionHeader, addStatusPill, addComplianceGauge,
   finalizeFooters, pdfMoney, pdfPct, statusLabel, COLOR,
@@ -23,6 +25,8 @@ interface ExportComparisonInput {
   financials: ClubFinancialsResponse
   scenarioA: ScenarioDetail
   scenarioB: ScenarioDetail
+  /** Workspace base currency for money formatting. Defaults to GBP. */
+  currency?: Currency
 }
 
 interface Projection {
@@ -63,6 +67,7 @@ const ACTION_LABEL: Record<string, string> = {
 }
 
 export function exportComparisonPDF(input: ExportComparisonInput): void {
+  setExportCurrency(input.currency ?? 'GBP')
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
 
   // Baseline squad costs are already in financials.currentSquadCosts (derived

@@ -51,7 +51,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     // Using clubId (not clubName) — clubName can be set by an optimistic update during signin.
     if (session && !clubId) {
       api.club.get()
-        .then((club) => setClub(club.id, club.name, club.leagueId, club.logoUrl))
+        .then((club) => setClub(club.id, club.name, club.leagueId, club.logoUrl, club.baseCurrency))
         .catch((err) => {
           // Don't leave the user stuck on a blank screen; surface the failure to the console
           // and let them try again. A hard club failure means the API is unreachable.

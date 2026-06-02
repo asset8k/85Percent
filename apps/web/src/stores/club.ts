@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { Currency } from '@headroom/shared'
 import type { ClubFinancialsResponse, ScenarioDetail } from '@/lib/api'
 
 // Cheap structural equality for the flat, JSON-safe payloads this store holds
@@ -16,6 +17,12 @@ interface ClubState {
   clubName: string | null
   leagueId: string | null
   clubLogoUrl: string | null
+  /**
+   * Workspace base currency — the single currency every monetary figure is
+   * entered, stored, and displayed in. Drives the symbol (£ / € / $) everywhere.
+   * Defaults to GBP until the club record loads.
+   */
+  baseCurrency: Currency
   financials: ClubFinancialsResponse | null
   /**
    * Loaded scenarios (full detail with actions). Drives the Active Baseline
@@ -34,8 +41,16 @@ interface ClubState {
   scenariosLoaded: boolean
 
   // logoUrl is optional — omit it to leave the current crest untouched (e.g. on
-  // a league switch that shouldn't clear the logo).
-  setClub: (id: string, name: string, leagueId: string, logoUrl?: string | null) => void
+  // a league switch that shouldn't clear the logo). baseCurrency is likewise
+  // optional so callers that don't know it leave the current value in place.
+  setClub: (
+    id: string,
+    name: string,
+    leagueId: string,
+    logoUrl?: string | null,
+    baseCurrency?: Currency,
+  ) => void
+  setBaseCurrency: (currency: Currency) => void
   // Accepts null to clear financials when switching to a season that has no
   // configured row yet (the Dashboard then shows its setup empty-state).
   setFinancials: (f: ClubFinancialsResponse | null) => void
@@ -52,17 +67,20 @@ export const useClubStore = create<ClubState>()((set) => ({
   clubName: null,
   leagueId: null,
   clubLogoUrl: null,
+  baseCurrency: 'GBP',
   financials: null,
   scenarios: [],
   scenariosLoaded: false,
 
-  setClub: (id, name, leagueId, logoUrl) =>
+  setClub: (id, name, leagueId, logoUrl, baseCurrency) =>
     set((state) => ({
       clubId: id,
       clubName: name,
       leagueId,
       clubLogoUrl: logoUrl !== undefined ? logoUrl : state.clubLogoUrl,
+      baseCurrency: baseCurrency !== undefined ? baseCurrency : state.baseCurrency,
     })),
+  setBaseCurrency: (currency) => set({ baseCurrency: currency }),
   // Identity-stable: if the incoming payload is structurally identical to what
   // we already hold, keep the existing reference. Several callers re-fetch and
   // re-set financials on routine refreshes (ProtectedRoute on every auth event,

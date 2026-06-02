@@ -115,7 +115,7 @@ export function OnboardingPage() {
     setError('')
     try {
       const res = await api.onboarding.complete(selectedId, replacing)
-      if (clubId) setClub(clubId, res.club.name, res.club.leagueId, res.club.logoUrl)
+      if (clubId) setClub(clubId, res.club.name, res.club.leagueId, res.club.logoUrl, res.club.baseCurrency)
       toast.success(
         replacing ? 'Club changed' : 'Squad pre-filled',
         `${res.playersCreated} players imported for ${res.club.name}. Add their wages to finish.`,

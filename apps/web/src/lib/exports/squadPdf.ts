@@ -12,10 +12,11 @@
 
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import type { PlayerWithContract } from '@headroom/shared'
+import type { PlayerWithContract, Currency } from '@headroom/shared'
 import { calculateSquadCosts, type ContractInput } from '@headroom/engine'
 import type { ClubFinancialsResponse } from '@/lib/api'
 import { computeThresholds, statusFromRatio } from '@/lib/scr'
+import { setExportCurrency } from './exportCurrency'
 import {
   addHeader, addSectionHeader, addStatusPill, addComplianceGauge,
   finalizeFooters, pdfMoney, pdfPct, statusLabel, COLOR,
@@ -27,9 +28,12 @@ interface ExportSquadInput {
   leagueId: string
   financials: ClubFinancialsResponse
   players: PlayerWithContract[]
+  /** Workspace base currency for money formatting. Defaults to GBP. */
+  currency?: Currency
 }
 
 export function exportSquadPDF(input: ExportSquadInput): void {
+  setExportCurrency(input.currency ?? 'GBP')
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const w = doc.internal.pageSize.getWidth()
 
