@@ -167,15 +167,6 @@ export function buildHydratedRoster(args: {
   let managerContract: Record<string, unknown> | null = null
   if (managerRow) {
     const managerId = newId()
-    const mcId = newId()
-    const fee = feePence(managerRow.estimated_transfer_fee)
-    const { startDate, endDate } = resolveContractWindow(managerRow.contract_start, managerRow.contract_end, todayISO)
-    const bookVal = currentBookValuePence(
-      fee,
-      new Date(startDate + 'T00:00:00Z'),
-      new Date(endDate + 'T00:00:00Z'),
-      now,
-    )
     manager = {
       id: managerId,
       club_id: clubId,
@@ -185,21 +176,39 @@ export function buildHydratedRoster(args: {
       created_at: nowISO,
       updated_at: nowISO,
     }
-    managerContract = {
-      id: mcId,
-      manager_id: managerId,
-      club_id: clubId,
-      compensation_fee: fee,
-      annual_wage: 0,
-      agent_fee: 0,
-      start_date: startDate,
-      end_date: endDate,
-      contract_length_years: yearsBetween(startDate, endDate),
-      book_value: bookVal,
-      phase_type: 'INITIAL',
-      is_current: true,
-      created_at: nowISO,
-      updated_at: nowISO,
+
+    // Transfermarkt's Coaching Staff page often lists no contract-expiry date for
+    // a head coach (the column shows " - "). We must NOT fabricate one — a made-up
+    // today→+3yr window surfaces a wrong, sometimes already-expired, expiry date.
+    // Only seed a contract phase when the template carries a genuine scraped end
+    // date; otherwise leave the manager contract empty for the CFO to fill in.
+    const realEnd = toDateOnly(managerRow.contract_end)
+    if (realEnd) {
+      const mcId = newId()
+      const fee = feePence(managerRow.estimated_transfer_fee)
+      const { startDate, endDate } = resolveContractWindow(managerRow.contract_start, realEnd, todayISO)
+      const bookVal = currentBookValuePence(
+        fee,
+        new Date(startDate + 'T00:00:00Z'),
+        new Date(endDate + 'T00:00:00Z'),
+        now,
+      )
+      managerContract = {
+        id: mcId,
+        manager_id: managerId,
+        club_id: clubId,
+        compensation_fee: fee,
+        annual_wage: 0,
+        agent_fee: 0,
+        start_date: startDate,
+        end_date: endDate,
+        contract_length_years: yearsBetween(startDate, endDate),
+        book_value: bookVal,
+        phase_type: 'INITIAL',
+        is_current: true,
+        created_at: nowISO,
+        updated_at: nowISO,
+      }
     }
   }
 

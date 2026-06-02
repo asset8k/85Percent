@@ -28,6 +28,7 @@ import {
   ManualPlayerSchema,
   ContractPatchSchema,
   ManagerInputSchema,
+  ManagerContractInputSchema,
   ManagerPatchSchema,
   PhasePatchSchema,
   ExtendContractSchema,
@@ -1443,6 +1444,77 @@ export async function rosterRoutes(app: FastifyInstance) {
     } catch (err) {
       request.log.error({ err }, 'PATCH /roster/manager-contract/:id failed')
       return reply.status(500).send({ error: 'Failed to update manager contract' })
+    }
+  })
+
+  // -------------------------------------------------------------------- POST /roster/manager/:id/contract
+  // Seed the INITIAL contract phase for an existing manager that has none yet.
+  // Templates often import a head coach with no contract (Transfermarkt lists no
+  // expiry); this lets the CFO add the wages / fee / dates so the manager starts
+  // counting toward the Squad Cost Ratio. Rejected if a current contract exists
+  // (use the PATCH/extend endpoints to change an existing one).
+  app.post('/roster/manager/:id/contract', async (request, reply) => {
+    if (!canMutateRoster(request.userRole)) {
+      return reply.status(403).send({ error: 'Insufficient permissions' })
+    }
+    const { id } = request.params as { id: string }
+    const parsed = ManagerContractInputSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ error: parsed.error.flatten() })
+    }
+    const r = parsed.data
+
+    try {
+      const { data: mgr, error: mErr } = await supabase
+        .from('managers')
+        .select('id')
+        .eq('id', id)
+        .eq('club_id', request.clubId)
+        .eq('is_active', true)
+        .maybeSingle()
+      if (mErr) throw mErr
+      if (!mgr) return reply.status(404).send({ error: 'Manager not found' })
+
+      const { data: current, error: curErr } = await supabase
+        .from('manager_contracts')
+        .select('id')
+        .eq('manager_id', id)
+        .eq('is_current', true)
+        .maybeSingle()
+      if (curErr) throw curErr
+      if (current) {
+        return reply.status(409).send({ error: 'This manager already has a contract. Edit it instead.' })
+      }
+
+      const nowISO = new Date().toISOString()
+      const contractId = randomUUID()
+      const startObj = new Date(r.startDate + 'T00:00:00Z')
+      const endObj   = new Date(r.endDate   + 'T00:00:00Z')
+      const bookVal  = currentBookValuePence(r.compensationFeePence, startObj, endObj, new Date())
+
+      const { error: cErr } = await supabase.from('manager_contracts').insert({
+        id: contractId,
+        manager_id: id,
+        club_id: request.clubId,
+        compensation_fee: r.compensationFeePence,
+        annual_wage: r.annualWagePence,
+        agent_fee: r.agentFeePence,
+        start_date: r.startDate,
+        end_date: r.endDate,
+        contract_length_years: yearsBetween(r.startDate, r.endDate),
+        book_value: bookVal,
+        phase_type: 'INITIAL',
+        is_current: true,
+        created_at: nowISO,
+        updated_at: nowISO,
+      })
+      if (cErr) throw cErr
+
+      await writeAuditLog(request, 'manager_contracts', contractId, 'create', { managerId: id })
+      return reply.status(201).send({ contractId, bookValuePence: bookVal })
+    } catch (err) {
+      request.log.error({ err }, 'POST /roster/manager/:id/contract failed')
+      return reply.status(500).send({ error: 'Failed to create manager contract' })
     }
   })
 

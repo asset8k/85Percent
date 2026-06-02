@@ -8,6 +8,7 @@ import type {
   ScenarioActionType,
   ManagerWithContract,
   ManagerInput,
+  ManagerContractInput,
   ExtendContractInput,
   PhasePatchInput,
   ContractPhase,
@@ -471,6 +472,13 @@ export const api = {
       apiFetch<{ success: boolean; bookValuePence: number }>(`/roster/manager-contract/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(patch),
+      }),
+    // Seed the first contract for an existing contract-less manager (e.g. a
+    // template-imported coach Transfermarkt had no contract data for).
+    createManagerContract: (managerId: string, input: ManagerContractInput) =>
+      apiFetch<{ contractId: string; bookValuePence: number }>(`/roster/manager/${managerId}/contract`, {
+        method: 'POST',
+        body: JSON.stringify(input),
       }),
     extendManager: (id: string, input: ExtendContractInput) =>
       apiFetch<{ contractId: string; carriedBookValuePence: number; bookValuePence: number }>(

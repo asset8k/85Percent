@@ -942,7 +942,11 @@ function DangerZoneTab() {
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState('')
 
-  const armed = clubName != null && confirmName.trim() === clubName.trim()
+  // Case-insensitive match — the club name is shown for reference, but the user
+  // shouldn't be blocked from deleting just because their capitalisation differs
+  // (e.g. typing "manchester city" against "Manchester City").
+  const armed =
+    clubName != null && confirmName.trim().toLowerCase() === clubName.trim().toLowerCase()
 
   const handleDelete = async () => {
     if (!armed) return

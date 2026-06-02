@@ -44,7 +44,7 @@ type SortKey = 'squadNumber' | 'name' | 'position' | 'wage' | 'amortisation' | '
 type SortDir = 'asc' | 'desc'
 
 export function DashboardPage() {
-  const { financials, scenarios, clubName, leagueId } = useClubStore()
+  const { financials, scenarios, scenariosLoaded, clubName, leagueId } = useClubStore()
   const [players, setPlayers] = useState<PlayerWithContract[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -142,7 +142,11 @@ export function DashboardPage() {
     [financials, scenarios]
   )
 
-  if (loading) return <DashboardSkeleton />
+  // Hold the skeleton until BOTH the roster and the included scenarios are in —
+  // the hero SCR overlay, gauge and financial-risk card all fold in scenarios,
+  // so revealing before they load would show numbers that then jump. (Only gate
+  // on scenarios when financials exist, since that's the only case we fetch them.)
+  if (loading || (financials != null && !scenariosLoaded)) return <DashboardSkeleton />
 
   if (error) {
     return (

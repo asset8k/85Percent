@@ -2282,3 +2282,48 @@ Web typecheck clean; shared rebuilt.
     the earliest date (e.g. "7 Contracts Expiring" at 30 Jun 2026 even though 5
     expired 30 Jun 2027). Now grouped by exact expiry date → one node per date,
     each positioned chronologically with only that date's players in its drawer.
+
+### Session 26 — product feedback pass (4 fixes)
+1. **Delete-workspace confirmation is now case-insensitive.** Typing the club
+   name in different capitalisation no longer blocks deletion. Compared with
+   `.trim().toLowerCase()` on both the client (`ClubSetupPage` DangerZoneTab,
+   `armed`) and server (`club.ts` DELETE `/club`). The typed name is still
+   required as a friction gate.
+2. **Coaches no longer get a fabricated contract end.** Transfermarkt's Coaching
+   Staff page often lists no "Contract expires" (the column shows " - "); the old
+   hydration ran that through `resolveContractWindow`, inventing a today→+3yr
+   window (sometimes already in the past). Now `onboarding-hydrate.ts` only seeds
+   a manager contract phase when the template carries a **genuine scraped end
+   date** (`toDateOnly(contract_end)`); otherwise the manager is still created
+   (name/nationality) but with **no contract** for the CFO to fill in.
+   `onboarding.ts` updated to insert the manager even when its contract is null.
+   `deriveActiveManager` already returns null for a contract-less manager, so SCR
+   is unaffected. New unit test covers the no-expiry path; all 19 hydrate +
+   40 script tests pass.
+3. **No more SCR flicker while scenarios load.** The TopBar pill + Dashboard
+   projections fold in included scenarios, which load *after* financials — so they
+   briefly showed a pre-scenario number that then jumped (e.g. 40% → 80%). Added
+   `scenariosLoaded` to the club store (set true on the scenarios fetch's success
+   **or** failure). AppLayout re-gates it to false at the start of each load and
+   shows a new `SCRLoadingPill` placeholder until the real figure is in; the
+   Dashboard holds its skeleton until both roster **and** scenarios are loaded.
+   Reset on sign-out.
+4. **First-run nudge to pick a club.** A CFO whose workspace has an empty squad
+   now sees a violet coachmark anchored above the Sidebar Workspace switcher
+   ("👋 Start here — Pick your club… → Choose a club"), with the switcher
+   highlighted. It fetches the roster count, auto-hides once a squad exists, and
+   is dismissible. CTA routes to `/onboarding`.
+
+Web + API typecheck clean.
+
+  - **Follow-up (coach contract editable):** with coaches now allowed to have no
+    contract (#2 above), the Head-Coach edit drawer hid its contract block
+    entirely (`{c && …}`), so wages/fee/dates vanished. The drawer now **always**
+    renders those fields; when the coach has no contract it shows a "Not set"
+    pill + helper and seeds an INITIAL phase on save. New endpoint
+    `POST /roster/manager/:id/contract` (+ `ManagerContractInputSchema` in shared,
+    `api.roster.createManagerContract`) creates the first phase for an existing
+    contract-less manager (409 if one already exists). Entering any contract
+    field requires start + end dates and a positive wage; identity-only edits
+    still save without forcing a contract. Feeds SCR exactly like before. Shared
+    rebuilt; web + API typecheck clean.

@@ -169,28 +169,45 @@ export type ContractPatchInput = z.infer<typeof ContractPatchSchema>
 
 // Manual single-manager add (UI form). Mirrors ManualPlayerSchema but the
 // fee is a "compensation fee" (paid to release them from their old club).
-export const ManagerInputSchema = z
-  .object({
+// The financial fields of a manager (Head Coach) contract phase. Shared by the
+// "create manager + contract" flow and the "add a contract to an existing
+// contract-less manager" flow (e.g. a template-imported coach Transfermarkt had
+// no contract data for — see onboarding-hydrate).
+const ManagerContractFields = {
+  compensationFeePence: z.number().int().min(0),
+  annualWagePence: z.number().int().positive(),
+  agentFeePence: z.number().int().min(0),
+  startDate: ISODateString,
+  endDate: ISODateString,
+}
+
+const withContractWindowRules = <T extends z.ZodTypeAny>(schema: T) =>
+  schema
+    .refine((r: { startDate: string; endDate: string }) => new Date(r.endDate) > new Date(r.startDate), {
+      message: 'End date must be after start date',
+      path: ['endDate'],
+    })
+    .refine((r: { startDate: string; endDate: string }) => {
+      const start = new Date(r.startDate)
+      const maxEnd = new Date(start)
+      maxEnd.setFullYear(start.getFullYear() + 10)
+      return new Date(r.endDate) <= maxEnd
+    }, { message: 'Contract cannot exceed 10 years', path: ['endDate'] })
+
+export const ManagerInputSchema = withContractWindowRules(
+  z.object({
     name: z.string().trim().min(1).max(80),
     nationality: z.string().trim().max(60).nullable().optional(),
-    compensationFeePence: z.number().int().min(0),
-    annualWagePence: z.number().int().positive(),
-    agentFeePence: z.number().int().min(0),
-    startDate: ISODateString,
-    endDate: ISODateString,
-  })
-  .refine((r) => new Date(r.endDate) > new Date(r.startDate), {
-    message: 'End date must be after start date',
-    path: ['endDate'],
-  })
-  .refine((r) => {
-    const start = new Date(r.startDate)
-    const maxEnd = new Date(start)
-    maxEnd.setFullYear(start.getFullYear() + 10)
-    return new Date(r.endDate) <= maxEnd
-  }, { message: 'Contract cannot exceed 10 years', path: ['endDate'] })
+    ...ManagerContractFields,
+  }),
+)
 
 export type ManagerInput = z.infer<typeof ManagerInputSchema>
+
+// Create the contract phase for an existing manager that has none yet.
+export const ManagerContractInputSchema = withContractWindowRules(z.object(ManagerContractFields))
+
+export type ManagerContractInput = z.infer<typeof ManagerContractInputSchema>
 
 // Patch manager identity fields (name / active flag).
 export const ManagerPatchSchema = z

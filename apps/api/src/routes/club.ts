@@ -395,7 +395,10 @@ export async function clubRoutes(app: FastifyInstance) {
       if (clubErr) throw clubErr
       if (!club) return reply.status(404).send({ error: 'Club not found' })
 
-      if (parsed.data.confirmName.trim() !== String(club.name).trim()) {
+      // Case-insensitive — the UI shows the name for reference but must not block
+      // deletion over capitalisation alone (e.g. "manchester city" vs the stored
+      // "Manchester City"). The typed name is still required as a friction gate.
+      if (parsed.data.confirmName.trim().toLowerCase() !== String(club.name).trim().toLowerCase()) {
         return reply.status(400).send({ error: "The name you typed doesn't match the organization name." })
       }
 

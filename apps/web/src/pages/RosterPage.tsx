@@ -40,6 +40,7 @@ import type {
   ManualPlayerInput,
   ManagerWithContract,
   ManagerInput,
+  ManagerContractInput,
   ContractPhase,
   ExtendContractInput,
 } from '@headroom/shared'
@@ -2117,11 +2118,12 @@ function ManagerDrawer({
       if (Object.keys(mgrPatch).length > 0) {
         await api.roster.updateManager(manager.id, mgrPatch)
       }
+      const compPence = (isFinite(compPounds) ? compPounds : 0) * 100
+      const annualWagePence = (isFinite(weeklyWagePounds) ? weeklyWagePounds : 0) * 52 * 100
+      const agentPence = (isFinite(agentPounds) ? agentPounds : 0) * 100
+
       if (c) {
         const patch: Parameters<typeof api.roster.updateManagerContract>[1] = {}
-        const compPence = (isFinite(compPounds) ? compPounds : 0) * 100
-        const annualWagePence = (isFinite(weeklyWagePounds) ? weeklyWagePounds : 0) * 52 * 100
-        const agentPence = (isFinite(agentPounds) ? agentPounds : 0) * 100
         if (compPence !== c.feePence) patch.feePence = compPence
         if (annualWagePence !== c.annualWagePence) patch.annualWagePence = annualWagePence
         if (agentPence !== c.agentFeePence) patch.agentFeePence = agentPence
@@ -2130,6 +2132,24 @@ function ManagerDrawer({
         if (Object.keys(patch).length > 0) {
           await api.roster.updateManagerContract(c.id, patch)
         }
+      } else if (startDate || endDate || isFinite(weeklyWagePounds) || isFinite(compPounds) || isFinite(agentPounds)) {
+        // No contract yet (a template-imported coach with no Transfermarkt data).
+        // The CFO has started filling it in — create the INITIAL phase so the
+        // manager begins counting toward SCR. All three are required to seed it.
+        if (!startDate || !endDate) {
+          throw new Error('Enter both a contract start and end date for the head coach.')
+        }
+        if (!isFinite(weeklyWagePounds) || weeklyWagePounds <= 0) {
+          throw new Error('Enter a weekly wage for the head coach.')
+        }
+        const input: ManagerContractInput = {
+          compensationFeePence: compPence,
+          annualWagePence,
+          agentFeePence: agentPence,
+          startDate,
+          endDate,
+        }
+        await api.roster.createManagerContract(manager.id, input)
       }
       onSaved()
     } catch (err) {
@@ -2162,54 +2182,66 @@ function ManagerDrawer({
           <CountryPicker value={nationality} onChange={setNationality} placeholder="Select country" />
         </Field>
 
-        {c && (
-          <div className="border-t border-slate-100 pt-4">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="meta-label">Current contract</span>
+        <div className="border-t border-slate-100 pt-4">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="meta-label">{c ? 'Current contract' : 'Contract'}</span>
+            {c ? (
               <PhaseTypePill phaseType={c.phaseType} />
-            </div>
-            <div className="grid grid-cols-3 gap-4">
-              <Field label="Compensation fee (£)">
-                <PoundInput value={compPounds} onChange={setCompPounds} />
-              </Field>
-              <Field label="Weekly wage (£)">
-                <PoundInput value={weeklyWagePounds} onChange={setWeeklyWagePounds} />
-              </Field>
-              <Field label="Agent fee (£)">
-                <PoundInput value={agentPounds} onChange={setAgentPounds} />
-              </Field>
-            </div>
-            <div className="grid grid-cols-2 gap-4 mt-4">
-              <Field label="Contract start">
-                <DatePicker value={startDate} onChange={setStartDate} required placeholder="Select start date" />
-              </Field>
-              <Field label="Contract end">
-                <DatePicker value={endDate} onChange={setEndDate} required placeholder="Select end date" />
-              </Field>
-            </div>
+            ) : (
+              <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-amber-100 text-amber-700">
+                Not set
+              </span>
+            )}
+          </div>
+          {!c && (
+            <p className="mb-3 text-[12px] text-slate-500">
+              No contract was imported for this head coach. Add the wage, fee and dates below so they
+              count toward your Squad Cost Ratio.
+            </p>
+          )}
+          <div className="grid grid-cols-3 gap-4">
+            <Field label="Compensation fee (£)">
+              <PoundInput value={compPounds} onChange={setCompPounds} />
+            </Field>
+            <Field label="Weekly wage (£)">
+              <PoundInput value={weeklyWagePounds} onChange={setWeeklyWagePounds} />
+            </Field>
+            <Field label="Agent fee (£)">
+              <PoundInput value={agentPounds} onChange={setAgentPounds} />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-4 mt-4">
+            <Field label="Contract start">
+              <DatePicker value={startDate} onChange={setStartDate} required={!!c} placeholder="Select start date" />
+            </Field>
+            <Field label="Contract end">
+              <DatePicker value={endDate} onChange={setEndDate} required={!!c} placeholder="Select end date" />
+            </Field>
+          </div>
+          {c && (
             <p className="mt-2 text-[12px] text-slate-500">
               Current book value: <span className="num text-slate-700">{formatPence(c.bookValuePence)}</span>
               {c.feePence > 0 && (
                 <> · Amortised <span className="num text-slate-700">{formatPence(annualAmortisation(c.feePence, c.contractLengthYears))}/yr</span></>
               )}
             </p>
+          )}
 
-            {phases.length > 1 && (
-              <div className="mt-4">
-                <div className="meta-label mb-2">Contract phases</div>
-                <ContractLedger phases={phases} kind="manager" canEdit={can.mutateRoster} onChanged={reloadPhases} />
-              </div>
-            )}
+          {c && phases.length > 1 && (
+            <div className="mt-4">
+              <div className="meta-label mb-2">Contract phases</div>
+              <ContractLedger phases={phases} kind="manager" canEdit={can.mutateRoster} onChanged={reloadPhases} />
+            </div>
+          )}
 
-            {can.mutateRoster && (
-              <div className="mt-4">
-                <Button type="button" variant="outline" onClick={() => setExtendOpen(true)}>
-                  <ExtendIcon /> Log contract extension
-                </Button>
-              </div>
-            )}
-          </div>
-        )}
+          {c && can.mutateRoster && (
+            <div className="mt-4">
+              <Button type="button" variant="outline" onClick={() => setExtendOpen(true)}>
+                <ExtendIcon /> Log contract extension
+              </Button>
+            </div>
+          )}
+        </div>
 
         {error && (
           <div className="border border-red-200 bg-red-50 rounded-lg px-4 py-3 text-[13px] text-red-700">{error}</div>

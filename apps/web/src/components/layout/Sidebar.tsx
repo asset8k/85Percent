@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { useClubStore } from '@/stores/club'
 import { useAuthStore } from '@/stores/auth'
 import { useCan } from '@/lib/role'
+import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 
 const navItems = [
@@ -88,11 +89,26 @@ const LogoutIcon = (
 )
 
 export function Sidebar() {
-  const { clubName, leagueId, clubLogoUrl } = useClubStore()
+  const { clubId, clubName, leagueId, clubLogoUrl } = useClubStore()
   const { signOut } = useAuthStore()
   const navigate = useNavigate()
   const can = useCan()
   const [changeOpen, setChangeOpen] = useState(false)
+
+  // First-run nudge: a CFO whose workspace has no squad yet is pointed at the
+  // Workspace switcher to pick a club (which pre-fills the squad). Hides itself
+  // once a squad exists, or when the user dismisses it.
+  const [squadEmpty, setSquadEmpty] = useState<boolean | null>(null)
+  const [nudgeDismissed, setNudgeDismissed] = useState(false)
+  useEffect(() => {
+    if (!clubId || !can.switchLeague) { setSquadEmpty(null); return }
+    let cancelled = false
+    api.roster.list()
+      .then((r) => { if (!cancelled) setSquadEmpty(r.players.length === 0) })
+      .catch(() => { if (!cancelled) setSquadEmpty(false) })
+    return () => { cancelled = true }
+  }, [clubId, can.switchLeague])
+  const showClubNudge = squadEmpty === true && can.switchLeague && !nudgeDismissed && !changeOpen
 
   const visibleNavItems = navItems.filter((item) => {
     // PL-only items are hidden for non-PL clubs (the API also enforces this)
@@ -184,13 +200,58 @@ export function Sidebar() {
       </nav>
 
       {/* Workspace + sign out */}
-      <div className="px-5 py-4 border-t border-slate-100">
+      <div className="relative px-5 py-4 border-t border-slate-100">
+        {/* First-run coachmark — points down at the workspace switcher. */}
+        <AnimatePresence>
+          {showClubNudge && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 6 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              className="absolute left-4 right-4 bottom-full mb-2 z-20"
+            >
+              <div className="relative rounded-xl bg-violet-600 text-white shadow-lg shadow-violet-600/25 p-3.5">
+                <button
+                  onClick={() => { setNudgeDismissed(true) }}
+                  aria-label="Dismiss"
+                  className="absolute top-2 right-2 text-white/60 hover:text-white transition-colors"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+                <div className="flex items-center gap-1.5 text-[12px] font-semibold">
+                  <span aria-hidden>👋</span> Start here
+                </div>
+                <p className="mt-1 text-[12px] leading-snug text-violet-100 pr-3">
+                  Pick your club to instantly pre-fill the full squad, contracts and head coach.
+                </p>
+                <button
+                  onClick={() => { setNudgeDismissed(true); navigate('/onboarding') }}
+                  className="mt-2.5 inline-flex items-center gap-1 text-[12px] font-semibold text-white bg-white/15 hover:bg-white/25 rounded-lg px-2.5 py-1.5 transition-colors"
+                >
+                  Choose a club
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12h14" /><path d="M13 6l6 6-6 6" />
+                  </svg>
+                </button>
+                {/* Arrow pointing down to the workspace switcher */}
+                <span className="absolute -bottom-1.5 left-6 w-3 h-3 rotate-45 bg-violet-600" />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <div className="meta-label mb-2">Workspace</div>
         {can.switchLeague ? (
           <button
             onClick={() => setChangeOpen(true)}
             title="Change club"
-            className="group flex w-full items-center gap-2.5 mb-3 -mx-1 px-1 py-1 rounded-lg text-left hover:bg-slate-50 transition-colors"
+            className={cn(
+              'group flex w-full items-center gap-2.5 mb-3 -mx-1 px-1 py-1 rounded-lg text-left hover:bg-slate-50 transition-colors',
+              showClubNudge && 'ring-2 ring-violet-400 ring-offset-1 bg-violet-50/60',
+            )}
           >
             {clubAvatar}
             <div className="min-w-0 flex-1">

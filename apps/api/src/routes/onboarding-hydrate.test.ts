@@ -153,6 +153,31 @@ describe('buildHydratedRoster (synthetic)', () => {
     assert.equal(h.manager!['name'], 'Enzo Maresca')
   })
 
+  it('creates the manager with NO contract when Transfermarkt has no expiry', () => {
+    // A head coach whose Coaching Staff row showed " - " for "Contract expires":
+    // the manager should still be created (so the name shows), but we must NOT
+    // fabricate a contract window — managerContract stays null for the CFO.
+    const noEndItems: TemplateRosterItemRow[] = [
+      {
+        name: 'Pep Guardiola',
+        position: null,
+        squad_number: null,
+        nationality: 'Spain',
+        is_manager: true,
+        estimated_transfer_fee: 0,
+        contract_start: '2016-07-01T00:00:00',
+        contract_end: null,
+        date_of_birth: null,
+      },
+    ]
+    const h = buildHydratedRoster({
+      clubId: 'club-1', templateName: 'Man City', templateLeague: 'PREMIER_LEAGUE', items: noEndItems, now: new Date('2026-05-30T00:00:00Z'), newId: seqIds(),
+    })
+    assert.ok(h.manager)
+    assert.equal(h.manager!['name'], 'Pep Guardiola')
+    assert.equal(h.managerContract, null)
+  })
+
   it('forces every wage to 0 and zeroes agent fees', () => {
     const h = buildHydratedRoster({
       clubId: 'c', templateName: 'X FC', templateLeague: 'CHAMPIONSHIP', items, now: new Date(),

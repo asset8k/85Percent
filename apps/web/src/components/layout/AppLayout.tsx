@@ -38,7 +38,7 @@ function initialsOf(name: string): string {
 }
 
 export function AppLayout() {
-  const { clubName, financials, scenarios, setScenarios } = useClubStore()
+  const { clubName, financials, scenarios, scenariosLoaded, setScenarios, setScenariosLoaded } = useClubStore()
   const seasonStartYear = useSeasonStore((s) => s.startYear)
   const location = useLocation()
 
@@ -59,21 +59,25 @@ export function AppLayout() {
   useEffect(() => {
     if (!financials) return
     let cancelled = false
+    // Re-gate the SCR pill / Dashboard projections until this (re)load completes,
+    // so they don't briefly show a pre-scenario number that then jumps.
+    setScenariosLoaded(false)
 
     async function load() {
       try {
         const list = await api.scenarios.list(1, 100)
         // For Active Baseline math we need each scenario's actions — fetch in parallel.
         const details = await Promise.all(list.scenarios.map((s) => api.scenarios.get(s.id)))
-        if (!cancelled) setScenarios(details)
+        if (!cancelled) setScenarios(details) // also flips scenariosLoaded → true
       } catch {
-        // Silent — Dashboard will simply show baseline without scenario deltas
+        // Silent — proceed with whatever we have rather than holding forever.
+        if (!cancelled) setScenariosLoaded(true)
       }
     }
 
     load()
     return () => { cancelled = true }
-  }, [financials, setScenarios])
+  }, [financials, setScenarios, setScenariosLoaded])
 
   const baseline = useMemo(() => {
     if (!financials) return null
@@ -100,7 +104,12 @@ export function AppLayout() {
             <span className="capitalize">{pageTitle}</span>
           </div>
 
-          {scrPct !== null && financials && baseline ? (
+          {financials && !scenariosLoaded ? (
+            // Financials are in, but the included scenarios that feed the Active
+            // Baseline are still loading — show a placeholder rather than a number
+            // that would jump once they land.
+            <SCRLoadingPill />
+          ) : scrPct !== null && financials && baseline ? (
             <SCRBadgePill
               scrPct={scrPct}
               scrStatus={scrStatus}
@@ -199,6 +208,20 @@ interface SCRBadgePillProps {
   financials: ClubFinancialsResponse
   baseline: ActiveBaseline
   scenarios: ScenarioDetail[]
+}
+
+// Placeholder shown in the TopBar SCR slot while the included scenarios that
+// feed the Active Baseline are still loading. Mirrors the pill's shape so the
+// header doesn't reflow when the real figure lands.
+function SCRLoadingPill() {
+  return (
+    <div className="flex items-center gap-3 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-200 whitespace-nowrap">
+      <span className="meta-label text-slate-500">Current SCR</span>
+      <span className="h-3.5 w-12 rounded bg-slate-200 animate-pulse" />
+      <span className="w-px h-3.5 bg-slate-200" />
+      <span className="h-3.5 w-16 rounded bg-slate-200 animate-pulse" />
+    </div>
+  )
 }
 
 function SCRBadgePill({

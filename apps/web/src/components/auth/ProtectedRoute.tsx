@@ -37,6 +37,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
           leagueId: null,
           financials: null,
           scenarios: [],
+          scenariosLoaded: false,
         })
         useNotificationsStore.getState().reset()
       }

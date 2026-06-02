@@ -167,9 +167,12 @@ export async function onboardingRoutes(app: FastifyInstance) {
       }
 
       // 5. Manager (best-effort — most templates won't have one). Only when the
-      //    club has no active manager already.
+      //    club has no active manager already. The contract phase is optional:
+      //    Transfermarkt frequently lists no contract-expiry for a head coach, in
+      //    which case we create the manager with no contract (the CFO fills the
+      //    dates in) rather than fabricating a wrong expiry.
       let managerCreated = false
-      if (hydrated.manager && hydrated.managerContract) {
+      if (hydrated.manager) {
         const { data: existingMgr } = await supabase
           .from('managers')
           .select('id')
@@ -181,10 +184,12 @@ export async function onboardingRoutes(app: FastifyInstance) {
           const { error: mErr } = await supabase.from('managers').insert(hydrated.manager)
           if (mErr) throw mErr
 
-          const { error: mcErr } = await supabase.from('manager_contracts').insert(hydrated.managerContract)
-          if (mcErr) {
-            await supabase.from('managers').delete().eq('id', hydrated.manager['id'] as string)
-            throw mcErr
+          if (hydrated.managerContract) {
+            const { error: mcErr } = await supabase.from('manager_contracts').insert(hydrated.managerContract)
+            if (mcErr) {
+              await supabase.from('managers').delete().eq('id', hydrated.manager['id'] as string)
+              throw mcErr
+            }
           }
           managerCreated = true
         }
