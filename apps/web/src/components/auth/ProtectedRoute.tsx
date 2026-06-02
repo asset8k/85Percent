@@ -63,14 +63,21 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   // Financials are season-scoped: (re)load them whenever the club is known or the
   // active season changes. A season with no configured row resolves to null, and
   // the Dashboard renders its "set up your financials" empty-state for it.
+  //
+  // Keyed on the user id, NOT the whole `session` object: Supabase fires several
+  // auth events on a page load (INITIAL_SESSION, SIGNED_IN, TOKEN_REFRESHED),
+  // each handing us a fresh session reference. Depending on `session` would
+  // refetch financials on every one of them, churning the store and flashing the
+  // TopBar SCR pill. The user id is stable across those events.
+  const userId = session?.user?.id ?? null
   useEffect(() => {
-    if (!session || !clubId) return
+    if (!userId || !clubId) return
     let cancelled = false
     api.club.getFinancials(seasonKey(seasonStartYear))
       .then((f) => { if (!cancelled) setFinancials(f) })
       .catch(() => { if (!cancelled) setFinancials(null) })
     return () => { cancelled = true }
-  }, [session, clubId, seasonStartYear, setFinancials])
+  }, [userId, clubId, seasonStartYear, setFinancials])
 
   // Still waiting for the initial session check — render nothing rather than
   // bouncing the user to /login prematurely.

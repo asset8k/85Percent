@@ -2338,3 +2338,18 @@ Web + API typecheck clean.
     field requires start + end dates and a positive wage; identity-only edits
     still save without forcing a contract. Feeds SCR exactly like before. Shared
     rebuilt; web + API typecheck clean.
+
+  - **Stable TopBar SCR (no more 3–4 reloads on page load / tab switch):** the
+    pill flickered through its loading state several times on every reload and
+    navigation. Root cause was a cascade of redundant store writes, each minting
+    a fresh object reference that re-fired the AppLayout scenarios effect:
+    (a) Supabase fires several auth events on load (INITIAL_SESSION, SIGNED_IN,
+    TOKEN_REFRESHED) and the financials effect keyed on the whole `session`
+    object, refetching on each; (b) `setFinancials`/`setScenarios` always created
+    new references even for identical data, and RosterPage/ScenariosPage re-set
+    them on every visit. Fixes: ProtectedRoute's financials effect now keys on
+    `session?.user?.id` (stable across auth events); the club store's
+    `setFinancials`/`setScenarios` are identity-stable (no-op when the payload is
+    structurally equal, via a small `sameJSON` guard); and AppLayout only flashes
+    the SCR loading pill on the genuine **first** scenarios load — later refreshes
+    reload silently and let the figure animate in place. Web typecheck clean.

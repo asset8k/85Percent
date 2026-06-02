@@ -1,6 +1,16 @@
 import { create } from 'zustand'
 import type { ClubFinancialsResponse, ScenarioDetail } from '@/lib/api'
 
+// Cheap structural equality for the flat, JSON-safe payloads this store holds
+// (financials = primitives; scenarios = plain detail objects from the API, in a
+// stable server-defined key order). Used to keep object references stable across
+// redundant re-fetches so downstream effects don't re-fire needlessly.
+function sameJSON(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (a == null || b == null) return false
+  return JSON.stringify(a) === JSON.stringify(b)
+}
+
 interface ClubState {
   clubId: string | null
   clubName: string | null
@@ -53,8 +63,23 @@ export const useClubStore = create<ClubState>()((set) => ({
       leagueId,
       clubLogoUrl: logoUrl !== undefined ? logoUrl : state.clubLogoUrl,
     })),
-  setFinancials: (f) => set({ financials: f }),
-  setScenarios: (scenarios) => set({ scenarios, scenariosLoaded: true }),
+  // Identity-stable: if the incoming payload is structurally identical to what
+  // we already hold, keep the existing reference. Several callers re-fetch and
+  // re-set financials on routine refreshes (ProtectedRoute on every auth event,
+  // RosterPage on every visit); without this guard each set churns the object
+  // reference, re-firing the TopBar SCR effect and flashing its loading pill.
+  setFinancials: (f) =>
+    set((state) => (sameJSON(state.financials, f) ? {} : { financials: f })),
+  setScenarios: (scenarios) =>
+    set((state) =>
+      sameJSON(state.scenarios, scenarios)
+        ? // Data unchanged — keep the array reference but still record that the
+          // first load completed, so the SCR pill leaves its loading state.
+          state.scenariosLoaded
+          ? {}
+          : { scenariosLoaded: true }
+        : { scenarios, scenariosLoaded: true },
+    ),
   setScenariosLoaded: (loaded) => set({ scenariosLoaded: loaded }),
   upsertScenario: (scenario) =>
     set((state) => {

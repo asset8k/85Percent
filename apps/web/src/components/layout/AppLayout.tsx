@@ -59,9 +59,12 @@ export function AppLayout() {
   useEffect(() => {
     if (!financials) return
     let cancelled = false
-    // Re-gate the SCR pill / Dashboard projections until this (re)load completes,
-    // so they don't briefly show a pre-scenario number that then jumps.
-    setScenariosLoaded(false)
+    // Only gate the SCR pill (show the loading placeholder) on the genuine FIRST
+    // load, when we have no scenarios yet and a number would otherwise render
+    // pre-scenario and then jump. On later refreshes the scenarios already in the
+    // store give a correct baseline, so we reload silently in the background and
+    // let the figure animate in place — no skeleton flash on every reload.
+    if (!useClubStore.getState().scenariosLoaded) setScenariosLoaded(false)
 
     async function load() {
       try {
