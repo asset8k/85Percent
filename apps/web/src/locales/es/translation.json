@@ -5,6 +5,7 @@
     "scenarios": "Escenarios",
     "leagueTable": "Clasificación",
     "calendar": "Calendario",
+    "rules": "Reglas",
     "financials": "Finanzas",
     "ssrTests": "Pruebas SSR"
   },

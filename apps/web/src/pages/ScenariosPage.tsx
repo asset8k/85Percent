@@ -36,6 +36,8 @@ import type { ScenarioActionInput, ScenarioActionType } from '@headroom/engine'
 import type { PlayerWithContract } from '@headroom/shared'
 import { formatPence } from '@headroom/shared'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
+import { useCopilot } from '@/stores/copilot'
+import { CopilotTriggerButton } from '@/components/ai/CopilotTrigger'
 import type { ScenarioDetail, ScenarioAction, ClubFinancialsResponse } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useCan } from '@/lib/role'
@@ -154,6 +156,8 @@ function actionToDraft(a: ScenarioAction): DraftAction {
 // ---------------------------------------------------------------------------
 export function ScenariosPage() {
   const can = useCan()
+  const { format: fmtMoney } = useWorkspaceCurrency()
+  const openCopilot = useCopilot((s) => s.open)
   const { financials, scenarios, setScenarios, upsertScenario, removeScenario, setScenarioInclusion } = useClubStore()
   const [players, setPlayers] = useState<PlayerWithContract[]>([])
   const [loading, setLoading] = useState(true)
@@ -226,6 +230,37 @@ export function ScenariosPage() {
     const engineActions = draftActions.map(draftToEngine)
     return computeDryRun(liveFinancials, baselineScenarios, engineActions)
   }, [liveFinancials, scenarios, editingScenarioId, draftActions])
+
+  // Phase 4 trigger — serialize the current → projected SCR and the proposed
+  // transactions, then open the Co-pilot for an immediate breakdown.
+  const handleAskCopilotScenario = () => {
+    if (!dryRun) return
+    const zone = (s: 'green' | 'amber' | 'red') =>
+      s === 'green' ? 'Green — compliant' : s === 'amber' ? 'Amber — levy zone' : 'Red — points-deduction risk'
+    const transactions = draftActions.map((d, i) => {
+      const e = draftToEngine(d)
+      const t: Record<string, unknown> = { order: i + 1, type: ACTION_LABEL[d.actionType] }
+      if (e.transferFeePence != null) t['transferFee'] = fmtMoney(e.transferFeePence)
+      if (e.contractLengthYears != null) t['contractLength'] = `${e.contractLengthYears} yrs`
+      if (e.annualWagePence != null) t['annualWage'] = fmtMoney(e.annualWagePence)
+      if (e.agentFeePence != null) t['agentFee'] = fmtMoney(e.agentFeePence)
+      if (e.saleProceedsPence != null) t['saleProceeds'] = fmtMoney(e.saleProceedsPence)
+      if (e.playerBookValuePence != null) t['bookValueOfSale'] = fmtMoney(e.playerBookValuePence)
+      if (e.loanFeeReceivedPence != null) t['loanFeeReceived'] = fmtMoney(e.loanFeeReceivedPence)
+      if (e.loanLengthYears != null) t['loanLength'] = `${e.loanLengthYears} yrs`
+      return t
+    })
+    openCopilot({
+      module: 'Scenarios',
+      subject: draftName.trim() || 'Draft plan',
+      data: {
+        currentSCR: `${(dryRun.before.ratio * 100).toFixed(1)}%`,
+        projectedSCR: `${(dryRun.after.ratio * 100).toFixed(1)}%`,
+        projectedZone: zone(dryRun.after.status),
+        proposedTransactions: transactions,
+      },
+    })
+  }
 
   const activeBaseline = useMemo(
     () => liveFinancials ? computeActiveBaseline(liveFinancials, scenarios) : null,
@@ -466,7 +501,10 @@ export function ScenariosPage() {
                   </p>
                 </div>
               </div>
-              <ActionAdder onAdd={handleAddAction} />
+              <div className="flex items-center gap-2">
+                {dryRun && <CopilotTriggerButton onClick={handleAskCopilotScenario} />}
+                <ActionAdder onAdd={handleAddAction} />
+              </div>
             </div>
 
             {draftActions.length === 0 ? (

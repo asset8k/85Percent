@@ -8,6 +8,7 @@ import { RosterPage } from '@/pages/RosterPage'
 import { ScenariosPage } from '@/pages/ScenariosPage'
 import { SSRPage } from '@/pages/SSRPage'
 import { CalendarPage } from '@/pages/CalendarPage'
+import { RulesPage } from '@/pages/RulesPage'
 import { LeagueTablePage } from '@/pages/LeagueTablePage'
 import { ClubSetupPage } from '@/pages/ClubSetupPage'
 import { FinancialsPage } from '@/pages/FinancialsPage'
@@ -34,6 +35,7 @@ export function App() {
           <Route path="/scenarios" element={<ScenariosPage />} />
           <Route path="/ssr" element={<SSRPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
+          <Route path="/rules" element={<RulesPage />} />
           <Route path="/league-table" element={<LeagueTablePage />} />
           <Route path="/financials" element={<FinancialsPage />} />
           <Route path="/setup" element={<ClubSetupPage />} />

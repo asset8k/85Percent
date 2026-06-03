@@ -2652,3 +2652,258 @@ Rest of the app intentionally left in English (no mass string conversion).
 - Settings ▸ Base Workspace Currency and Interface Language now use `<Select>`
   instead of the native `<select>` (fixes the cramped browser arrow/padding).
   Currency options show a £/€/$ glyph; languages show a `<Flag>` (GB/ES/FR/IT).
+
+## Session — Expert Co-pilot (RAG AI assistant) (2026-06-03)
+
+A retrieval-augmented (RAG) AI co-pilot that explains the SCR regulations and the
+engine's already-computed figures, grounded strictly on the Nov 2025 Premier
+League financial-system explainer. **Hard rule kept throughout: the LLM never
+does arithmetic** — it reads serialized engine output and explains it; all maths
+stays in `@headroom/engine`.
+
+### Provider-abstraction decision (Phase 2 × Phase 5)
+The spec asked for both a hand-rolled `LLMService`/`AnthropicAdapter` seam AND the
+Vercel AI SDK. Reconciled by implementing the `LLMService` interface *powered by*
+the AI SDK — the seam abstracts the provider choice (swap adapter → Gemini/GPT in
+one line), the AI SDK abstracts the wire protocol. Pinned **AI SDK v4**
+(`ai@4.3.19`, `@ai-sdk/anthropic@1.2.12`) to match the named `ai/react` `useChat`
++ `streamText` + `pipeDataStreamToResponse` surface (v5 moved/renamed these).
+
+### Embeddings decision
+Anthropic has no embeddings endpoint, so retrieval uses **local** sentence
+embeddings — `@xenova/transformers` all-MiniLM-L6-v2 (384-dim) running in the
+Fastify process. No new vendor, no key, no per-call cost; ideal for the one-page
+corpus. `pnpm-workspace.yaml` `allowBuilds` sets `protobufjs`/`sharp` → `false`
+(image-pipeline deps we don't use; onnxruntime-node ships prebuilt) so installs
+exit clean.
+
+### Phase 1 — RAG database (pgvector)
+- `apps/api/prisma/rag.sql` (apply in Supabase SQL editor, like `rls.sql`):
+  `create extension vector`; `documents(id, content, embedding vector(384),
+  source_url, created_at)`; HNSW cosine index; `match_documents(query_embedding,
+  match_count)` SQL RPC returning top-k by cosine similarity; RLS enabled with no
+  client policy (service-role only, like the template tables).
+- `apps/api/src/lib/embeddings.ts` — lazy singleton `embedText`/`embedMany`
+  (mean-pooled, normalised, 384-dim) used by **both** ingest and query time.
+- `apps/api/src/scripts/ingest-knowledge-base.ts` (`pnpm --filter @headroom/api
+  ingest:kb`) — fetches the source URL, strips HTML→text, paragraph-chunks with
+  overlap, embeds, and refreshes the `documents` rows for that source_url
+  (idempotent; embeds first so a failure never half-wipes the table).
+
+### Phase 2 — LLM abstraction (`apps/api/src/services/ai/`)
+- `types.ts` — `LLMService` / `StreamChatParams` / `LLMStream` (provider-agnostic).
+- `system-prompt.ts` — `buildSystemPrompt(passages)` with the mandated guardrails
+  verbatim: co-pilot **not** a legal advisor; references the Nov 2025 PL explainer;
+  tells the user to verify against the unpublished official 2026/27 Handbook;
+  answer strictly from the retrieved passages; treat serialized engine numbers as
+  authoritative and never recompute.
+- `anthropic-adapter.ts` — `AnthropicAdapter implements LLMService` via
+  `createAnthropic` + `streamText` (model `ANTHROPIC_MODEL`, default
+  `claude-sonnet-4-6`; key `ANTHROPIC_API_KEY`, server-side only).
+- `knowledge-source.ts` — single source-of-truth URL/label shared by ingest +
+  prompt. `index.ts` exposes the `llm` singleton.
+
+### Phase 5 backend — `apps/api/src/routes/chat.ts` (`POST /chat`, auth'd)
+Embed the latest user turn → `match_documents` RPC (top-5) → inject passages into
+the system prompt → `llm.streamChat(...).pipeToResponse(reply.raw)` after
+`reply.hijack()`. Retrieval failure (e.g. `rag.sql` not yet applied) logs and
+proceeds with no passages rather than 500-ing. Rate-limited 20/min. Registered in
+`server.ts`. `.env.example` gains `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL`.
+
+### Phase 3 — Chat UI (`apps/web`)
+- `lib/copilotContext.ts` — shared `CONTEXT_PREFIX` contract + `buildContextInjection`
+  / `parseContextLabel`, and the public source URL/label (mirrors the API const).
+- `stores/copilot.ts` — zustand `open(context?)` / `close` / `consumeInjection`
+  (one-shot, StrictMode-safe).
+- `components/ai/CopilotChat.tsx` — right-hand sliding drawer (framer-motion) built
+  from UI-Kit primitives (Button/Input + inline SVG icons). `useChat` from
+  `ai/react` → `/api/chat` with an auth-injecting `fetch` (fresh Supabase bearer
+  per call). Streams tokens live; every assistant turn carries a **"Source" chip**
+  linking to the PL explainer; context-injection messages render as a compact
+  "Analyzing …" chip (not raw JSON). Header carries the "not legal advice"
+  disclaimer. `CopilotLauncher` floating button. Mounted once in `AppLayout`.
+
+### Phase 4 — Context-aware triggers (serialize → `append`)
+A reusable `components/ai/CopilotTrigger.tsx` (button + icon variants). On click,
+the page serializes engine output into JSON and `open()`s the drawer, which
+silently `append`s it for an immediate breakdown:
+- **Dashboard** — button by the SCR hero/gauge: revenue, squad costs, current SCR
+  %, zone, headroom to Green, thresholds, included-scenario count.
+- **Roster** — sparkle icon on each squad row: player name, position, annual wage,
+  remaining contract, current book value, annual amortisation, total squad costs.
+- **Scenarios** — button next to the Plan Actions: current SCR %, projected SCR %
+  + zone, and the proposed transactions (type + money fields per action).
+
+### Verification
+- `pnpm typecheck` — all 4 packages clean. `vite build` green (bundle +~0.4 MB for
+  the AI SDK). Engine/shared untouched. Confirmed `ai@4.3.19` exposes `ai/react`
+  `useChat` + `pipeDataStreamToResponse`.
+- **Not runnable end-to-end without setup** (no live keys here): the user must
+  (1) apply `apps/api/prisma/rag.sql` in Supabase, (2) set `ANTHROPIC_API_KEY` in
+  `apps/api/.env`, (3) run `pnpm --filter @headroom/api ingest:kb` to populate the
+  knowledge base. First chat/ingest downloads the ~90 MB MiniLM model once.
+
+### Notes / deployment caveats
+- In dev the web proxies `/api` → Fastify same-origin, so the hijacked stream needs
+  no CORS. In a **cross-origin prod** split, `reply.hijack()` skips Fastify's
+  onSend hooks (helmet/CORS), so put web + api same-origin or add the CORS header
+  to `reply.raw` before piping.
+- Branch not committed — awaiting user instruction.
+
+### Setup applied to live env (this session)
+- `ANTHROPIC_API_KEY` + `ANTHROPIC_MODEL=claude-sonnet-4-6` added to `apps/api/.env`
+  (gitignored). Model is **Sonnet 4.6** per request.
+- `prisma/rag.sql` applied to Supabase (pgvector + `documents` + `match_documents` + RLS).
+- `ingest:kb` run → **44 passages** embedded from the live PL explainer and stored.
+- `@xenova/transformers` eagerly imports **sharp** at load, so `pnpm-workspace.yaml`
+  `allowBuilds` now sets `sharp: true` (its native binary must build); `protobufjs: false`.
+  Symptom if skipped: API crashes on boot → Vite proxy returns 500 for all `/api/*`.
+
+### Bugfix — Dashboard blank-on-load (hooks-order violation)
+The Phase-4 trigger declared `const openCopilot = useCopilot(...)` **below** the
+Dashboard's early returns (loading / no-financials). When the loader cleared, the
+component called one more hook than the prior render → React "rendered more hooks
+than previous render" → blank screen. Moved the hook to the top of the component
+(above all early returns). Roster/Scenarios already had theirs at the top.
+
+## Session — Compliance Analyst UX overhaul (2026-06-03)
+
+Reworked the AI chat (renamed **Co-pilot → Compliance Analyst** everywhere
+user-facing; internal `copilot` store/file names kept). Backend unchanged except
+the system-prompt self-identification.
+
+1. **Persisted multi-session history.** `stores/copilot.ts` rewritten with zustand
+   `persist` (localStorage `headroom-analyst-sessions`): `sessions[]` (id, title,
+   messages, timestamps) + `activeId`. Auto-titles a chat from its first user
+   message (or its context label, e.g. "Dashboard · Haaland"). New/switch/delete/
+   rename. `open(context)` calls `ensureActiveSession` and **continues** the active
+   session (never silently forks) — satisfies "AI analysis continues the session".
+2. **Fullscreen mode + session switcher.** `CopilotChat` now renders either a
+   right **drawer** (default, `max-w-lg`) or a **fullscreen** overlay with a left
+   **SessionSidebar** (new chat, history list, switch, hover-delete). Header
+   expand/collapse toggles `isFullscreen`.
+3. **useChat ↔ store sync.** One `useChat` instance; a LOAD effect (`[activeId]`
+   only, reads sessions via `getState()` to avoid clobber loops) calls `setMessages`
+   on session switch; a SAVE effect persists on each message boundary + stream end
+   (skips per-token writes via a count/sig guard). Injection is appended via a
+   ref-guarded, deferred `append` (StrictMode-safe; fires after the load flush).
+4. **Markdown.** New `components/ai/Markdown.tsx` — `react-markdown` + `remark-gfm`
+   with custom UI-Kit-styled renderers (bold, lists, **tables**, code, links,
+   blockquote). Replaces the old plain-text bubble.
+5. **Scroll fix.** `MessageList` owns its scroll: instant `scrollTop = scrollHeight`
+   in `useLayoutEffect`, and only auto-sticks when the user is within 80px of the
+   bottom (scroll up to read freely). Removes the laggy smooth-scroll-per-token.
+6. **Modern UI to the kit.** Gradient violet Analyst avatars, rounded-2xl bubbles
+   (assistant card + violet user bubble), auto-grow textarea composer with
+   Enter-to-send / Shift+Enter newline, stop button while streaming, example-prompt
+   empty state, per-answer Source chip, framer mount fades.
+7. **Triggers.** `CopilotTriggerButton` is now a prominent gradient "Ask the
+   Analyst" pill (Dashboard SCR card + Scenarios Plan Actions). Roster icon is
+   **hover-reveal** per row (`group-hover` opacity) so it isn't visually duplicated
+   across every player — fixes the "button copied a million times" complaint.
+
+Deps: `react-markdown@9`, `remark-gfm@4` (web). Verification: `pnpm typecheck`
+all 6 tasks clean; `vite build` green (+~170 KB gzip for markdown). Not committed.
+
+## Session — Analyst: backend history, Rules tab, button polish (2026-06-03)
+
+Four follow-up fixes.
+
+1. **Real backend chat history** (replaces the localStorage v1). New
+   `apps/api/prisma/chat.sql` — `chat_sessions` + `chat_messages` (ids are TEXT to
+   match the Prisma `String` schema and the text-returning `current_club_id()`;
+   an earlier `uuid` draft failed the RLS `uuid = text` comparison), club-scoped
+   RLS backstop. Applied to live DB. `routes/chat.ts` gained session CRUD
+   (`GET/PATCH/DELETE /chat/sessions[/:id]`, per-user) and **persist-on-finish**:
+   the turn is saved in the AI SDK `onFinish` (new optional `onFinish` on
+   `StreamChatParams` → adapter → only the new user msg + assistant reply are
+   stored; the client sends full history but prior turns are already saved).
+   `lib/api.ts` got an `api.chat.*` namespace; `stores/copilot.ts` rewritten to be
+   API-backed (session metadata from `/chat/sessions`, messages fetched on switch,
+   new chats are local until first send, `refreshSessions()` on `onFinish`). The
+   client sends `sessionId` in each `useChat` request `body`. Verified the routes
+   return 401 (registered) and the tables persist.
+2. **Scenarios trigger height** — `CopilotTriggerButton` now wraps the UI-Kit
+   `<Button variant="outline">`, so it's the same height (h-9 default) as the
+   adjacent ActionAdder and every other app button.
+3. **Dashboard trigger** — same UI-Kit button at `size="sm"`, sitting cleanly
+   under the status badge instead of the bespoke gradient pill.
+4. **Rules tab** (`/rules`, between Calendar and Financials). New
+   `pages/RulesPage.tsx` — Headroom's **own plain-English summary** of the SCR/SSR
+   framework (formula, inclusions, three zones + allowance, sanctions, the 3 PL
+   SSR tests, Championship specifics, assessment calendar), NOT a reproduction of
+   any third-party article; links to the official PL statement at top + bottom.
+   Wired route + Sidebar nav (book icon) + `routeLabel` + `nav.rules` i18n (en/es/
+   fr/it). The Analyst's **Source chip now deep-links in-app to `/rules`** (closes
+   the chat, navigates) instead of the external site.
+
+Verification: `pnpm typecheck` 6/6 clean; `vite build` green; `chat.sql` applied +
+session routes 401-gated. Not committed.
+
+## Session — Analyst: professional prompts, auto-compaction, tests (2026-06-03)
+
+### 1. Prompt quality (all tabs)
+- `services/ai/system-prompt.ts` rewritten into a professional, structured system
+  prompt: what Headroom is, the SCR/SSR domain framing, who the user is, how to
+  read each module's injected data (Dashboard / Roster / Scenarios), the analyst
+  role/task, and the hard guardrails (not legal advice; source = Nov 2025 PL
+  explainer; verify the unpublished 2026/27 Handbook; **never recompute** engine
+  numbers; answer from retrieved passages). Accepts an optional `summary` (for
+  compaction).
+- `lib/copilotContext.ts` per-tab injections rewritten with a tailored analysis
+  brief per module (Dashboard = standing/headroom/levers; Roster = one player's
+  SCR contribution + sell/extend/release; Scenarios = current→projected + watch-
+  outs), so each trigger produces a focused, decision-grade answer.
+
+### 2. Seamless auto-compaction + visible context bar
+- **Shared pure logic** `packages/shared/src/chatContext.ts`: `estimateTokens`,
+  `estimateContextTokens`, `contextUsageRatio`, `shouldCompact`, `planCompaction`,
+  with conservative constants — `CONTEXT_TOKEN_LIMIT=3000`, trigger at 80%,
+  `KEEP_RECENT_TURNS=4`, `MIN_TURNS_TO_COMPACT=7` (a count guard so a couple of
+  big messages can't thrash). Used by **both** client and API.
+- **Backend** `services/ai/history.ts` (`deriveTitle`, `buildSummaryPrompt` — keeps
+  acronyms verbatim) + `LLMService.complete()` (non-streaming `generateText` in
+  the Anthropic adapter). New `POST /chat/compact`: reads the session, plans the
+  split, summarises the older turns (merging any prior summary) via the LLM,
+  stores the summary on `chat_sessions.summary` (new column), **deletes** the
+  summarised rows, returns `{ summary, messages: kept }`. `POST /chat` now folds
+  `body.summary` into the system prompt; `GET /chat/sessions/:id` returns it.
+- **Frontend** `stores/copilot.ts` gains `activeSummary`; `CopilotChat` runs an
+  idle-only auto-compaction effect (no manual action), sends `summary` in every
+  request body, restores it on session load, and renders a **`ContextBar`**
+  (violet→amber→red fill, % + "Compacting…" + "compacted") above the composer,
+  plus an "Earlier conversation summarized" divider. The user never compacts
+  manually but sees the bar fill and the compaction happen.
+
+### 3. Tests + verification
+- `apps/api/src/scripts/chat-context.test.ts` (token math, usage ratio,
+  shouldCompact count+token thresholds, planCompaction order/keep, no-thrash
+  property) and `chat-prompt.test.ts` (system prompt carries identity/domain/
+  modules/guardrails/source/summary; deriveTitle plain+context cases;
+  buildSummaryPrompt labelling + prior-summary merge). **`test:scripts` 54/54.**
+- `pnpm typecheck` 6/6 clean; `vite build` green; `/chat/compact` + session routes
+  401-gated on boot; `chat.sql` summary column applied to live DB; live one-shot
+  check confirmed `llm.complete` summarises correctly. Not committed.
+
+### Follow-up — context ring + meaningful drop
+- **Circular ring** replaces the horizontal bar (`ContextRing` — an SVG gauge that
+  fills like the Claude Code / Cursor context indicator; violet→amber→red, pulses
+  while compacting, shows the %).
+- **Compaction now drops the ring close to empty** (was 100→79%). Root cause: with
+  a 3000-token budget and 4 kept turns, the kept messages alone were ~66%. Fixed by
+  raising `CONTEXT_TOKEN_LIMIT` 3000→**8000** and lowering `KEEP_RECENT_TURNS`
+  4→**2** (the summary carries the rest), so a freshly-compacted chat (small summary
+  + last exchange) reads ~10–20%. `MIN_TURNS_TO_COMPACT` = 5, trigger 0.75.
+- New test asserts post-compaction usage `< 0.35` and `< before/2`. **test:scripts
+  55/55**, typecheck 6/6, build green.
+
+### Follow-up — context ring redesign
+- The ring is now **text-free and lives inside the composer**, just left of the
+  send button (`ContextRing` moved into `Composer`; the standalone row removed).
+  Hovering shows a clean slate-900 tooltip ("Chat context · N%" / "Compacting
+  context…" / "· compacted"). On-brand with the UI Kit (Inter, violet, rounded).
+- Confirmed (product decision) that compaction floors at ~**19%**, not 0: the
+  remaining context is the running summary (~3%) plus the last exchange kept
+  verbatim (~16%) — both are real tokens sent to the model. Kept
+  `KEEP_RECENT_TURNS = 2` (continuity over a literal-zero reset). typecheck clean,
+  build green.

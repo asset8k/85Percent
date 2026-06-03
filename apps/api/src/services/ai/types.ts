@@ -1,0 +1,57 @@
+/**
+ * LLMService — provider-agnostic inference seam.
+ *
+ * Today we run Anthropic (Claude) via the Vercel AI SDK. This interface is the
+ * swap point: to move to Gemini/GPT later you implement a new adapter (e.g.
+ * GoogleAdapter / OpenAIAdapter) against the SAME contract and change one line
+ * in index.ts — no route or UI changes. The AI SDK already abstracts the wire
+ * protocol; this interface abstracts the *provider choice* on top of it.
+ *
+ * Hard rule (mirrors services/ai/index.ts): the LLM never does arithmetic. It
+ * reads serialized engine output and explains it in language. All SCR/FFP maths
+ * stays in @headroom/engine.
+ */
+
+import type { ServerResponse } from 'node:http'
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface StreamChatParams {
+  /** Fully-assembled system prompt (guardrails + retrieved RAG context). */
+  system: string
+  /** Conversation so far, oldest first. */
+  messages: ChatMessage[]
+  /**
+   * Called server-side once the stream completes, with the full assistant text.
+   * Used to persist the turn to chat history. Runs independently of the client
+   * stream; failures here must not break the response.
+   */
+  onFinish?: (fullText: string) => void | Promise<void>
+}
+
+/**
+ * A handle to an in-flight streamed completion. `pipeToResponse` writes the
+ * stream to a Node response using the AI SDK data-stream protocol that the
+ * frontend `useChat` hook consumes (Server-Sent-Events style framing).
+ */
+export interface LLMStream {
+  pipeToResponse(res: ServerResponse): void
+}
+
+export interface CompleteParams {
+  /** System instructions. */
+  system: string
+  /** Single user message. */
+  user: string
+  /** Output cap (default left to the adapter). */
+  maxTokens?: number
+}
+
+export interface LLMService {
+  streamChat(params: StreamChatParams): LLMStream
+  /** Non-streaming completion — used for context compaction (summarisation). */
+  complete(params: CompleteParams): Promise<string>
+}

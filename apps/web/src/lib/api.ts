@@ -671,4 +671,51 @@ export const api = {
       return apiFetch<AuditListResponse>('/audit' + (qs ? '?' + qs : ''))
     },
   },
+  chat: {
+    // Compliance Analyst history (per user). Streaming inference itself is
+    // handled by the `useChat` hook talking to /api/chat directly.
+    sessions: () => apiFetch<{ sessions: ChatSessionMeta[] }>('/chat/sessions'),
+    /** Returns null on 404 — a not-yet-persisted (new) session has no rows. */
+    session: async (id: string): Promise<ChatSessionDetail | null> => {
+      try {
+        return await apiFetch<ChatSessionDetail>(`/chat/sessions/${id}`)
+      } catch {
+        return null
+      }
+    },
+    rename: (id: string, title: string) =>
+      apiFetch<{ ok: boolean }>(`/chat/sessions/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ title }),
+      }),
+    remove: (id: string) =>
+      apiFetch<{ ok: boolean }>(`/chat/sessions/${id}`, { method: 'DELETE' }),
+    /** Fold older turns into the session's summary; returns the compacted state. */
+    compact: (sessionId: string) =>
+      apiFetch<ChatCompactResponse>('/chat/compact', {
+        method: 'POST',
+        body: JSON.stringify({ sessionId }),
+      }),
+  },
+}
+
+export interface ChatSessionMeta {
+  id: string
+  title: string
+  updatedAt: string
+}
+export interface ChatSessionMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+}
+export interface ChatSessionDetail {
+  id: string
+  title: string
+  summary: string | null
+  messages: ChatSessionMessage[]
+}
+export interface ChatCompactResponse {
+  summary: string | null
+  messages: ChatSessionMessage[]
 }

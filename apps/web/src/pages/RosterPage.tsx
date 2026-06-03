@@ -33,6 +33,8 @@ import { exportAmortisationXLSX } from '@/lib/exports/amortisationXlsx'
 import { findCountry } from '@/lib/countries'
 import { Flag } from '@/components/ui/flag'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
+import { useCopilot } from '@/stores/copilot'
+import { CopilotTriggerIcon } from '@/components/ai/CopilotTrigger'
 import type {
   PlayerWithContract,
   PlayerPosition,
@@ -62,6 +64,34 @@ export function RosterPage() {
   const can = useCan()
   const navigate = useNavigate()
   const { clubName, financials, setFinancials } = useClubStore()
+  const { format: fmtMoney } = useWorkspaceCurrency()
+  const openCopilot = useCopilot((s) => s.open)
+
+  // Phase 4 trigger — serialize one player's engine figures and open the Co-pilot.
+  const handleAskCopilotPlayer = (p: PlayerWithContract) => {
+    const c = p.contract
+    if (!c) return
+    const feePence = c.carriedBookValuePence ?? c.transferFeePence
+    const months = p.monthsToExpiry
+    openCopilot({
+      module: 'Roster',
+      subject: p.name,
+      data: {
+        playerName: p.name,
+        position: p.position ?? '—',
+        annualWage: fmtMoney(c.annualWagePence),
+        remainingContract:
+          months == null
+            ? '—'
+            : months < 0
+              ? 'Expired'
+              : `${months} months (~${(months / 12).toFixed(1)} yrs) to ${formatDate(c.endDate)}`,
+        currentBookValue: fmtMoney(c.bookValuePence),
+        annualAmortisation: fmtMoney(annualAmortisation(feePence, c.contractLengthYears)),
+        totalSquadCosts: financials ? fmtMoney(financials.currentSquadCosts) : 'n/a',
+      },
+    })
+  }
   const [tab, setTab] = useState<'squad' | 'archived'>('squad')
   const [active, setActive] = useState<PlayerWithContract[]>([])
   const [archived, setArchived] = useState<PlayerWithContract[]>([])
@@ -315,6 +345,7 @@ export function RosterPage() {
               players={filteredActive}
               onRowClick={(p) => setEditPlayer(p)}
               flagZeroWage
+              onAskCopilot={handleAskCopilotPlayer}
             />
           )}
         </>
@@ -416,10 +447,13 @@ function PlayerTable({
   onRequestDelete,
   onConfirmDelete,
   onCancelDelete,
+  onAskCopilot,
 }: {
   players: PlayerWithContract[]
   onRowClick: (p: PlayerWithContract) => void
   archived?: boolean
+  // Phase 4 — per-row "AI Analysis" trigger (squad tab only).
+  onAskCopilot?: (p: PlayerWithContract) => void
   // Highlight £0 wages as validation errors (post-onboarding redout, squad tab).
   flagZeroWage?: boolean
   // Archived-only props — required when `archived` is true and the caller
@@ -497,7 +531,7 @@ function PlayerTable({
               key={p.id}
               onClick={() => onRowClick(p)}
               className={cn(
-                'border-b border-slate-100 last:border-0 transition-colors',
+                'group border-b border-slate-100 last:border-0 transition-colors',
                 !archived && 'hover:bg-violet-50/60 cursor-pointer'
               )}
             >
@@ -513,6 +547,13 @@ function PlayerTable({
                   <span className="ml-2 inline-block text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-100 text-red-700 align-middle">
                     EXPIRED
                   </span>
+                )}
+                {onAskCopilot && !archived && p.contract && (
+                  <CopilotTriggerIcon
+                    onClick={() => onAskCopilot(p)}
+                    title={`Ask the Analyst — ${p.name}`}
+                    className="ml-1.5 align-middle opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100"
+                  />
                 )}
               </td>
               <td className="px-5 py-3.5">

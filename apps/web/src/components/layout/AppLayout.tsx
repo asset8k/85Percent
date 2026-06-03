@@ -12,6 +12,7 @@ import { StatusBadge } from '@/components/ui/badge'
 import { AnimatedNumber } from '@/components/ui/animated-number'
 import { ProgressBar } from '@/components/ui/progress-bar'
 import { ToastHost } from '@/components/ui/toast'
+import { CopilotChat, CopilotLauncher } from '@/components/ai/CopilotChat'
 import { api, type ClubFinancialsResponse, type ScenarioDetail } from '@/lib/api'
 import { computeActiveBaseline, type ActiveBaseline } from '@/lib/scr'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
@@ -26,6 +27,7 @@ const routeLabel: Record<string, string> = {
   '/scenarios': 'Scenarios',
   '/league-table': 'League Table',
   '/calendar':  'Calendar',
+  '/rules':     'Rules',
   '/financials':'Financials',
   '/setup':     'Settings',
 }
@@ -100,6 +102,8 @@ export function AppLayout() {
     <div className="min-h-screen flex bg-white text-slate-900">
       <ProgressBar />
       <ToastHost />
+      <CopilotChat />
+      <CopilotLauncher />
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <header className="h-16 sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-200 flex items-center gap-4 px-8">

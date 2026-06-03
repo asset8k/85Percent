@@ -38,6 +38,8 @@ import { findCountry } from '@/lib/countries'
 import { Flag } from '@/components/ui/flag'
 import { AnimatedNumber } from '@/components/ui/animated-number'
 import { cn } from '@/lib/utils'
+import { useCopilot } from '@/stores/copilot'
+import { CopilotTriggerButton } from '@/components/ai/CopilotTrigger'
 
 // Format a pence integer as a pretty symbol string ("£1,234,567") — used by the
 // AnimatedNumber `format` callback so the intermediate frames during the
@@ -54,6 +56,9 @@ export function DashboardPage() {
   const { financials, scenarios, scenariosLoaded, clubName, leagueId, setScenarioInclusion } = useClubStore()
   const can = useCan()
   const { format: fmtMoney, symbol, currency } = useWorkspaceCurrency()
+  // Hook must run unconditionally, before any early return below (loading /
+  // no-financials), or the hook count changes when the loader clears → crash.
+  const openCopilot = useCopilot((s) => s.open)
   const [players, setPlayers] = useState<PlayerWithContract[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -261,6 +266,33 @@ export function DashboardPage() {
     })
   }
 
+  // Phase 4 trigger — serialize the current compliance position (engine output)
+  // and open the Co-pilot for an immediate plain-English breakdown.
+  // (openCopilot hook is declared at the top of the component, above the early
+  // returns — see note there.)
+  const handleAskCopilot = () =>
+    openCopilot({
+      module: 'Dashboard',
+      data: {
+        totalRevenue: fmtMoney(riskRevenuePence),
+        totalSquadCosts: fmtMoney(riskSquadCostsPence),
+        currentSCR: `${currentPct.toFixed(1)}%`,
+        zone:
+          riskStatus === 'green'
+            ? 'Green — compliant'
+            : riskStatus === 'amber'
+              ? 'Amber — levy zone'
+              : 'Red — points-deduction risk',
+        headroomToGreen:
+          riskHeadroomPence >= 0
+            ? fmtMoney(riskHeadroomPence)
+            : `−${fmtMoney(Math.abs(riskHeadroomPence))}`,
+        greenThreshold: fmtMoney(riskThresholds.greenPence),
+        redThreshold: fmtMoney(riskThresholds.redPence),
+        includedScenarios: includedCount,
+      },
+    })
+
   return (
     <div>
       <PageHeader onExport={handleExport} canExport={players.length > 0} />
@@ -276,9 +308,12 @@ export function DashboardPage() {
                 Derived from {players.length} active {players.length === 1 ? 'contract' : 'contracts'}. Includes amortisation + annualised agent fees.
               </p>
             </div>
-            <StatusBadge status={status}>
-              {status === 'green' ? 'Compliant' : status === 'amber' ? 'Levy Zone' : 'Points Risk'}
-            </StatusBadge>
+            <div className="flex flex-col items-end gap-2">
+              <StatusBadge status={status}>
+                {status === 'green' ? 'Compliant' : status === 'amber' ? 'Levy Zone' : 'Points Risk'}
+              </StatusBadge>
+              <CopilotTriggerButton onClick={handleAskCopilot} size="sm" />
+            </div>
           </div>
           <div className="flex items-baseline gap-3">
             <AnimatedNumber

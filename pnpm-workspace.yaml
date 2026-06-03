@@ -7,3 +7,7 @@ allowBuilds:
   core-js: true
   esbuild: true
   prisma: true
+  # @xenova/transformers (Co-pilot embeddings) eagerly imports sharp at load
+  # time, so its native binary must be built even though we only use text.
+  sharp: true
+  protobufjs: false
