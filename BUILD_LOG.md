@@ -2907,3 +2907,177 @@ session routes 401-gated. Not committed.
   verbatim (~16%) — both are real tokens sent to the model. Kept
   `KEEP_RECENT_TURNS = 2` (continuity over a literal-zero reset). typecheck clean,
   build green.
+
+---
+
+## AI credit balance system (Compliance Analyst billing) — 2026-06-04
+
+Hardcoded prepaid USD credit per user, debited per Analyst query at Anthropic
+Sonnet token cost + 10% margin. No payment gateway — top-ups are manual (admin
+DB edit). Deterministic SCR engine remains entirely untouched.
+
+### Phase 1 — schema (`schema.prisma` + migration)
+- `User` gains `aiBalanceUsd Decimal @default(5.00)` (`ai_balance_usd`) and
+  `totalAiTokensUsed Int @default(0)` (`total_ai_tokens_used`).
+- Migration `20260604000001_user_ai_balance/migration.sql` (idempotent, additive):
+  adds the columns as `NUMERIC(10,4)`/`INTEGER`, and defines
+  `deduct_ai_balance(p_user_id text, p_cost numeric, p_tokens int) RETURNS numeric`
+  — an **atomic** debit doing all arithmetic in Postgres NUMERIC, `ROUND(…,4)` and
+  `GREATEST(0, …)` so the balance never drifts (no 4.81999999) or goes negative.
+  Applied to the live DB via `prisma db execute` + `prisma generate`. Verified:
+  all existing users defaulted to $5.00, RPC returns the new balance.
+
+### Phase 2 — pricing utility (`apps/api/src/utils/aiPricing.ts`)
+- `INPUT_PRICE_PER_1M=3.00`, `OUTPUT_PRICE_PER_1M=15.00`, `MARGIN_MULTIPLIER=1.10`.
+- `calculateQueryCost(inputTokens, outputTokens)` → base USD cost × margin, guards
+  negative/NaN as 0, rounds to 6 dp (clean number for the NUMERIC(10,4) column).
+
+### Phase 3 — backend (`POST /api/chat`)
+- **Pre-check**: reads `users.ai_balance_usd`; if `<= 0.01` returns **402** with
+  `"AI balance depleted. Please contact your workspace admin to top up."` before
+  spending a token.
+- **Deduction**: the LLM seam (`services/ai/types.ts`) now passes token usage to
+  `onFinish` (`ChatFinishResult { text, usage{promptTokens, completionTokens} }`);
+  the AnthropicAdapter forwards `event.usage`. The route's `onFinish` persists the
+  turn **and** calls `calculateQueryCost` → `supabase.rpc('deduct_ai_balance', …)`.
+  Best-effort: a debit failure is logged, never breaks the stream.
+- `GET /me` now returns `aiBalanceUsd` (NUMERIC parsed via `Number()`).
+
+### Phase 4 — UI (UI Kit only)
+- **Settings → Profile & Security**: new **AI Usage** `Card` showing the balance
+  (`formatUsd` → "$4.82"), subtext "To top up your balance, please contact Headroom
+  support.", a loading skeleton until `/me` resolves, and a red "Depleted" badge at
+  ≤ $0.01.
+- **Chat drawer**: subtle `Balance: $4.82` footer (left of the disclaimer, amber
+  ≤ $0.50, red ≤ $0.01, "…" while loading). On **402** the `useChat` `fetch`
+  wrapper latches a depleted state → the composer is replaced by a clean red notice
+  and input is blocked until refilled. Balance refetched on open and after each
+  turn. New `formatUsd` helper in `lib/utils.ts` (USD regardless of workspace
+  currency).
+
+### Tests + verification
+- `apps/api/src/scripts/ai-pricing.test.ts` (margin, rounding/float-drift cleanup,
+  output>input, realistic mixed query, negative/NaN guards). **test:scripts 61/61.**
+- web `tsc` + `vite build` green; api `tsc` green; migration applied + RPC verified
+  live. Not committed.
+
+---
+
+## Onboarding — European-expansion league teasers — 2026-06-04
+
+Roadmap teaser on the league-selection step (`OnboardingPage.tsx`): added **La Liga**
+and **Serie A** as a second row, turning the existing `grid-cols-1 sm:grid-cols-2`
+into a clean **2×2** on desktop (no grid changes needed — extra cards wrap).
+- `LeagueMeta` gains `comingSoon?` + a `TeaserLeagueId` ('la-liga' | 'serie-a').
+- Teaser cards render as a **non-clickable `<div>`** (no button semantics, can't be
+  focused/clicked), dimmed with the UI Kit `opacity-60`, logo `grayscale`, and the
+  "Choose this league →" CTA replaced by a muted **🔒 Coming Soon** badge. `onChoose`
+  is only passed to active leagues.
+- Copy: La Liga — "Top flight · LCPD economic controls & individual squad caps";
+  Serie A — "Top flight · FIGC Liquidity Index & structural sustainability checks";
+  both "20 clubs".
+- Added original SVG placeholder wordmarks (`public/leagues/la-liga.svg`,
+  `serie-a.svg`) — not the trademarked official logos (IP-safe for a teaser).
+- New inline `LockIcon`. typecheck clean; rendered + verified the 2×2 muted layout.
+
+### Follow-up — league teaser polish
+- Rebuilt `la-liga.svg` / `serie-a.svg` as circular **crest-style** marks in brand
+  colours (La Liga red #EE2737, Serie A Italian green #009246) — original
+  placeholders, not the trademarked official logos (drop licensed files in at the
+  same paths to swap).
+- Serie A accent bar → green (`from-green-600 to-emerald-700`).
+- Shortened taglines to match Prem/Championship: La Liga "Top flight · LCPD cost
+  controls & squad caps"; Serie A "Top flight · FIGC liquidity & sustainability
+  checks".
+- Removed `grayscale` from the teaser logo so the brand colours (incl. Serie A
+  green) show; kept `opacity-60` for the muted/inactive read. typecheck clean.
+
+### Follow-up — real league logos
+- Replaced the placeholder SVGs with the official La Liga / Serie A logos (user-
+  supplied Transfermarkt CDN URLs), saved as `la-liga.png` / `serie-a.png` —
+  139×181 RGBA, identical format + location + reference pattern as the existing
+  `premier-league.png` / `championship.png`. `logo` paths flipped `.svg` → `.png`;
+  placeholder SVGs removed. Serie A keeps the green accent bar. typecheck clean.
+
+### Follow-up — balance chip redesign
+- Replaced the plain "Balance: $5.00" footer text with a modern, centred
+  **credit chip** (`BalanceChip`): soft pill carrying the Analyst spark mark + the
+  amount, shifting violet → amber (≤ $0.50) → red (≤ $0.01). Loading state is a
+  pulsing dot + "Loading credit…"; hover expands a subtle "credit" label. Blends
+  into the composer rather than reading as raw text. typecheck clean.
+
+### Follow-up — balance chip moved to header
+- Moved the `BalanceChip` from the composer footer up into the chat **header**
+  (left of the New/Fullscreen/Close buttons). The composer footer row is gone, so
+  the input sits flush at the bottom. `balanceUsd` now flows to `Header`, dropped
+  from `Composer`. typecheck clean.
+
+### Follow-up — hard-stop sending at $0 balance
+- Closed every client send path when depleted (backend 402 is the hard guarantee):
+  `submit` (already), `onExample` now returns early + example buttons render
+  `disabled`, and the context-injection effect skips firing when depleted (injection
+  stays pending until topped up). Frontend threshold (≤ $0.01) matches the backend.
+- Balance now refetches on open, after each turn, AND on window focus /
+  visibilitychange — so a manual admin top-up clears the depleted lock without a
+  reopen. `depleted` recomputes false as soon as the balance reads > $0.01.
+- typecheck clean.
+
+---
+
+## Admin panel (separate app) — 2026-06-04
+
+A standalone, server-rendered control panel in `apps/admin/` — separate from the
+platform (own port 4000, own session auth), but talks to the same Supabase project
+via the service-role key. Deployable independently later. Stack chosen for
+"functionality over UI": one Fastify app rendering plain HTML + form posts (no
+build step, no second port). Run: `pnpm --filter @headroom/admin dev`.
+
+### Auth
+- Single admin login from env (`ADMIN_USERNAME` / `ADMIN_PASSWORD`), constant-time
+  compared; success sets a signed httpOnly cookie (`ADMIN_SESSION_SECRET`). Every
+  route except /login is guarded; wrong password → /login?error=1. Fully separate
+  from platform user auth.
+
+### Users (CRUD)
+- List all accounts (email, name, club, access, AI balance, tokens, created).
+- Detail page: edit name/email (email change goes through Supabase auth-admin so
+  auth.users stays in sync; rejects duplicate emails), reset password (auth-admin),
+  delete account (removes chat/scenarios/audit/notifications + users row + auth
+  user; leaves the club).
+- **AI chat balance**: shown per user (red ≤ $0.01); top-up (add USD, via float-safe
+  `admin_topup_balance` RPC) and set-exact.
+
+### Maintenance jobs
+- Trigger the two manual scripts; each run spawns the EXACT api package script
+  (`pnpm --filter @headroom/api sync:templates` / `update:league`), captures output,
+  refuses concurrent same-type runs, and records an `admin_jobs` row (who, start/
+  finish, status, summary, log tail). Full history table + per-job log view.
+
+### League table → snapshots (new behaviour)
+- Extracted football-data fetch + bundled fallback into `lib/league-table-source.ts`.
+- New `scripts/update-league-table.ts` (`update:league`) fetches both leagues and
+  stores `league_table_snapshots` rows (deactivating the prior active one).
+- `GET /league-table` now serves the newest ACTIVE snapshot → else live (6h cache)
+  → else bundled. So the admin's "League table update" publishes the active table
+  with full history.
+
+### DB (`apps/api/prisma/admin.sql`, applied live)
+- `league_table_snapshots` (league_id, competition, season, source, standings jsonb,
+  is_active, fetched_at), `admin_jobs` (type, status, triggered_by, summary, log,
+  started_at, finished_at), `admin_topup_balance()` RPC. RLS on, service-role only.
+
+### Verified
+- Login + auth gate, wrong-password reject; users list (5 accounts); balance top-up
+  (+$2.50 → correct new balance) and set-exact; league_table job ran → success,
+  2 live snapshots stored, shown in history with timestamps + log. api + admin
+  `tsc` clean. `apps/admin/.env` is gitignored (creds mirror apps/api/.env;
+  ADMIN_PASSWORD is a dev placeholder — change before deploy).
+
+### Follow-up — balance prefetch + README
+- Credit chip was only fetched when the chat drawer opened (slow first paint).
+  `CopilotChat` is mounted in the app shell for the whole session, so added a
+  mount-time `refreshBalance()` — the balance is now warmed at app load and is
+  ready before the drawer opens. Open + focus refetches retained.
+- README documents the three `pnpm dev` localhosts (web 5173, api 3001, admin
+  4000), the admin `.env` setup, the architecture tree entry, and an Admin Panel
+  section.

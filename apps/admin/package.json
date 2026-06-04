@@ -1,0 +1,25 @@
+{
+  "name": "@headroom/admin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file=.env src/server.ts",
+    "build": "tsc",
+    "start": "node --env-file=.env dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/formbody": "^8.0.2",
+    "@supabase/supabase-js": "^2.50.0",
+    "fastify": "^5.4.0",
+    "zod": "^3.25.28"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.18",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}

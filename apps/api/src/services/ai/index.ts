@@ -15,7 +15,15 @@ import type { LLMService } from './types.js'
 
 export const llm: LLMService = new AnthropicAdapter()
 
-export type { LLMService, LLMStream, StreamChatParams, CompleteParams, ChatMessage } from './types.js'
+export type {
+  LLMService,
+  LLMStream,
+  StreamChatParams,
+  CompleteParams,
+  ChatMessage,
+  ChatUsage,
+  ChatFinishResult,
+} from './types.js'
 export { buildSystemPrompt, type RetrievedPassage, type SystemPromptOptions } from './system-prompt.js'
 export { deriveTitle, buildSummaryPrompt, type SummaryPrompt } from './history.js'
 export { KNOWLEDGE_SOURCE_URL, KNOWLEDGE_SOURCE_LABEL } from './knowledge-source.js'

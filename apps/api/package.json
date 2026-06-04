@@ -9,6 +9,7 @@
     "start": "node --env-file=.env dist/server.js",
     "typecheck": "tsc --noEmit",
     "sync:templates": "tsx --env-file=.env src/scripts/sync-templates.ts",
+    "update:league": "tsx --env-file=.env src/scripts/update-league-table.ts",
     "ingest:kb": "tsx --env-file=.env src/scripts/ingest-knowledge-base.ts",
     "test:scripts": "node --import tsx --test 'src/scripts/*.test.ts'",
     "test:onboarding": "node --import tsx --env-file=.env --test src/routes/onboarding-hydrate.test.ts",

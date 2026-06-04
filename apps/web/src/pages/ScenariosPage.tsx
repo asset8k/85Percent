@@ -480,6 +480,7 @@ export function ScenariosPage() {
                 }
                 canToggle={can.toggleActiveBaseline}
                 onToggleInclude={handleToggleInclude}
+                onAskCopilot={handleAskCopilotScenario}
                 otherIncludedCount={
                   scenarios.filter(
                     (s) => s.isIncluded && s.id !== editingScenarioId,
@@ -501,10 +502,7 @@ export function ScenariosPage() {
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                {dryRun && <CopilotTriggerButton onClick={handleAskCopilotScenario} />}
-                <ActionAdder onAdd={handleAddAction} />
-              </div>
+              <ActionAdder onAdd={handleAddAction} />
             </div>
 
             {draftActions.length === 0 ? (
@@ -974,6 +972,7 @@ function ProjectionPanel({
   editingScenario,
   canToggle,
   onToggleInclude,
+  onAskCopilot,
   otherIncludedCount,
 }: {
   dryRun: ReturnType<typeof computeDryRun>
@@ -982,6 +981,8 @@ function ProjectionPanel({
   editingScenario: ScenarioDetail | null
   canToggle: boolean
   onToggleInclude: (id: string, next: boolean) => void
+  /** Opens the Compliance Analyst with this projection serialized as context. */
+  onAskCopilot: () => void
   /** Number of OTHER included scenarios feeding the baseline tile. */
   otherIncludedCount: number
 }) {
@@ -1023,13 +1024,16 @@ function ProjectionPanel({
             </p>
           </div>
         </div>
-        <PlanStatusChip
-          state={planState}
-          canToggle={canToggle}
-          onToggle={(next) => {
-            if (editingScenario) onToggleInclude(editingScenario.id, next)
-          }}
-        />
+        <div className="flex items-center gap-2 flex-wrap">
+          <CopilotTriggerButton onClick={onAskCopilot} />
+          <PlanStatusChip
+            state={planState}
+            canToggle={canToggle}
+            onToggle={(next) => {
+              if (editingScenario) onToggleInclude(editingScenario.id, next)
+            }}
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 mb-5">

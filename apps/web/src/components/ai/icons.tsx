@@ -2,8 +2,10 @@
  * AI icon set — a single source of polished icons for the Compliance Analyst,
  * shared by the chat surface and the in-app triggers so the glyphs never drift.
  *
- * SparkIcon is the brand mark (a filled dual-sparkle, the modern "AI" glyph);
- * the rest are crisp 2px stroke icons (compose, send, expand/collapse, etc.).
+ * SparkIcon is the brand mark — an open compliance gauge (the SCR/headroom dial
+ * that runs through the product) with a spark at its centre: Headroom's own
+ * "intelligence" glyph rather than the generic four-point AI sparkle. The rest
+ * are crisp 2px stroke icons (compose, send, expand/collapse, etc.).
  */
 
 interface IconProps {
@@ -30,14 +32,23 @@ function Stroke({ size = 16, className, children }: IconProps & { children: Reac
 }
 
 /**
- * Brand / AI mark — a bold, centred four-point sparkle that fills the viewBox so
- * it reads clearly even at small button sizes, plus a small companion sparkle.
+ * Brand / AI mark — an open gauge arc (the headroom dial, with its gap at the
+ * bottom) wrapped around a centred spark. The spark says "AI"; the gauge makes
+ * it unmistakably Headroom's analyst, echoing the SCR dial and the context ring.
  */
 export function SparkIcon({ size = 16, className }: IconProps) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
-      <path d="M12 1.8C12 7.6 16.4 12 22.2 12 16.4 12 12 16.4 12 22.2 12 16.4 7.6 12 1.8 12 7.6 12 12 7.6 12 1.8Z" />
-      <path d="M19.4 2.6C19.4 4 20.2 4.8 21.6 4.8 20.2 4.8 19.4 5.6 19.4 7 19.4 5.6 18.6 4.8 17.2 4.8 18.6 4.8 19.4 4 19.4 2.6Z" opacity="0.55" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className}>
+      <path
+        d="M5.6 18.4A9 9 0 1 1 18.4 18.4"
+        stroke="currentColor"
+        strokeWidth="2.1"
+        strokeLinecap="round"
+      />
+      <path
+        d="M12 7.4C12 10 14 12 16.6 12 14 12 12 14 12 16.6 12 14 10 12 7.4 12 10 12 12 10 12 7.4Z"
+        fill="currentColor"
+      />
     </svg>
   )
 }

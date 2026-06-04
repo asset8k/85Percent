@@ -43,9 +43,15 @@ export class AnthropicAdapter implements LLMService {
       onFinish: onFinish
         ? async (event) => {
             try {
-              await onFinish(event.text)
+              await onFinish({
+                text: event.text,
+                usage: {
+                  promptTokens: event.usage?.promptTokens ?? 0,
+                  completionTokens: event.usage?.completionTokens ?? 0,
+                },
+              })
             } catch {
-              // Persistence is best-effort — never break the streamed response.
+              // Persistence / billing is best-effort — never break the stream.
             }
           }
         : undefined,

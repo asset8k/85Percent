@@ -98,7 +98,7 @@ export async function clubRoutes(app: FastifyInstance) {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select('id, title, can_edit_roster, can_edit_scenarios, is_workspace_admin, full_name, email, is_totp_enabled')
+        .select('id, title, can_edit_roster, can_edit_scenarios, is_workspace_admin, full_name, email, is_totp_enabled, ai_balance_usd')
         .eq('id', request.userId)
         .maybeSingle()
       if (error) throw error
@@ -112,6 +112,8 @@ export async function clubRoutes(app: FastifyInstance) {
         fullName: data.full_name,
         email: data.email,
         isTotpEnabled: !!data.is_totp_enabled,
+        // USD AI-credit balance (NUMERIC comes back as a string from PostgREST).
+        aiBalanceUsd: data.ai_balance_usd != null ? Number(data.ai_balance_usd) : 0,
       })
     } catch (err) {
       request.log.error({ err }, 'GET /me failed')

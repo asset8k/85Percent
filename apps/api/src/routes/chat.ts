@@ -28,7 +28,14 @@ import {
   deriveTitle,
   type RetrievedPassage,
 } from '../services/ai/index.js'
-import type { ChatMessage } from '../services/ai/index.js'
+import type { ChatMessage, ChatFinishResult } from '../services/ai/index.js'
+import { calculateQueryCost } from '../utils/aiPricing.js'
+
+/**
+ * A query is refused once the balance can no longer cover even a trivial turn.
+ * One cent is the floor — below it we treat the balance as depleted.
+ */
+const MIN_BALANCE_USD = 0.01
 
 interface IncomingMessage {
   role?: string
@@ -205,6 +212,26 @@ export async function chatRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: 'No messages provided' })
       }
 
+      // ── AI credit pre-check ────────────────────────────────────────────
+      // Refuse before spending a single token if the caller's balance is
+      // depleted. 402 Payment Required is the signal the frontend keys off to
+      // lock the composer until an admin tops the balance back up.
+      const { data: balanceRow, error: balanceErr } = await supabase
+        .from('users')
+        .select('ai_balance_usd')
+        .eq('id', request.userId)
+        .maybeSingle()
+      if (balanceErr) {
+        request.log.error({ err: balanceErr }, 'chat: balance lookup failed')
+        return reply.status(503).send({ error: 'Could not verify AI balance' })
+      }
+      const balanceUsd = balanceRow ? Number(balanceRow.ai_balance_usd) : 0
+      if (!(balanceUsd > MIN_BALANCE_USD)) {
+        return reply
+          .status(402)
+          .send({ error: 'AI balance depleted. Please contact your workspace admin to top up.' })
+      }
+
       const lastUser = [...messages].reverse().find((m) => m.role === 'user')
 
       // Retrieve against the most recent user turn.
@@ -229,39 +256,57 @@ export async function chatRoutes(app: FastifyInstance) {
       const system = buildSystemPrompt(passages, { summary })
       const { userId, clubId } = request
 
-      // Persist the completed turn (best-effort; never breaks the stream).
-      const persist = async (assistantText: string) => {
-        if (!sessionId || !lastUser) return
-        const { data: existing } = await supabase
-          .from('chat_sessions')
-          .select('id')
-          .eq('id', sessionId)
-          .eq('user_id', userId)
-          .maybeSingle()
-
-        if (!existing) {
-          await supabase.from('chat_sessions').insert({
-            id: sessionId,
-            club_id: clubId,
-            user_id: userId,
-            title: deriveTitle(lastUser.content),
-          })
-        } else {
-          await supabase
+      // Once the stream completes: (1) persist the turn to history and (2) debit
+      // the user's AI balance for the tokens it consumed. Both are best-effort —
+      // failures here are logged but never break the already-delivered response.
+      const onFinish = async ({ text, usage }: ChatFinishResult) => {
+        // (1) Persist the completed turn.
+        if (sessionId && lastUser) {
+          const { data: existing } = await supabase
             .from('chat_sessions')
-            .update({ updated_at: new Date().toISOString() })
+            .select('id')
             .eq('id', sessionId)
+            .eq('user_id', userId)
+            .maybeSingle()
+
+          if (!existing) {
+            await supabase.from('chat_sessions').insert({
+              id: sessionId,
+              club_id: clubId,
+              user_id: userId,
+              title: deriveTitle(lastUser.content),
+            })
+          } else {
+            await supabase
+              .from('chat_sessions')
+              .update({ updated_at: new Date().toISOString() })
+              .eq('id', sessionId)
+          }
+
+          await supabase.from('chat_messages').insert([
+            { session_id: sessionId, role: 'user', content: lastUser.content },
+            { session_id: sessionId, role: 'assistant', content: text },
+          ])
         }
 
-        await supabase.from('chat_messages').insert([
-          { session_id: sessionId, role: 'user', content: lastUser.content },
-          { session_id: sessionId, role: 'assistant', content: assistantText },
-        ])
+        // (2) Debit the balance. Cost = Sonnet token cost + 10% margin. The
+        // arithmetic and rounding happen atomically in Postgres NUMERIC via the
+        // deduct_ai_balance() function, so the stored balance never drifts.
+        const cost = calculateQueryCost(usage.promptTokens, usage.completionTokens)
+        const tokens = (usage.promptTokens ?? 0) + (usage.completionTokens ?? 0)
+        if (cost > 0 || tokens > 0) {
+          const { error: debitErr } = await supabase.rpc('deduct_ai_balance', {
+            p_user_id: userId,
+            p_cost: cost,
+            p_tokens: tokens,
+          })
+          if (debitErr) request.log.error({ err: debitErr }, 'chat: balance debit failed')
+        }
       }
 
       reply.hijack()
       try {
-        llm.streamChat({ system, messages, onFinish: persist }).pipeToResponse(reply.raw)
+        llm.streamChat({ system, messages, onFinish }).pipeToResponse(reply.raw)
       } catch (err) {
         request.log.error({ err }, 'chat: failed to start stream')
         if (!reply.raw.headersSent) {

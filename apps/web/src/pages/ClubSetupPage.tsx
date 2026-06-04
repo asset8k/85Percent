@@ -32,7 +32,7 @@ import { Select } from '@/components/ui/select'
 import { Flag } from '@/components/ui/flag'
 import { EFL_CHAMPIONSHIP_CONFIG } from '@headroom/shared'
 import { calculatePromotedClubRevenueUplift, PROMOTED_CLUB_DEFAULT_UPLIFT_FACTOR } from '@headroom/engine'
-import { cn } from '@/lib/utils'
+import { cn, formatUsd } from '@/lib/utils'
 import { useCan } from '@/lib/role'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import { SUPPORTED_LANGUAGES, LANGUAGE_LABELS, LANGUAGE_FLAGS, setLanguage, type Language } from '@/lib/i18n'
@@ -783,6 +783,10 @@ function ProfileSecurityTab() {
   const [savingProfile, setSavingProfile] = useState(false)
   const [profileErr, setProfileErr] = useState('')
 
+  // AI credit balance (USD) — null until /me resolves so the card can show a
+  // loading state rather than a misleading "$0.00".
+  const [aiBalanceUsd, setAiBalanceUsd] = useState<number | null>(null)
+
   // Password fields
   const [currentPw, setCurrentPw] = useState('')
   const [newPw, setNewPw] = useState('')
@@ -807,6 +811,7 @@ function ProfileSecurityTab() {
         setLastName(parts.slice(1).join(' '))
         setEmail(me.email)
         setTotpEnabled(me.isTotpEnabled)
+        setAiBalanceUsd(me.aiBalanceUsd)
       })
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -964,6 +969,37 @@ function ProfileSecurityTab() {
 
       {/* Interface language */}
       <InterfaceLanguageCard />
+
+      {/* AI usage — prepaid Compliance Analyst credit balance */}
+      <Card className="p-6">
+        <SectionHeader
+          title="AI Usage"
+          subtitle="Your Compliance Analyst runs on prepaid credit, billed per query at cost plus a small margin."
+        />
+        <div className="flex items-end justify-between gap-4 flex-wrap">
+          <div>
+            <div className="meta-label">Current balance</div>
+            {aiBalanceUsd === null ? (
+              <div className="mt-2 h-8 w-28 rounded-md bg-slate-100 animate-pulse" />
+            ) : (
+              <div
+                className={cn(
+                  'num text-[28px] font-semibold leading-none mt-2',
+                  aiBalanceUsd <= 0.01 ? 'text-red-600' : 'text-slate-900',
+                )}
+              >
+                {formatUsd(aiBalanceUsd)}
+              </div>
+            )}
+            <p className="text-[12px] text-slate-400 mt-2">
+              To top up your balance, please contact Headroom support.
+            </p>
+          </div>
+          {aiBalanceUsd !== null && aiBalanceUsd <= 0.01 && (
+            <StatusBadge status="red">Depleted</StatusBadge>
+          )}
+        </div>
+      </Card>
 
       {/* Change password */}
       <Card className="p-6">

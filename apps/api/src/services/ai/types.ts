@@ -19,17 +19,32 @@ export interface ChatMessage {
   content: string
 }
 
+/** Token usage for a completed turn — used for cost accounting / billing. */
+export interface ChatUsage {
+  promptTokens: number
+  completionTokens: number
+}
+
+/** Everything known about a completed turn once the stream finishes. */
+export interface ChatFinishResult {
+  /** The full assistant text. */
+  text: string
+  /** Tokens consumed by this turn (for cost accounting). */
+  usage: ChatUsage
+}
+
 export interface StreamChatParams {
   /** Fully-assembled system prompt (guardrails + retrieved RAG context). */
   system: string
   /** Conversation so far, oldest first. */
   messages: ChatMessage[]
   /**
-   * Called server-side once the stream completes, with the full assistant text.
-   * Used to persist the turn to chat history. Runs independently of the client
-   * stream; failures here must not break the response.
+   * Called server-side once the stream completes, with the full assistant text
+   * and the turn's token usage. Used to persist the turn to chat history and to
+   * debit the user's AI credit balance. Runs independently of the client stream;
+   * failures here must not break the response.
    */
-  onFinish?: (fullText: string) => void | Promise<void>
+  onFinish?: (result: ChatFinishResult) => void | Promise<void>
 }
 
 /**

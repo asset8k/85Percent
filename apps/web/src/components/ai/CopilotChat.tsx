@@ -15,13 +15,13 @@
  * called here.
  */
 
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useChat, type Message } from 'ai/react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { contextUsageRatio, shouldCompact, type ChatTurn } from '@headroom/shared'
 import { supabase } from '@/lib/supabase'
-import { cn } from '@/lib/utils'
+import { cn, formatUsd } from '@/lib/utils'
 import { Markdown } from '@/components/ai/Markdown'
 import {
   SparkIcon,
@@ -104,11 +104,14 @@ function MessageList({
   isLoading,
   onExample,
   compacted,
+  depleted,
 }: {
   messages: Message[]
   isLoading: boolean
   onExample: (text: string) => void
   compacted: boolean
+  /** Balance spent — example prompts are non-actionable until topped up. */
+  depleted: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
@@ -158,7 +161,8 @@ function MessageList({
                 <button
                   key={p}
                   onClick={() => onExample(p)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-[12.5px] text-slate-700 transition-colors hover:border-violet-300 hover:bg-violet-50/50"
+                  disabled={depleted}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-[12.5px] text-slate-700 transition-colors hover:border-violet-300 hover:bg-violet-50/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-slate-200 disabled:hover:bg-white"
                 >
                   {p}
                 </button>
@@ -243,6 +247,7 @@ function Composer({
   compacting,
   compacted,
   showRing,
+  depleted,
 }: {
   input: string
   onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void
@@ -253,6 +258,8 @@ function Composer({
   compacting: boolean
   compacted: boolean
   showRing: boolean
+  /** Balance is exhausted — lock the composer until an admin tops it up. */
+  depleted: boolean
 }) {
   const taRef = useRef<HTMLTextAreaElement>(null)
 
@@ -266,45 +273,96 @@ function Composer({
 
   return (
     <div className="border-t border-slate-200 bg-white px-4 py-3">
-      <div className="mx-auto flex max-w-2xl items-end gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm transition-colors focus-within:border-violet-400 focus-within:ring-1 focus-within:ring-violet-300">
-        <textarea
-          ref={taRef}
-          value={input}
-          onChange={onChange}
-          rows={1}
-          placeholder="Ask about SCR, a player, or a scenario…"
-          className="flex-1 resize-none bg-transparent py-1 text-[13.5px] leading-relaxed text-slate-900 placeholder:text-slate-400 focus:outline-none"
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              if (!isLoading && input.trim()) onSubmit()
-            }
-          }}
-        />
-        {showRing && <ContextRing ratio={usage} compacting={compacting} compacted={compacted} />}
-        {isLoading ? (
-          <button
-            onClick={onStop}
-            aria-label="Stop"
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-slate-200 text-slate-600 transition-colors hover:bg-slate-300"
-          >
-            <StopIcon />
-          </button>
-        ) : (
-          <button
-            onClick={onSubmit}
-            disabled={input.trim().length === 0}
-            aria-label="Send"
-            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <SendIcon />
-          </button>
-        )}
-      </div>
-      <p className="mx-auto mt-1.5 max-w-2xl text-center text-[10.5px] text-slate-400">
-        Compliance Analyst can be wrong — verify against the official Handbook. Not legal advice.
-      </p>
+      {depleted ? (
+        // Clean, blocking notice — no input is possible until the balance is
+        // refilled. Mirrors the exact server message.
+        <div className="mx-auto flex max-w-2xl items-start gap-2.5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
+          <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" /><path d="M12 8v4" /><path d="M12 16h.01" />
+            </svg>
+          </span>
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-red-700">AI balance depleted</p>
+            <p className="mt-0.5 text-[12px] leading-relaxed text-red-600/90">
+              Please contact your workspace admin to top up before sending more messages.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="mx-auto flex max-w-2xl items-end gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm transition-colors focus-within:border-violet-400 focus-within:ring-1 focus-within:ring-violet-300">
+          <textarea
+            ref={taRef}
+            value={input}
+            onChange={onChange}
+            rows={1}
+            placeholder="Ask about SCR, a player, or a scenario…"
+            className="flex-1 resize-none bg-transparent py-1 text-[13.5px] leading-relaxed text-slate-900 placeholder:text-slate-400 focus:outline-none"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                if (!isLoading && input.trim()) onSubmit()
+              }
+            }}
+          />
+          {showRing && <ContextRing ratio={usage} compacting={compacting} compacted={compacted} />}
+          {isLoading ? (
+            <button
+              onClick={onStop}
+              aria-label="Stop"
+              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-slate-200 text-slate-600 transition-colors hover:bg-slate-300"
+            >
+              <StopIcon />
+            </button>
+          ) : (
+            <button
+              onClick={onSubmit}
+              disabled={input.trim().length === 0}
+              aria-label="Send"
+              className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <SendIcon />
+            </button>
+          )}
+        </div>
+      )}
     </div>
+  )
+}
+
+// ── balance chip — a soft, modern AI-credit readout that blends into the
+// composer. Carries the Analyst spark mark + the remaining credit, and shifts
+// violet → amber → red as the balance runs low. Hover reveals the full label.
+function BalanceChip({ balanceUsd }: { balanceUsd: number | null }) {
+  if (balanceUsd === null) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-300">
+        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-300" />
+        Loading credit…
+      </span>
+    )
+  }
+  const depleted = balanceUsd <= 0.01
+  const low = balanceUsd <= 0.5
+  const tone = depleted
+    ? 'bg-red-50 text-red-600'
+    : low
+      ? 'bg-amber-50 text-amber-700'
+      : 'bg-violet-50 text-violet-700'
+  return (
+    <span
+      title="Remaining AI credit"
+      className={cn(
+        'group inline-flex items-center gap-1.5 rounded-full py-1 pl-2 pr-2.5 text-[11px] font-medium transition-colors',
+        tone,
+      )}
+    >
+      <SparkIcon size={11} className="opacity-80" />
+      <span className="num tabular-nums">{formatUsd(balanceUsd)}</span>
+      <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-200 group-hover:max-w-[60px] group-hover:opacity-60">
+        credit
+      </span>
+    </span>
   )
 }
 
@@ -366,11 +424,14 @@ function ContextRing({
 // ── header (shared by drawer + fullscreen) ─────────────────────────────────
 function Header({
   fullscreen,
+  balanceUsd,
   onNew,
   onToggleFullscreen,
   onClose,
 }: {
   fullscreen: boolean
+  /** Remaining AI credit in USD; null while still loading. */
+  balanceUsd: number | null
   onNew: () => void
   onToggleFullscreen: () => void
   onClose: () => void
@@ -386,12 +447,15 @@ function Header({
           <p className="text-[11px] leading-tight text-slate-400">Grounded in PL rules · not legal advice</p>
         </div>
       </div>
-      <div className="flex items-center gap-1">
-        <IconBtn onClick={onNew} title="New chat"><PlusIcon /></IconBtn>
-        <IconBtn onClick={onToggleFullscreen} title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
-          {fullscreen ? <CollapseIcon /> : <ExpandIcon />}
-        </IconBtn>
-        <IconBtn onClick={onClose} title="Close"><CloseIcon /></IconBtn>
+      <div className="flex items-center gap-1.5">
+        <BalanceChip balanceUsd={balanceUsd} />
+        <div className="flex items-center gap-1">
+          <IconBtn onClick={onNew} title="New chat"><PlusIcon /></IconBtn>
+          <IconBtn onClick={onToggleFullscreen} title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
+            {fullscreen ? <CollapseIcon /> : <ExpandIcon />}
+          </IconBtn>
+          <IconBtn onClick={onClose} title="Close"><CloseIcon /></IconBtn>
+        </div>
       </div>
     </div>
   )
@@ -481,14 +545,71 @@ export function CopilotChat() {
     setActiveSummary,
   } = useCopilot()
 
+  // AI credit balance (USD). null = still loading. `serverDepleted` latches when
+  // the backend returns 402 mid-session, before the next /me refresh lands.
+  const [balanceUsd, setBalanceUsd] = useState<number | null>(null)
+  const [serverDepleted, setServerDepleted] = useState(false)
+
+  const refreshBalance = useCallback(() => {
+    void api.me
+      .get()
+      .then((me) => {
+        setBalanceUsd(me.aiBalanceUsd)
+        if (me.aiBalanceUsd > 0.01) setServerDepleted(false)
+      })
+      .catch(() => {})
+  }, [])
+
+  // Chat transport — attaches the auth token AND watches for the 402 the backend
+  // returns when the balance is spent, latching the depleted state immediately
+  // (independent of the AI SDK's error plumbing).
+  const chatFetch = useCallback<typeof fetch>(async (input, init) => {
+    const res = await authedFetch(input, init)
+    if (res.status === 402) {
+      setServerDepleted(true)
+      setBalanceUsd(0)
+    }
+    return res
+  }, [])
+
   const { messages, input, handleInputChange, handleSubmit, append, setMessages, stop, isLoading } =
     useChat({
       api: '/api/chat',
-      fetch: authedFetch,
-      // When a turn completes the backend has persisted it — refresh the sidebar
-      // so the new/updated session (and its derived title) appears.
-      onFinish: () => void refreshSessions(),
+      fetch: chatFetch,
+      // When a turn completes the backend has persisted it and debited the
+      // balance — refresh the sidebar (new/updated session + title) and the
+      // remaining credit readout.
+      onFinish: () => {
+        void refreshSessions()
+        refreshBalance()
+      },
     })
+
+  const depleted = serverDepleted || (balanceUsd !== null && balanceUsd <= 0.01)
+
+  // Warm the balance as soon as the app shell mounts (this component is mounted
+  // for the whole session, not just while the drawer is open) — so the credit
+  // chip is already loaded by the time the user opens the chat, instead of
+  // showing "Loading credit…" on first open.
+  useEffect(() => {
+    refreshBalance()
+  }, [refreshBalance])
+
+  // Re-check whenever the panel opens, and when the tab regains focus — so a
+  // manual admin top-up unlocks the chat without needing a reopen.
+  useEffect(() => {
+    if (!isOpen) return
+    refreshBalance()
+    const onFocus = () => {
+      if (document.visibilityState === 'visible') refreshBalance()
+    }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
+    return () => {
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onFocus)
+    }
+  }, [isOpen, refreshBalance])
 
   const [compacting, setCompacting] = useState(false)
   const appendedInjection = useRef<string | null>(null)
@@ -535,13 +656,16 @@ export function CopilotChat() {
   // it fires exactly once per injection, even under StrictMode's double-effect.
   useEffect(() => {
     if (!isOpen) return
+    // No credit → don't fire a doomed request (the backend would 402 it anyway).
+    // The injection stays pending and runs once the balance is topped up.
+    if (depleted) return
     const injection = useCopilot.getState().pendingInjection
     if (!injection || appendedInjection.current === injection) return
     appendedInjection.current = injection
     useCopilot.getState().consumeInjection()
     // Defer so the active-session load (setMessages) flushes first.
     setTimeout(() => void append({ role: 'user', content: injection }, sendOpts()), 80)
-  }, [isOpen, append])
+  }, [isOpen, depleted, append])
 
   // AUTO-COMPACTION — when the conversation nears the conservative token budget,
   // fold older turns into a server-side summary and keep only the recent ones.
@@ -571,11 +695,12 @@ export function CopilotChat() {
   }, [messages, isLoading, compacting, activeId, setMessages])
 
   const submit = () => {
-    if (!input.trim()) return
+    if (!input.trim() || depleted) return
     useCopilot.getState().ensureActiveSession()
     handleSubmit(undefined, sendOpts())
   }
   const onExample = (text: string) => {
+    if (depleted) return
     useCopilot.getState().ensureActiveSession()
     void append({ role: 'user', content: text }, sendOpts())
   }
@@ -592,6 +717,7 @@ export function CopilotChat() {
   const header = (
     <Header
       fullscreen={isFullscreen}
+      balanceUsd={balanceUsd}
       onNew={handleNew}
       onToggleFullscreen={() => setFullscreen(!isFullscreen)}
       onClose={close}
@@ -609,6 +735,7 @@ export function CopilotChat() {
         isLoading={isLoading}
         onExample={onExample}
         compacted={!!activeSummary}
+        depleted={depleted}
       />
       <Composer
         input={input}
@@ -620,6 +747,7 @@ export function CopilotChat() {
         compacting={compacting}
         compacted={!!activeSummary}
         showRing={usageTurns.length > 0}
+        depleted={depleted}
       />
     </>
   )

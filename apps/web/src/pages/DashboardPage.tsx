@@ -309,8 +309,12 @@ export function DashboardPage() {
               </p>
             </div>
             <div className="flex flex-col items-end gap-2">
-              <StatusBadge status={status}>
-                {status === 'green' ? 'Compliant' : status === 'amber' ? 'Levy Zone' : 'Points Risk'}
+              {/* Reflects the ACTIVE position (live squad costs + any included
+                  scenarios) so it can't read "Compliant" while an included plan
+                  has pushed the projected SCR into the levy / points-risk zone —
+                  matches the TopBar pill and the projected row below. */}
+              <StatusBadge status={riskStatus}>
+                {riskStatus === 'green' ? 'Compliant' : riskStatus === 'amber' ? 'Levy Zone' : 'Points Risk'}
               </StatusBadge>
               <CopilotTriggerButton onClick={handleAskCopilot} size="sm" />
             </div>

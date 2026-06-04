@@ -28,14 +28,18 @@ import { toast } from '@/components/ui/toast'
 import { cn } from '@/lib/utils'
 
 type LeagueId = 'premier-league' | 'efl-championship'
+// Teaser leagues on the European-expansion roadmap — non-selectable for now.
+type TeaserLeagueId = 'la-liga' | 'serie-a'
 
 interface LeagueMeta {
-  id: LeagueId
+  id: LeagueId | TeaserLeagueId
   name: string
   tagline: string
   count: number
   logo: string // bundled crest in /public/leagues
   grad: string // accent-bar gradient
+  // Roadmap teaser: rendered muted + non-clickable with a "Coming Soon" badge.
+  comingSoon?: boolean
 }
 
 const LEAGUES: LeagueMeta[] = [
@@ -54,6 +58,25 @@ const LEAGUES: LeagueMeta[] = [
     count: 24,
     logo: '/leagues/championship.png',
     grad: 'from-sky-600 to-blue-700',
+  },
+  // ── European expansion roadmap (teasers — not yet selectable) ──────────────
+  {
+    id: 'la-liga',
+    name: 'La Liga',
+    tagline: 'Top flight · LCPD cost controls & squad caps',
+    count: 20,
+    logo: '/leagues/la-liga.png',
+    grad: 'from-orange-500 to-red-600',
+    comingSoon: true,
+  },
+  {
+    id: 'serie-a',
+    name: 'Serie A',
+    tagline: 'Top flight · FIGC liquidity & sustainability checks',
+    count: 20,
+    logo: '/leagues/serie-a.png',
+    grad: 'from-green-600 to-emerald-700',
+    comingSoon: true,
   },
 ]
 
@@ -205,7 +228,12 @@ export function OnboardingPage() {
             className="grid grid-cols-1 sm:grid-cols-2 gap-4"
           >
             {LEAGUES.map((l) => (
-              <LeagueCard key={l.id} league={l} selected={leagueId === l.id} onChoose={() => chooseLeague(l.id)} />
+              <LeagueCard
+                key={l.id}
+                league={l}
+                selected={leagueId === l.id}
+                onChoose={l.comingSoon ? undefined : () => chooseLeague(l.id as LeagueId)}
+              />
             ))}
           </motion.div>
         ) : (
@@ -310,7 +338,41 @@ export function OnboardingPage() {
 
 // ---------------------------------------------------------------------------
 
-function LeagueCard({ league, selected, onChoose }: { league: LeagueMeta; selected: boolean; onChoose: () => void }) {
+function LeagueCard({ league, selected, onChoose }: { league: LeagueMeta; selected: boolean; onChoose?: () => void }) {
+  // Roadmap teaser — non-interactive, desaturated, badged "Coming Soon". Renders
+  // as a plain div (no button semantics) so it can't be clicked or focused, and
+  // the whole card is dimmed with the UI Kit opacity utility.
+  if (league.comingSoon) {
+    return (
+      <div
+        aria-disabled="true"
+        className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 text-left opacity-60"
+      >
+        {/* accent bar */}
+        <span className={cn('absolute inset-x-0 top-0 h-1 bg-gradient-to-r', league.grad)} />
+
+        <div className="flex items-start justify-between">
+          <img
+            src={league.logo}
+            alt={`${league.name} logo`}
+            className="h-14 w-auto object-contain"
+          />
+          <span className="rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium px-2.5 py-1 num">
+            {league.count} clubs
+          </span>
+        </div>
+
+        <p className="mt-4 text-[17px] font-bold text-slate-900">{league.name}</p>
+        <p className="mt-1 text-[12.5px] text-slate-500">{league.tagline}</p>
+
+        <span className="mt-5 inline-flex items-center gap-1.5 rounded-full bg-slate-100 text-slate-500 text-[11px] font-semibold px-2.5 py-1">
+          <LockIcon />
+          Coming Soon
+        </span>
+      </div>
+    )
+  }
+
   return (
     <button
       type="button"
@@ -513,6 +575,15 @@ function ArrowIcon() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
       <line x1="5" y1="12" x2="19" y2="12" />
       <polyline points="12 5 19 12 12 19" />
+    </svg>
+  )
+}
+
+function LockIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
     </svg>
   )
 }

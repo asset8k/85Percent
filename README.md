@@ -42,6 +42,11 @@ Optional (only used by the template sync worker — see [Roster Templates & Onbo
 - `VITE_SUPABASE_URL` — your Supabase project URL
 - `VITE_SUPABASE_ANON_KEY` — anon key (from Supabase dashboard)
 
+**Admin panel** — copy `apps/admin/.env.example` to `apps/admin/.env` and fill in:
+- `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` — same values as `apps/api/.env`
+- `ADMIN_USERNAME` / `ADMIN_PASSWORD` — the single admin login (separate from platform users)
+- `ADMIN_SESSION_SECRET` — random string for signing the session cookie (e.g. `openssl rand -hex 32`)
+
 ### Supabase Setup
 
 1. Create a Supabase project at supabase.com
@@ -59,9 +64,12 @@ Optional (only used by the template sync worker — see [Roster Templates & Onbo
 pnpm dev
 ```
 
-This runs:
-- **Frontend** at http://localhost:5173
+This runs all apps in parallel via Turborepo:
+- **Web app** at http://localhost:5173
 - **API** at http://localhost:3001
+- **Admin panel** at http://localhost:4000
+
+> The admin panel boots only if `apps/admin/.env` exists (see [Environment Setup](#environment-setup)). If it's missing, the admin process exits on startup while the web app and API keep running. To run just the admin panel: `pnpm --filter @headroom/admin dev`.
 
 ### Tests
 
@@ -94,8 +102,9 @@ pnpm build
 ```
 Headroom/
 ├── apps/
-│   ├── web/          # React 18 + Vite + TypeScript frontend
-│   └── api/          # Fastify + Node.js backend
+│   ├── web/          # React 18 + Vite + TypeScript frontend (localhost:5173)
+│   ├── api/          # Fastify + Node.js backend (localhost:3001)
+│   └── admin/        # Standalone server-rendered admin panel (localhost:4000)
 ├── packages/
 │   ├── shared/       # Shared types, Zod schemas, money utilities
 │   ├── engine/       # Pure SCR calculation engine (no side effects)
@@ -173,8 +182,29 @@ The wizard lives at `/onboarding` in the web app (also reachable from the empty 
 
 ---
 
+## Admin Panel
+
+A standalone, server-rendered control panel in `apps/admin/` — separate from the platform (its own port and its own session login), but pointed at the same Supabase project via the service-role key, so it can be deployed independently later.
+
+```bash
+pnpm --filter @headroom/admin dev    # → http://localhost:4000  (also started by `pnpm dev`)
+```
+
+It provides:
+
+- **Users** — list every account; edit name/email, reset password, delete an account (basic CRUD via the Supabase auth-admin API).
+- **AI chat balance** — view each user's remaining credit and **top up** (add USD) or set it exactly.
+- **Maintenance jobs** — trigger the two manual scripts and see a full run history (who, start/finish, status, log):
+  - **Club & player update** → runs `pnpm --filter @headroom/api sync:templates` (Transfermarkt → onboarding templates).
+  - **League table update** → runs `pnpm --filter @headroom/api update:league`, which fetches standings into `league_table_snapshots` and publishes them as the active table that `GET /api/league-table` serves (falling back to a live fetch, then the bundled seed).
+
+Login is a single admin defined in `apps/admin/.env` (`ADMIN_USERNAME` / `ADMIN_PASSWORD`), exchanged for a signed cookie. The DB tables it uses (`admin_jobs`, `league_table_snapshots`, the `admin_topup_balance` RPC) live in `apps/api/prisma/admin.sql`.
+
+---
+
 ## Deployment
 
 - **Frontend**: Vercel (connect GitHub repo → auto-deploy)
 - **API**: Railway (connect GitHub repo → set env vars → deploy)
+- **Admin panel**: deploy `apps/admin` as its own service (Node) with its env vars
 - **Database**: Supabase (managed PostgreSQL with RLS)

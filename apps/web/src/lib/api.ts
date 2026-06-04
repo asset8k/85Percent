@@ -358,6 +358,8 @@ export const api = {
         fullName: string
         email: string
         isTotpEnabled: boolean
+        /** Remaining Compliance Analyst credit, in USD. */
+        aiBalanceUsd: number
       }>('/me'),
     update: (patch: { fullName?: string; email?: string }) =>
       apiFetch<{ success: boolean }>('/me', { method: 'PATCH', body: JSON.stringify(patch) }),

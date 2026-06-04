@@ -69,6 +69,14 @@ model User {
   passwordResetToken   String?   @map("password_reset_token")
   passwordResetExpires DateTime? @map("password_reset_expires")
 
+  // ── AI credits (Compliance Analyst) ─────────────────────────────────────
+  // Hardcoded prepaid USD balance debited per Analyst query (Sonnet token cost
+  // + 10% margin). Stored as Decimal/NUMERIC so debits stay exact — never float.
+  // Top-ups are manual (admin DB edit) until a payment gateway exists.
+  // `totalAiTokensUsed` is an internal running audit of tokens consumed.
+  aiBalanceUsd      Decimal @default(5.00) @map("ai_balance_usd")
+  totalAiTokensUsed Int     @default(0) @map("total_ai_tokens_used")
+
   club          Club           @relation(fields: [clubId], references: [id])
   scenarios     Scenario[]
   auditLogs     AuditLog[]
