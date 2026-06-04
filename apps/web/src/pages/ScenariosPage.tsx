@@ -22,6 +22,7 @@ import { StatusBadge } from '@/components/ui/badge'
 import { Spinner } from '@/components/ui/spinner'
 import { ScenariosSkeleton } from '@/components/ui/page-skeletons'
 import { NumericInput } from '@/components/ui/numeric-input'
+import { Select } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { AnimatedNumber } from '@/components/ui/animated-number'
 import { toast } from '@/components/ui/toast'
@@ -1256,16 +1257,38 @@ function CompareModal({
                   </button>
                 )}
               </div>
-              <div className="grid grid-cols-3 gap-4">
-                <Stat label="ΔSCR" value={`${((projB.ratio - projA.ratio) * 100).toFixed(2)} pp`} />
-                <Stat label="ΔCosts" value={signedPence(projB.baselineSquadCosts - projA.baselineSquadCosts, fmtMoney)} />
-                <Stat label="ΔRevenue" value={signedPence(projB.adjustedRevenue - projA.adjustedRevenue, fmtMoney)} />
-              </div>
+              {(() => {
+                const dScr = (projB.ratio - projA.ratio) * 100
+                const dCosts = projB.baselineSquadCosts - projA.baselineSquadCosts
+                const dRev = projB.adjustedRevenue - projA.adjustedRevenue
+                const tone = (worseWhenPositive: boolean, v: number) =>
+                  v === 0 ? 'text-slate-900' : (v > 0) === worseWhenPositive ? 'text-red-700' : 'text-green-700'
+                return (
+                  <div className="grid grid-cols-3 gap-4">
+                    <Stat label="ΔSCR" value={`${dScr >= 0 ? '+' : ''}${dScr.toFixed(2)} pp`} tone={tone(true, dScr)} />
+                    <Stat label="ΔCosts" value={signedPence(dCosts, fmtMoney)} tone={tone(true, dCosts)} />
+                    <Stat label="ΔRevenue" value={signedPence(dRev, fmtMoney)} tone={tone(false, dRev)} />
+                  </div>
+                )
+              })()}
             </Card>
           </div>
         )}
       </motion.div>
     </motion.div>
+  )
+}
+
+// Tint the projected SCR figure by compliance zone (matches the gauge palette).
+function scrColorClass(status: 'green' | 'amber' | 'red'): string {
+  return status === 'green' ? 'text-slate-900' : status === 'amber' ? 'text-amber-700' : 'text-red-700'
+}
+
+function DeltaArrow({ up }: { up: boolean }) {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      {up ? <path d="M12 19V5M5 12l7-7 7 7" /> : <path d="M12 5v14M19 12l-7 7-7-7" />}
+    </svg>
   )
 }
 
@@ -1282,41 +1305,65 @@ function CompareColumn({
 }) {
   void financials
   const { format: fmtMoney } = useWorkspaceCurrency()
+  const delta = projection ? projection.ratio * 100 - baseRatio : 0
+  const worse = delta >= 0 // a higher SCR than baseline consumes headroom
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div>
         <div className="meta-label mb-1.5">{label}</div>
-        <select value={selectedId} onChange={(e) => onChange(e.target.value)} className={inputBase}>
-          <option value="">— select —</option>
-          {scenarios.map((s) => (
-            <option key={s.id} value={s.id}>{s.name}</option>
-          ))}
-        </select>
+        <Select
+          value={selectedId}
+          onChange={onChange}
+          options={scenarios.map((s) => ({ value: s.id, label: s.name }))}
+          placeholder="Select a scenario"
+          ariaLabel={label}
+        />
       </div>
-      {projection && (
-        <Card className="p-4">
-          <div className="meta-label">Projected SCR</div>
-          <div className="num text-[28px] font-semibold leading-none mt-2 text-slate-900">{(projection.ratio * 100).toFixed(1)}%</div>
-          <div className="text-[11px] text-slate-500 mt-2 num">
-            Δ vs baseline: <span className={projection.ratio * 100 - baseRatio >= 0 ? 'text-red-700' : 'text-green-700'}>
-              {(projection.ratio * 100 - baseRatio).toFixed(2)} pp
+      {projection ? (
+        <Card className="p-5">
+          <div className="flex items-center justify-between">
+            <div className="meta-label">Projected SCR</div>
+            <StatusBadge status={projection.status} />
+          </div>
+          <div className={cn('num text-[30px] font-semibold leading-none mt-2', scrColorClass(projection.status))}>
+            {(projection.ratio * 100).toFixed(1)}%
+          </div>
+          <div className="mt-2.5 flex items-center gap-1.5 text-[12px]">
+            <span className="text-slate-400">vs baseline</span>
+            <span className={cn('num inline-flex items-center gap-0.5 font-medium', worse ? 'text-red-700' : 'text-green-700')}>
+              <DeltaArrow up={worse} />
+              {worse ? '+' : ''}{delta.toFixed(2)} pp
             </span>
           </div>
-          <div className="text-[11px] text-slate-400 mt-3 num">
-            Costs: {fmtMoney(projection.baselineSquadCosts)}<br />
-            Revenue: {fmtMoney(projection.adjustedRevenue)}
+          <div className="mt-4 space-y-1.5 border-t border-slate-100 pt-3">
+            <CompareLine label="Squad costs" value={fmtMoney(projection.baselineSquadCosts)} />
+            <CompareLine label="Revenue" value={fmtMoney(projection.adjustedRevenue)} />
           </div>
         </Card>
+      ) : (
+        <div className="flex items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/40 p-8">
+          <p className="text-[12.5px] text-slate-400">Select a scenario to project its SCR.</p>
+        </div>
       )}
     </div>
   )
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+// One labelled figure row inside a comparison card.
+function CompareLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between text-[12px]">
+      <span className="text-slate-500">{label}</span>
+      <span className="num font-medium text-slate-900">{value}</span>
+    </div>
+  )
+}
+
+function Stat({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
     <div>
       <div className="meta-label">{label}</div>
-      <div className="num text-[18px] font-semibold text-slate-900 mt-1.5">{value}</div>
+      <div className={cn('num text-[18px] font-semibold mt-1.5', tone ?? 'text-slate-900')}>{value}</div>
     </div>
   )
 }

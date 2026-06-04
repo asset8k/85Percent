@@ -3081,3 +3081,13 @@ build step, no second port). Run: `pnpm --filter @headroom/admin dev`.
 - README documents the three `pnpm dev` localhosts (web 5173, api 3001, admin
   4000), the admin `.env` setup, the architecture tree entry, and an Admin Panel
   section.
+
+### Follow-up — Compare scenarios modal polish
+- Replaced the raw native `<select>` (chevron crowding the edge) with the UI Kit
+  `<Select>` — proper pl-3/pr-2.5 padding + controlled chevron.
+- Projection cards now informative: compliance StatusBadge, SCR figure tinted by
+  zone (green/amber/red), a directional "vs baseline" delta (arrow + colour), and
+  clean labelled Squad costs / Revenue rows. Empty column shows a dashed
+  placeholder so the two sides stay balanced.
+- Delta footer (B vs A) colour-codes ΔSCR / ΔCosts / ΔRevenue (red = worse,
+  green = better) with signed values. typecheck clean.
