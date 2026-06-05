@@ -4,6 +4,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { cn } from '@/lib/utils'
+import { useScrollLock } from '@/lib/useScrollLock'
 import { useClubStore } from '@/stores/club'
 import { useAuthStore } from '@/stores/auth'
 import { useCan } from '@/lib/role'
@@ -112,6 +113,8 @@ export function Sidebar() {
   const navigate = useNavigate()
   const can = useCan()
   const [changeOpen, setChangeOpen] = useState(false)
+  // Freeze page scroll while the "change club/league" modal is open.
+  useScrollLock(changeOpen)
 
   // First-run nudge: a CFO whose workspace has no squad yet is pointed at the
   // Workspace switcher to pick a club (which pre-fills the squad). Hides itself
@@ -314,7 +317,7 @@ export function Sidebar() {
         <AnimatePresence>
           {changeOpen && (
             <motion.div
-              className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+              className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 overscroll-contain"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}

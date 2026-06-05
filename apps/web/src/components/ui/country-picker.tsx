@@ -9,7 +9,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { COUNTRIES, findCountry, type Country } from '@/lib/countries'
+import { COUNTRIES, countryName, findCountry, type Country } from '@/lib/countries'
+import { activeLocale } from '@/lib/locale'
 import { Flag } from '@/components/ui/flag'
 import { cn } from '@/lib/utils'
 
@@ -26,8 +27,15 @@ export function CountryPicker({
   placeholder,
   disabled,
 }: CountryPickerProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const placeholderText = placeholder ?? t('picker.selectCountry')
+  // Re-localize names when the interface language changes (i18n.language is a
+  // dep so the memos below recompute on switch).
+  const locale = useMemo(() => activeLocale(), [i18n.language])
+  const label = useMemo(
+    () => (c: Country) => countryName(c, locale),
+    [locale],
+  )
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
@@ -64,17 +72,25 @@ export function CountryPicker({
 
   const filtered = useMemo<Country[]>(() => {
     const q = query.trim().toLowerCase()
+    // Match the localized name as well as the canonical English name and code,
+    // so searching works in the user's language and in English.
     const list = q
-      ? COUNTRIES.filter((c) => c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q))
+      ? COUNTRIES.filter(
+          (c) =>
+            label(c).toLowerCase().includes(q) ||
+            c.name.toLowerCase().includes(q) ||
+            c.code.toLowerCase().includes(q),
+        )
       : COUNTRIES
-    // Sort by name so the appended home nations slot in alphabetically.
-    return [...list].sort((a, b) => a.name.localeCompare(b.name))
-  }, [query])
+    // Sort by localized name (locale-aware) so the order reads naturally in the
+    // active language and the home nations slot in alphabetically.
+    return [...list].sort((a, b) => label(a).localeCompare(label(b), locale))
+  }, [query, label, locale])
 
   const triggerLabel = matched ? (
     <span className="flex items-center gap-2 min-w-0">
-      <Flag code={matched.code} title={matched.name} width={20} />
-      <span className="truncate text-slate-900">{matched.name}</span>
+      <Flag code={matched.code} title={label(matched)} width={20} />
+      <span className="truncate text-slate-900">{label(matched)}</span>
     </span>
   ) : value && value.trim() ? (
     // Legacy/free-text value that didn't match the canonical list — render as-is.
@@ -174,8 +190,8 @@ export function CountryPicker({
                           : 'text-slate-700 hover:bg-slate-50'
                       )}
                     >
-                      <Flag code={c.code} title={c.name} width={20} />
-                      <span className="flex-1 truncate">{c.name}</span>
+                      <Flag code={c.code} title={label(c)} width={20} />
+                      <span className="flex-1 truncate">{label(c)}</span>
                       <span className="text-[11px] text-slate-400 num">{c.code.replace(/^GB_/, '')}</span>
                     </button>
                   </li>

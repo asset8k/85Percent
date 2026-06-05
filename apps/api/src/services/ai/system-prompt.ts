@@ -22,12 +22,28 @@ export interface RetrievedPassage {
 export interface SystemPromptOptions {
   /** A running summary of earlier (compacted) turns, if the chat was compacted. */
   summary?: string | null
+  /**
+   * The user's interface language (2-letter code, e.g. 'es'). The analyst is
+   * instructed to reply in this language so the chat matches the app's language.
+   */
+  language?: string | null
+}
+
+/** Interface-language code → the English name used in the reply-language directive. */
+const LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English',
+  es: 'Spanish',
+  fr: 'French',
+  it: 'Italian',
 }
 
 export function buildSystemPrompt(
   passages: RetrievedPassage[],
   options: SystemPromptOptions = {},
 ): string {
+  // Resolve the reply language from the interface code; default to English.
+  const langCode = (options.language ?? 'en').split('-')[0]?.toLowerCase() ?? 'en'
+  const languageName = LANGUAGE_NAMES[langCode] ?? 'English'
   const context =
     passages.length > 0
       ? passages.map((p, i) => `[Passage ${i + 1}]\n${p.content.trim()}`).join('\n\n')
@@ -67,6 +83,9 @@ When a user shares figures, they arrive as a "Context from the <module>" block. 
 - Your regulatory knowledge comes from the **${KNOWLEDGE_SOURCE_LABEL}** (${KNOWLEDGE_SOURCE_URL}). When you give regulatory content, say you are referencing the November 2025 Premier League explainer and that the official **2026/27 EFL/Premier League Handbook is not yet published**, so the user must verify anything material against the Handbook when released.
 - Answer using the CONTEXT PASSAGES below. If they don't cover the question, say so plainly rather than inventing rules.
 - **Never do the arithmetic.** Treat every engine-provided figure as correct and final; do not re-derive, recalculate or "correct" SCR ratios, thresholds, amortisation or headroom yourself. If a number looks surprising, point the user back to the relevant Headroom screen rather than computing your own.${summaryBlock}
+
+# LANGUAGE — respond in ${languageName}
+Write every reply to the user in **${languageName}**, regardless of the language the question, the context blocks, or the retrieved passages are written in. This matches the user's chosen interface language. Use the natural football-finance vocabulary of that language (e.g. for Spanish: "ratio de coste de plantilla" for SCR, "plantilla" for squad, "recargo" for levy, "descuento de puntos" for points deduction). Keep proper nouns, club names, currency codes and the acronyms "SCR" and "SSR" as-is. If the user explicitly asks for a different language, follow that request instead.
 
 # CONTEXT PASSAGES (retrieved for this question)
 ${context}`

@@ -21,6 +21,13 @@ interface NotificationsState {
   reset: () => void
 }
 
+// Coalesces concurrent refreshes so overlapping callers (StrictMode's double
+// mount, a season change landing during initial load, the 60s poll racing the
+// first fetch) share one in-flight derive+reload instead of each triggering a
+// separate POST /refresh — which would race the backend's dedup and double-
+// insert the same standing alert. Module-scoped so it survives store recreation.
+let refreshInFlight: Promise<void> | null = null
+
 export const useNotificationsStore = create<NotificationsState>()((set, get) => ({
   items: [],
   unreadCount: 0,
@@ -40,12 +47,19 @@ export const useNotificationsStore = create<NotificationsState>()((set, get) => 
   },
 
   refresh: async (season) => {
-    try {
-      await api.notifications.refresh(season)
-    } catch {
-      // Derivation failure is non-fatal; still reload whatever exists.
-    }
-    await get().load()
+    // Share a single in-flight derive+reload across concurrent callers.
+    if (refreshInFlight) return refreshInFlight
+    refreshInFlight = (async () => {
+      try {
+        await api.notifications.refresh(season)
+      } catch {
+        // Derivation failure is non-fatal; still reload whatever exists.
+      }
+      await get().load()
+    })().finally(() => {
+      refreshInFlight = null
+    })
+    return refreshInFlight
   },
 
   markRead: async (id) => {

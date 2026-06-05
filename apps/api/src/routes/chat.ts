@@ -46,6 +46,8 @@ interface ChatBody {
   sessionId?: string
   /** Running summary of compacted earlier turns (folded into the system prompt). */
   summary?: string
+  /** Interface language (e.g. 'es') so the analyst replies in the user's language. */
+  language?: string
 }
 
 const MATCH_COUNT = 5
@@ -200,6 +202,7 @@ export async function chatRoutes(app: FastifyInstance) {
       const incoming = Array.isArray(body?.messages) ? body.messages : []
       const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : null
       const summary = typeof body?.summary === 'string' ? body.summary : null
+      const language = typeof body?.language === 'string' ? body.language : null
 
       const messages: ChatMessage[] = incoming
         .filter(
@@ -253,7 +256,7 @@ export async function chatRoutes(app: FastifyInstance) {
         }
       }
 
-      const system = buildSystemPrompt(passages, { summary })
+      const system = buildSystemPrompt(passages, { summary, language })
       const { userId, clubId } = request
 
       // Once the stream completes: (1) persist the turn to history and (2) debit

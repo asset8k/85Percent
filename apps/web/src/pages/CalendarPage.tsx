@@ -8,6 +8,7 @@ import { CalendarSkeleton } from '@/components/ui/page-skeletons'
 import { api } from '@/lib/api'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import { formatDate } from '@/lib/locale'
+import { useScrollLock } from '@/lib/useScrollLock'
 import type { PlayerWithContract } from '@headroom/shared'
 import type { ComplianceStatus } from '@headroom/shared'
 import { useClubStore } from '@/stores/club'
@@ -401,6 +402,8 @@ function ExpiringContractsDrawer({
 }) {
   const { t } = useTranslation()
   const { format: fmtMoney } = useWorkspaceCurrency()
+  // Lock page scroll while the drawer is open (gated on having players).
+  useScrollLock(!!players)
   // ESC dismiss
   useEffect(() => {
     if (!players) return
@@ -421,7 +424,7 @@ function ExpiringContractsDrawer({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.18 }}
-          className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-[2px]"
+          className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-[2px] overscroll-contain"
           onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
         >
           <motion.div
@@ -449,7 +452,7 @@ function ExpiringContractsDrawer({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2.5">
+            <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4 space-y-2.5">
               {players.length === 0 ? (
                 <p className="text-[13px] text-slate-400 text-center py-10">{t('calendar.drawer.empty')}</p>
               ) : (

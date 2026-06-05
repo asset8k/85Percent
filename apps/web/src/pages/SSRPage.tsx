@@ -299,7 +299,8 @@ function WorkingCapitalTab() {
         <div className="px-6 pt-5 pb-4 border-b border-slate-100">
           <SectionHeader title={t('ssr.wc.inputsTitle')} sub={t('ssr.wc.inputsSub')} />
         </div>
-        <table className="w-full">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px]">
           <thead className="border-b border-slate-100 bg-slate-50/60">
             <tr>
               <Th>{t('ssr.wc.thMonth')}</Th>
@@ -356,6 +357,7 @@ function WorkingCapitalTab() {
             })}
           </tbody>
         </table>
+        </div>
       </Card>
     </div>
   )

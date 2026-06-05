@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
+import i18n from '@/lib/i18n'
 import { useNavigate } from 'react-router-dom'
 import { useChat, type Message } from 'ai/react'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -38,6 +39,7 @@ import {
 } from '@/components/ai/icons'
 import { api } from '@/lib/api'
 import { useCopilot } from '@/stores/copilot'
+import { useScrollLock } from '@/lib/useScrollLock'
 import { KNOWLEDGE_SOURCE_LABEL, parseContextLabel } from '@/lib/copilotContext'
 
 // Attach the Supabase access token to every /api/chat request (fresh each call).
@@ -132,7 +134,7 @@ function MessageList({
   const showTyping = isLoading && visible[visible.length - 1]?.role === 'user'
 
   return (
-    <div ref={ref} onScroll={onScroll} className="flex-1 overflow-y-auto px-5 py-5">
+    <div ref={ref} onScroll={onScroll} className="flex-1 overflow-y-auto overscroll-contain px-5 py-5">
       <div className="mx-auto flex max-w-2xl flex-col gap-4">
         {compacted && visible.length > 0 && (
           <div className="flex items-center gap-2 text-[11px] text-slate-400">
@@ -492,7 +494,7 @@ function SessionSidebar({ onPick }: { onPick: (id: string) => void }) {
           <PlusIcon size={15} /> {t('ai.newChat')}
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto px-2 pb-3">
+      <div className="flex-1 overflow-y-auto overscroll-contain px-2 pb-3">
         <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
           {t('ai.history')}
         </p>
@@ -548,6 +550,10 @@ export function CopilotChat() {
     refreshSessions,
     setActiveSummary,
   } = useCopilot()
+
+  // Freeze the page behind the panel while it's open — kills the second
+  // scrollbar and stops chat scrolling from chaining into the page.
+  useScrollLock(isOpen)
 
   // AI credit balance (USD). null = still loading. `serverDepleted` latches when
   // the backend returns 402 mid-session, before the next /me refresh lands.
@@ -623,6 +629,8 @@ export function CopilotChat() {
     body: {
       sessionId: useCopilot.getState().activeId,
       summary: useCopilot.getState().activeSummary,
+      // Interface language so the analyst replies in the user's language.
+      language: i18n.language,
     },
   })
 

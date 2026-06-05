@@ -32,10 +32,11 @@ import { useCan } from '@/lib/role'
 import { useClubStore } from '@/stores/club'
 import { useSeasonStore, seasonKey } from '@/stores/season'
 import { exportAmortisationXLSX } from '@/lib/exports/amortisationXlsx'
-import { findCountry } from '@/lib/countries'
+import { findCountry, countryName } from '@/lib/countries'
 import { Flag } from '@/components/ui/flag'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import { activeLocale } from '@/lib/locale'
+import { useScrollLock } from '@/lib/useScrollLock'
 import { useCopilot } from '@/stores/copilot'
 import { CopilotTriggerIcon } from '@/components/ai/CopilotTrigger'
 import type {
@@ -515,7 +516,8 @@ function PlayerTable({
 
   return (
     <Card className="overflow-hidden">
-      <table className="w-full">
+      <div className="overflow-x-auto">
+      <table className="w-full min-w-[760px]">
         <thead className="border-b border-slate-100">
           <tr>
             <SortableTh field="squadNumber" label="#"            align="right" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
@@ -624,6 +626,7 @@ function PlayerTable({
           ))}
         </tbody>
       </table>
+      </div>
     </Card>
   )
 }
@@ -951,7 +954,7 @@ function SortableTh({
 function NationalityFlag({ nationality }: { nationality: string | null }) {
   const country = findCountry(nationality)
   if (!country) return null
-  return <Flag code={country.code} title={country.name} width={20} />
+  return <Flag code={country.code} title={countryName(country, activeLocale())} width={20} />
 }
 
 function PositionPill({ position }: { position: string | null }) {
@@ -2931,6 +2934,7 @@ function ModalShell({
   children: React.ReactNode
 }) {
   const { t } = useTranslation()
+  useScrollLock()
   return (
     <AnimatePresence>
       <motion.div
@@ -2941,7 +2945,7 @@ function ModalShell({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         transition={{ duration: 0.18 }}
-        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-[2px]"
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-[2px] overscroll-contain"
         onClick={(e) => {
           if (e.target === e.currentTarget) onClose()
         }}

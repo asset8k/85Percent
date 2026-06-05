@@ -234,8 +234,8 @@ export function RulesPage() {
         {/* 7 — Calendar */}
         <Card className="p-6">
           <SectionTitle num="7">{t('rules.s7.title')}</SectionTitle>
-          <div className="overflow-hidden rounded-xl border border-slate-200">
-            <table className="w-full text-[13px]">
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full min-w-[420px] text-[13px]">
               <tbody>
                 {(t('rules.s7.rows', { returnObjects: true }) as string[][]).map(([when, what], i) => (
                   <tr key={when} className={i % 2 ? 'bg-slate-50/60' : ''}>

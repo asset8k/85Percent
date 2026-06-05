@@ -181,7 +181,8 @@ function MiniTable({
         <span className="meta-label">{title}</span>
         <span className="text-[11px] text-slate-400">{subtitle}</span>
       </div>
-      <table className="w-full">
+      <div className="overflow-x-auto">
+      <table className="w-full min-w-[480px]">
         <tbody>
           {rows.map((r) => {
             const highlight = r.isClub && tone === 'danger'
@@ -233,6 +234,7 @@ function MiniTable({
           })}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }

@@ -3191,3 +3191,96 @@ build step, no second port). Run: `pnpm --filter @headroom/admin dev`.
   4-locale parity (en/es/fr/it = 1015 keys, 0 missing / 0 extra).
 - Net result: the entire app ships in English (source/fallback), Spanish,
   French and Italian, switchable from Settings → Interface Language.
+
+---
+
+## 2026-06-05 — Notification dedup bug + i18n follow-ups (countries, AI language)
+
+### Bug fix — duplicate notifications (doubled bell entries)
+- **Root cause:** `createNotificationOnce` ([apps/api/src/lib/notifications.ts])
+  deduped with a non-atomic *SELECT-then-INSERT*. Two near-simultaneous
+  `POST /notifications/refresh` calls both passed the existence check before
+  either inserted → two identical rows (same timestamp). Reproduced exactly the
+  doubled "5h ago" / "1d ago" pairs in the user's screenshot.
+- **Trigger:** `NotificationBell`'s mount `useEffect` calls `refresh()` with no
+  in-flight guard; **React.StrictMode** double-invokes mount effects (dev) and
+  the `seasonStartYear` dep + 60s poll can overlap — so two refreshes fire at
+  once. Not dev-only: the race also occurs across tabs / API instances.
+- **Fix (two layers, defence in depth):**
+  1. *Frontend* — `stores/notifications.ts` now coalesces concurrent `refresh`
+     calls behind a module-scoped in-flight promise (overlapping callers share
+     one derive+reload).
+  2. *Backend* — `createNotificationOnce` now writes via `upsert(..., {
+     onConflict: 'id', ignoreDuplicates: true })` with a **deterministic primary
+     key** `dedup_<sha1(club|user|title|window-bucket)>`. Racing inserts collide
+     on the PK (ON CONFLICT DO NOTHING) so exactly one wins. The rolling-window
+     SELECT is kept for the normal "already alerted within 24h" case. **No
+     migration** — `notifications.id` is already a TEXT primary key.
+
+### i18n — country names localized in the nationality picker
+- Player & coach nationality were always shown in English. Added
+  `countryName(country, locale)` in [apps/web/src/lib/countries.ts] using
+  **`Intl.DisplayNames`** (region) to localize the ~190 ISO countries per
+  interface language automatically — no hand-translated country tables. The four
+  football home nations (England/Scotland/Wales/Northern Ireland) aren't ISO
+  regions, so they use a small hand map (en/es/fr/it). Falls back to the
+  canonical English name when a code/locale can't resolve. `DisplayNames`
+  instances are cached per locale.
+- Wired `CountryPicker` (trigger label, list rows, search match — now matches
+  the localized name, English name, and code — and locale-aware sort) plus both
+  `NationalityFlag` tooltip renderers (Roster + Dashboard). Stored value is
+  unchanged (still canonical English) — presentation only.
+
+### i18n — AI Compliance Analyst replies in the user's language
+- `buildSystemPrompt` ([apps/api/src/services/ai/system-prompt.ts]) now takes a
+  `language` option and appends a **"# LANGUAGE — respond in <X>"** directive
+  (en/es/fr/it → English/Spanish/French/Italian) with football-finance
+  vocabulary guidance, keeping SCR/SSR acronyms, club names and currency codes
+  as-is, and deferring to an explicit user request for a different language.
+- Threaded through: `POST /chat` reads `body.language`; `CopilotChat` sends
+  `i18n.language` in `sendOpts()` (covers all three send paths — submit, append,
+  injected prompt).
+- **Verified:** tsc clean (all 5 pkgs), engine tests 119/119, API prompt tests
+  6/6, web `vite build` OK, locale parity es/fr/it = 991 keys, 0 missing/0 extra
+  (no JSON changes — country localization is code-level).
+
+### UX fix — double scrollbar / scroll chaining behind overlays
+- **Symptoms:** (1) scrolling the Copilot chat also scrolled the page behind it
+  (two scrollbars on the right, intersecting); (2) with a dialog open, the page
+  kept scrolling even while interacting inside the dialog.
+- **Cause:** no overlay locked page scroll, and the panels' inner scroll areas
+  let wheel/touch **chain** to the window once they hit their end.
+- **Fix — shared `useScrollLock` hook** ([apps/web/src/lib/useScrollLock.ts]):
+  while any overlay is open it sets `body { overflow: hidden }` and pads the
+  body by the scrollbar width (no layout jump when the bar disappears).
+  **Reference-counted at module scope** so stacked overlays (a modal that opens
+  a nested picker, or the drawer over a page that also has a modal) coordinate —
+  the lock applies on the first open and releases only on the last close;
+  StrictMode's mount→cleanup→mount nets to one lock.
+- Applied to every dimming overlay: Copilot chat (drawer + fullscreen, keyed on
+  `isOpen`), Roster `ModalShell` (covers all 6 roster modals), Scenarios
+  `CompareModal`, ClubSetup `ManageAccessModal`, Calendar expiring-contracts
+  drawer, Sidebar change-club modal. Anchored popovers (SCR breakdown,
+  notifications, date-picker) intentionally do **not** lock.
+- Defence in depth: added `overscroll-contain` to each overlay backdrop and to
+  the scrollable regions (chat message list + session list, calendar drawer body,
+  notifications list) so a wheel/touch at a scroll boundary can't chain to the
+  page even before the lock engages.
+- **Verified:** tsc clean (all 5 pkgs), web `vite build` OK.
+
+### UX fix — horizontal table overflow in non-English languages
+- Longer translated strings widened tables past their card, clipping the last
+  column (most visible on the Dashboard squad-cost breakdown). Wrapped each
+  table in an `overflow-x-auto` container + a `min-w-[…]` on the table so it
+  scrolls horizontally instead of being cut off.
+- Tables fixed: Dashboard breakdown + `LeagueImpactTable`, Roster squad table,
+  SSR working-capital table, Rules reference table, ClubSetup team / invites /
+  activity tables. Already scrollable (left as-is): League Table page, Roster CSV
+  staging grid, chat markdown tables.
+- **Verified:** tsc clean, web `vite build` OK.
+
+### UX fix — chat reopens in the small drawer (never fullscreen)
+- `copilot` store: `close()` and `toggle()` now reset `isFullscreen` to false
+  when the panel closes, so a fully-closed chat always reopens as the small
+  drawer. Re-triggering `open()` while still open in fullscreen (a context
+  inject) intentionally keeps fullscreen.

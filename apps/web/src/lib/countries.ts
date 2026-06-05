@@ -260,6 +260,57 @@ const NATIONALITY_ALIASES: Record<string, string> = {
   'the gambia': 'Gambia',
 }
 
+// Home-nation labels per interface language. These aren't ISO regions, so
+// Intl.DisplayNames can't localize them — keep a small hand table. Keyed by the
+// 2-letter language (en/es/fr/it); falls back to English.
+const HOME_NATION_NAMES: Record<string, Record<string, string>> = {
+  GB_ENG: { en: 'England', es: 'Inglaterra', fr: 'Angleterre', it: 'Inghilterra' },
+  GB_SCT: { en: 'Scotland', es: 'Escocia', fr: 'Écosse', it: 'Scozia' },
+  GB_WLS: { en: 'Wales', es: 'Gales', fr: 'Pays de Galles', it: 'Galles' },
+  GB_NIR: {
+    en: 'Northern Ireland',
+    es: 'Irlanda del Norte',
+    fr: 'Irlande du Nord',
+    it: 'Irlanda del Nord',
+  },
+}
+
+// Cache one Intl.DisplayNames instance per locale — constructing it is not free
+// and the picker localizes ~190 rows on every render/keystroke.
+const displayNamesCache = new Map<string, Intl.DisplayNames>()
+function regionDisplayNames(locale: string): Intl.DisplayNames | null {
+  let dn = displayNamesCache.get(locale)
+  if (!dn) {
+    try {
+      dn = new Intl.DisplayNames([locale], { type: 'region' })
+    } catch {
+      return null
+    }
+    displayNamesCache.set(locale, dn)
+  }
+  return dn
+}
+
+/**
+ * Localized display name for a country in the given BCP-47 locale. ISO entries
+ * are translated via Intl.DisplayNames (so the picker reads in the user's
+ * language); the four football home nations use the hand table above. Falls
+ * back to the canonical English name when a locale or code can't be resolved.
+ * The stored value is unaffected — this is presentation only.
+ */
+export function countryName(country: Country, locale: string): string {
+  const lang = locale.split('-')[0]?.toLowerCase() ?? 'en'
+  const home = HOME_NATION_NAMES[country.code]
+  if (home) return home[lang] ?? home.en ?? country.name
+  try {
+    const label = regionDisplayNames(locale)?.of(country.code)
+    if (label && label !== country.code) return label
+  } catch {
+    // Unsupported code (e.g. XK on some ICU builds) — fall through.
+  }
+  return country.name
+}
+
 // Match a free-text nationality value back to a Country entry. Tries an exact
 // code match (2-letter ISO, or our GB_ENG-style home-nation keys), then an
 // exact name match, then the football-spelling alias table. Returns null when

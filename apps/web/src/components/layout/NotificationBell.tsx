@@ -195,7 +195,7 @@ export function NotificationBell() {
               )}
             </div>
 
-            <div className="max-h-[400px] overflow-y-auto divide-y divide-slate-100">
+            <div className="max-h-[400px] overflow-y-auto overscroll-contain divide-y divide-slate-100">
               {!loaded ? (
                 <div className="px-4 py-10 text-center text-[13px] text-slate-400">{t('common.loading')}</div>
               ) : items.length === 0 ? (

@@ -38,6 +38,7 @@ import type { ScenarioActionInput, ScenarioActionType } from '@headroom/engine'
 import type { PlayerWithContract } from '@headroom/shared'
 import { formatPence } from '@headroom/shared'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
+import { useScrollLock } from '@/lib/useScrollLock'
 import { useCopilot } from '@/stores/copilot'
 import { CopilotTriggerButton } from '@/components/ai/CopilotTrigger'
 import type { ScenarioDetail, ScenarioAction, ClubFinancialsResponse } from '@/lib/api'
@@ -1179,6 +1180,7 @@ function CompareModal({
   onClose: () => void
 }) {
   const { t } = useTranslation()
+  useScrollLock()
   const { format: fmtMoney, currency } = useWorkspaceCurrency()
   const [aId, setAId] = useState<string>(scenarios[0]?.id ?? '')
   const [bId, setBId] = useState<string>(scenarios[1]?.id ?? '')
@@ -1212,7 +1214,7 @@ function CompareModal({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.18 }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-[2px] overscroll-contain"
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       <motion.div

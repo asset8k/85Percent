@@ -36,7 +36,8 @@ import { calculateSquadCosts, calculateLevy, calculatePointsDeduction, type Cont
 import type { PlayerWithContract } from '@headroom/shared'
 import { LEAGUE_CONFIGS } from '@headroom/shared'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
-import { findCountry } from '@/lib/countries'
+import { findCountry, countryName } from '@/lib/countries'
+import { activeLocale } from '@/lib/locale'
 import { Flag } from '@/components/ui/flag'
 import { AnimatedNumber } from '@/components/ui/animated-number'
 import { cn } from '@/lib/utils'
@@ -461,7 +462,8 @@ export function DashboardPage() {
           </div>
         </div>
 
-        <table className="w-full">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px]">
           <thead className="border-b border-slate-100 bg-slate-50/40">
             <tr>
               <SortableTh field="squadNumber"  label={t('dashboard.table.th.number')}       align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
@@ -509,6 +511,7 @@ export function DashboardPage() {
             </tr>
           </tfoot>
         </table>
+        </div>
       </Card>
     </div>
   )
@@ -861,7 +864,7 @@ function SortableTh({
 function NationalityFlag({ nationality }: { nationality: string | null }) {
   const country = findCountry(nationality)
   if (!country) return null
-  return <Flag code={country.code} title={country.name} width={20} />
+  return <Flag code={country.code} title={countryName(country, activeLocale())} width={20} />
 }
 
 function PositionPill({ position }: { position: string | null }) {

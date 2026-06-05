@@ -66,10 +66,11 @@ export const useCopilot = create<CopilotState>((set, get) => ({
     get().ensureActiveSession()
     set({ isOpen: true, pendingInjection: context ? buildContextInjection(context) : null })
   },
-  close: () => set({ isOpen: false }),
+  // Closing always drops fullscreen so the next open is the small drawer.
+  close: () => set({ isOpen: false, isFullscreen: false }),
   toggle: () => {
     if (!get().isOpen) get().ensureActiveSession()
-    set((s) => ({ isOpen: !s.isOpen }))
+    set((s) => ({ isOpen: !s.isOpen, isFullscreen: s.isOpen ? false : s.isFullscreen }))
   },
   setFullscreen: (v) => set({ isFullscreen: v }),
 

@@ -34,6 +34,7 @@ import { EFL_CHAMPIONSHIP_CONFIG } from '@headroom/shared'
 import { calculatePromotedClubRevenueUplift, PROMOTED_CLUB_DEFAULT_UPLIFT_FACTOR } from '@headroom/engine'
 import { cn, formatUsd } from '@/lib/utils'
 import { activeLocale } from '@/lib/locale'
+import { useScrollLock } from '@/lib/useScrollLock'
 import { useCan } from '@/lib/role'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import { SUPPORTED_LANGUAGES, LANGUAGE_LABELS, LANGUAGE_FLAGS, setLanguage, type Language } from '@/lib/i18n'
@@ -1510,7 +1511,8 @@ function TeamTab() {
           <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
           <h2 className="text-[15px] font-semibold text-slate-900">{t('settings.team.activeUsers', { count: members.length })}</h2>
         </div>
-        <table className="w-full">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px]">
           <thead className="bg-slate-50/40 border-b border-slate-100">
             <tr>
               <Th>{t('settings.team.thName')}</Th>
@@ -1586,6 +1588,7 @@ function TeamTab() {
             })}
           </tbody>
         </table>
+        </div>
       </Card>
 
       <AnimatePresence>
@@ -1605,7 +1608,8 @@ function TeamTab() {
             <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
             <h2 className="text-[15px] font-semibold text-slate-900">{t('settings.team.pendingInvites')}</h2>
           </div>
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px]">
             <thead className="bg-slate-50/40 border-b border-slate-100">
               <tr>
                 <Th>{t('settings.team.thEmail')}</Th>
@@ -1643,6 +1647,7 @@ function TeamTab() {
               ))}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
     </div>
@@ -1855,6 +1860,7 @@ function ManageAccessModal({
   onSaved: (id: string, next: { title: string | null } & Permissions) => void
 }) {
   const { t } = useTranslation()
+  useScrollLock()
   const [title, setTitle] = useState(member.title ?? '')
   const [perms, setPerms] = useState<Permissions>({
     canEditRoster: member.canEditRoster,
@@ -1890,7 +1896,7 @@ function ManageAccessModal({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.18 }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-[2px] overscroll-contain"
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       <motion.div
@@ -1996,7 +2002,8 @@ function ActivityTab() {
             <p className="text-[14px] text-slate-500">{t('settings.activity.empty')}</p>
           </div>
         ) : (
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px]">
             <thead className="bg-slate-50/40 border-b border-slate-100">
               <tr>
                 <Th>{t('settings.activity.thWhen')}</Th>
@@ -2033,6 +2040,7 @@ function ActivityTab() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
 
         {/* Pagination */}
