@@ -262,7 +262,7 @@ export function DashboardPage() {
   const handleExport = () => {
     if (!financials || players.length === 0) return
     exportSquadPDF({
-      clubName: clubName ?? 'Headroom FC',
+      clubName: clubName ?? '85Percent FC',
       leagueId: leagueId ?? 'efl-championship',
       financials,
       players,

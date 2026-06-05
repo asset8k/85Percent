@@ -88,7 +88,7 @@ export function addFooter(doc: jsPDF, pageNum: number, totalPages?: number): voi
   doc.setFontSize(7.5)
   doc.setTextColor(...COLOR.slate400)
   doc.text(
-    'Headroom is a decision-support tool. It does not constitute legal or financial advice.',
+    '85Percent is a decision-support tool. It does not constitute legal or financial advice.',
     14, h - 10,
   )
   const page = totalPages ? `${pageNum} / ${totalPages}` : String(pageNum)
@@ -111,7 +111,7 @@ export function addHeader(
   doc.setFont('helvetica', 'bold')
   doc.setFontSize(20)
   doc.setTextColor(...COLOR.violet700)
-  doc.text('Headroom', 22, 22)
+  doc.text('85Percent', 22, 22)
 
   // Report title
   doc.setFontSize(13)

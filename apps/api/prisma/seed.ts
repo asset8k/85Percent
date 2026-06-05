@@ -1,5 +1,5 @@
 /**
- * Headroom — local development seed (MVP 2.0)
+ * 85Percent — local development seed (MVP 2.0)
  *
  * Creates one test club, one test admin user, club financials, and a 5-player
  * squad with contracts so the Dashboard has realistic data to display.
@@ -7,7 +7,7 @@
  * ─── Credentials ────────────────────────────────────────────────────────────
  *   Email    : dev@headroom.test
  *   Password : Dev@headroom1!
- *   Club     : Headroom Dev FC  (EFL Championship)
+ *   Club     : 85Percent Dev FC  (EFL Championship)
  * ────────────────────────────────────────────────────────────────────────────
  *
  * Usage (from apps/api/):
@@ -32,7 +32,7 @@ const supabase = createClient(supabaseUrl, serviceKey, {
 
 const SEED_EMAIL      = 'dev@headroom.test'
 const SEED_PASSWORD   = 'Dev@headroom1!'
-const SEED_CLUB_NAME  = 'Headroom Dev FC'
+const SEED_CLUB_NAME  = '85Percent Dev FC'
 const SEED_CLUB_SHORT = 'HDF'
 const SEASON          = '2026-27'
 const now             = new Date().toISOString()
@@ -110,7 +110,7 @@ const SQUAD = [
 ]
 
 async function seed() {
-  console.log('🌱 Seeding Headroom development data (MVP 2.0)…\n')
+  console.log('🌱 Seeding 85Percent development data (MVP 2.0)…\n')
 
   // ── 1. Create auth user ────────────────────────────────────────────────────
   console.log(`Creating auth user: ${SEED_EMAIL}`)

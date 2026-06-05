@@ -93,12 +93,12 @@ export function page(opts: {
         <head>
           <meta charset="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <title>${opts.title} · Headroom Admin</title>
+          <title>${opts.title} · 85Percent Admin</title>
           <style>${raw(STYLES)}</style>
         </head>
         <body>
           <header class="top">
-            <span class="brand">Headroom Admin</span>
+            <span class="brand">85Percent Admin</span>
             <nav>${nav('users', '/users', 'Users')} ${nav('jobs', '/jobs', 'Jobs')}</nav>
             <span class="spacer"></span>
             <form class="inline" method="post" action="/logout">

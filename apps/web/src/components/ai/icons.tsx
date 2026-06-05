@@ -3,7 +3,7 @@
  * shared by the chat surface and the in-app triggers so the glyphs never drift.
  *
  * SparkIcon is the brand mark — an open compliance gauge (the SCR/headroom dial
- * that runs through the product) with a spark at its centre: Headroom's own
+ * that runs through the product) with a spark at its centre: 85Percent's own
  * "intelligence" glyph rather than the generic four-point AI sparkle. The rest
  * are crisp 2px stroke icons (compose, send, expand/collapse, etc.).
  */
@@ -34,7 +34,7 @@ function Stroke({ size = 16, className, children }: IconProps & { children: Reac
 /**
  * Brand / AI mark — an open gauge arc (the headroom dial, with its gap at the
  * bottom) wrapped around a centred spark. The spark says "AI"; the gauge makes
- * it unmistakably Headroom's analyst, echoing the SCR dial and the context ring.
+ * it unmistakably 85Percent's analyst, echoing the SCR dial and the context ring.
  */
 export function SparkIcon({ size = 16, className }: IconProps) {
   return (

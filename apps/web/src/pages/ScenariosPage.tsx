@@ -533,7 +533,7 @@ export function ScenariosPage() {
           <CompareModal
             scenarios={scenarios}
             financials={liveFinancials}
-            clubName={useClubStore.getState().clubName ?? 'Headroom FC'}
+            clubName={useClubStore.getState().clubName ?? '85Percent FC'}
             onClose={() => setCompareOpen(false)}
           />
         )}

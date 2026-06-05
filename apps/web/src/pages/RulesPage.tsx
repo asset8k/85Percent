@@ -2,7 +2,7 @@
  * RulesPage — an in-app reference for the Squad Cost Ratio (SCR) financial
  * system, between Calendar and Financials in the nav.
  *
- * This is Headroom's own plain-English summary of the regulatory framework the
+ * This is 85Percent's own plain-English summary of the regulatory framework the
  * engine implements (thresholds, inclusions, sanctions, the PL SSR tests) — it
  * is NOT a reproduction of any third-party article. The official Premier League
  * statement is linked at the top and bottom for the authoritative source, and

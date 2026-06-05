@@ -123,7 +123,7 @@ export async function authMiddleware(request: FastifyRequest, reply: FastifyRepl
         .from('clubs')
         .insert({
           id: newClubId,
-          name: 'Headroom FC',
+          name: '85Percent FC',
           short_name: 'HFC',
           league_id: 'efl-championship',
           created_at: now,

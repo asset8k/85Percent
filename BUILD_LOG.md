@@ -3284,3 +3284,38 @@ build step, no second port). Run: `pnpm --filter @headroom/admin dev`.
   when the panel closes, so a fully-closed chat always reopens as the small
   drawer. Re-triggering `open()` while still open in fullscreen (a context
   inject) intentionally keeps fullscreen.
+
+---
+
+## 2026-06-05 — Rebrand: Headroom → 85Percent
+
+Renamed the **platform brand** from "Headroom" to "85Percent" (case-preserving:
+`Headroom`→`85Percent`, `headroom`→`85percent`, `HEADROOM`→`85PERCENT`).
+
+**Critical nuance — the word is overloaded.** "headroom" is also the core
+*financial* term (spare capacity under the SCR cap), used pervasively as code
+identifiers (`headroomRemaining`, `liquidityHeadroomPence`, `worstHeadroomPence`,
+`redThresholdHeadroom`, …) and as UI copy ("Headroom to Green", "Liquidity
+Headroom", th "Headroom", i18n `tipHeadroom`/`thHeadroom`/`{{headroom}}`). A
+literal global replace would (a) break the build — `85percentRemaining` is not a
+valid JS identifier — and (b) corrupt domain copy. So the rebrand was scoped
+**brand-only, user-visible-only** (confirmed with the user):
+
+- **Rebranded:** new shared `Wordmark` component (`apps/web/src/components/ui/Wordmark.tsx`,
+  bold violet "85" + slate "Percent", replaces the pitch-glyph "H" logo in
+  Sidebar + LoginPage); `index.html` `<title>` = "85Percent | Football Financial
+  Compliance" + meta + Inter 800 weight added; AppLayout brand fallback; AI system
+  prompt ("85Percent Compliance Analyst" + product description) + its test; admin
+  panel ("85Percent Admin"); PDF/XLSX disclaimers + header + export filename
+  prefixes (`85percent-squad-…` etc.); club-name fallbacks ("85Percent FC");
+  TOTP issuer; disclaimer/intro/footer/greeting/topUp brand strings in all 4
+  locales; README + design-system catalog brand text; seed club name.
+- **Deliberately untouched:** the financial term "headroom" (identifiers AND
+  copy like "Headroom to Green"); `@headroom/*` workspace package scope + imports;
+  `localStorage` keys (`headroom-auth`, `headroom-language`, `headroom.activeSeason`,
+  `headroom-me`) — renaming would log users out / drop saved language; seed login
+  email `dev@headroom.test`; historical docs (CONTEXT/PLAN/DOCKER/mvp_2.0_plan/
+  prior BUILD_LOG entries).
+
+**Verified:** typecheck (7/7), build (5/5, web vite OK), engine 119/119, API
+scripts 61/61 (incl. prompt brand assertion), locales valid + parity (1015 each).

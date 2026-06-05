@@ -92,7 +92,7 @@
       "adjustedRevenue": "Ricavi rettificati:",
       "manageScenarios": "Gestisci scenari"
     },
-    "disclaimer": "Headroom è uno strumento di supporto alle decisioni. Non costituisce consulenza legale o finanziaria. Verifica sempre con il Manuale ufficiale dell'EFL.",
+    "disclaimer": "85Percent è uno strumento di supporto alle decisioni. Non costituisce consulenza legale o finanziaria. Verifica sempre con il Manuale ufficiale dell'EFL.",
     "notifications": {
       "title": "Notifiche",
       "aria": "Notifiche",
@@ -117,7 +117,7 @@
   },
   "auth": {
     "tagline": "La conformità finanziaria per il calcio professionistico.",
-    "disclaimer": "Headroom è uno strumento di supporto alle decisioni. Non costituisce consulenza legale o finanziaria.",
+    "disclaimer": "85Percent è uno strumento di supporto alle decisioni. Non costituisce consulenza legale o finanziaria.",
     "workEmail": "E-mail di lavoro",
     "password": "Password",
     "checkEmail": "Controlla la tua e-mail",
@@ -346,7 +346,7 @@
   "rules": {
     "eyebrow": "Riferimento",
     "title": "Il sistema del rapporto costo rosa",
-    "intro": "Dalla stagione 2026/27, la Premier League e l'EFL Championship limitano la spesa per la rosa come quota dei ricavi del calcio tramite il rapporto costo rosa (SCR), che sostituisce le vecchie Regole di Redditività e Sostenibilità. Questa pagina è il riepilogo in linguaggio chiaro di Headroom sul funzionamento del sistema — la stessa logica che il motore usa per calcolare la tua posizione.",
+    "intro": "Dalla stagione 2026/27, la Premier League e l'EFL Championship limitano la spesa per la rosa come quota dei ricavi del calcio tramite il rapporto costo rosa (SCR), che sostituisce le vecchie Regole di Redditività e Sostenibilità. Questa pagina è il riepilogo in linguaggio chiaro di 85Percent sul funzionamento del sistema — la stessa logica che il motore usa per calcolare la tua posizione.",
     "officialLink": "Leggi il comunicato ufficiale della Premier League",
     "refOnly": "Solo a titolo di riferimento — non è consulenza legale. Verifica con il Manuale ufficiale 2026/27.",
     "s1": {
@@ -425,7 +425,7 @@
         ["7 luglio (PL)", "Valutazioni SSR — Capitale circolante, Liquidità, Patrimonio netto positivo"]
       ]
     },
-    "footer": "Questo riepilogo riflette l'interpretazione di Headroom del quadro pubblicato. Il comunicato della Premier League stessa fa fede."
+    "footer": "Questo riepilogo riflette l'interpretazione di 85Percent del quadro pubblicato. Il comunicato della Premier League stessa fa fede."
   },
   "calendar": {
     "title": "Calendario di conformità {{season}}",
@@ -945,7 +945,7 @@
     "sourceLabel": "Fonte: regole dello SCR",
     "summarized": "Conversazione precedente riassunta",
     "greetingTitle": "Come posso aiutarti sulla conformità?",
-    "greetingBody": "Spiego le regole dello SCR e i valori che Headroom ha calcolato, basandomi su {{source}}. Verifica le decisioni importanti con il Manuale ufficiale 2026/27 — sono un supporto all'analisi, non un consulente legale.",
+    "greetingBody": "Spiego le regole dello SCR e i valori che 85Percent ha calcolato, basandomi su {{source}}. Verifica le decisioni importanti con il Manuale ufficiale 2026/27 — sono un supporto all'analisi, non un consulente legale.",
     "examplePrompts": [
       "Che cos'è il rapporto costo rosa e come si calcola?",
       "Cosa succede se superiamo la soglia dell'85%?",
@@ -1093,7 +1093,7 @@
       "aiTitle": "Utilizzo dell'IA",
       "aiSub": "Il tuo Analista di conformità funziona con credito prepagato, addebitato per richiesta al costo più un piccolo margine.",
       "currentBalance": "Saldo attuale",
-      "topUpHint": "Per ricaricare il tuo saldo, contatta il supporto di Headroom.",
+      "topUpHint": "Per ricaricare il tuo saldo, contatta il supporto di 85Percent.",
       "depleted": "Esaurito",
       "passwordTitle": "Password",
       "passwordSub": "Min. 8 caratteri · maiuscola · minuscola · numero · carattere speciale.",

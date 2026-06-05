@@ -1,6 +1,8 @@
-# Headroom — Football Financial Compliance Platform
+# 85Percent — Football Financial Compliance Platform
 
 A B2B SaaS platform for professional football clubs to instantly simulate the financial and regulatory impact of player transfers before they happen.
+
+> **85Percent** is named for the Squad Cost Ratio's 85% Green ceiling — the share of football revenue a club may spend on its squad. The platform keeps clubs the right side of that line.
 
 ---
 
@@ -119,7 +121,7 @@ Headroom/
 1. **Engine is pure** — `/packages/engine` contains only pure functions. No database calls, no API calls, no side effects.
 2. **Money is always integers** — all monetary values stored as pence (BigInt in DB, number in TS). Display conversion at the presentation layer only.
 3. **Every simulation is saved** — full audit trail, never deleted.
-4. **Legal disclaimer on every page** — "Headroom is a decision-support tool. It does not constitute legal or financial advice."
+4. **Legal disclaimer on every page** — "85Percent is a decision-support tool. It does not constitute legal or financial advice."
 5. **League config is data-driven** — all thresholds live in `LeagueConfig` objects, not if-statements.
 
 ---

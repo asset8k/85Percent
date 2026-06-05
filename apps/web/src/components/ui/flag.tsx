@@ -1,5 +1,5 @@
 /**
- * Flag — sharp SVG country flag, styled for the Headroom UI Kit.
+ * Flag — sharp SVG country flag, styled for the 85Percent UI Kit.
  *
  * Backed by `country-flag-icons` (MIT, pure SVG, ~30 KB gzipped) so the visual
  * is consistent across macOS, Windows and Linux — emoji flags vary platform

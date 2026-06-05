@@ -1,6 +1,6 @@
 /**
  * Markdown — renders the Analyst's answers as rich text (GFM: bold, lists,
- * tables, code, links), styled to the Headroom UI Kit rather than the prose
+ * tables, code, links), styled to the 85Percent UI Kit rather than the prose
  * plugin. Memoised so token-by-token streaming doesn't re-parse needlessly per
  * keystroke beyond what the growing string requires.
  */

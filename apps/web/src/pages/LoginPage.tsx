@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { supabase } from '@/lib/supabase'
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
+import { Wordmark } from '@/components/ui/Wordmark'
 import { Spinner } from '@/components/ui/spinner'
 import type { InviteLookupResponse } from '@/lib/api'
 
@@ -100,19 +101,7 @@ export function LoginPage() {
 
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <span className="inline-flex items-baseline gap-0 select-none" style={{ color: '#6d28d9', fontFamily: 'Inter', fontWeight: 700, letterSpacing: '-0.02em', fontSize: 28 }}>
-            <span aria-hidden="true" className="inline-flex items-end" style={{ height: 31, marginRight: -1 }}>
-              <svg width={25} height={31} viewBox="0 0 18 22" fill="none">
-                <rect x="0" y="0" width="3.5" height="22" fill="#6d28d9" />
-                <rect x="12.5" y="0" width="3.5" height="22" fill="#6d28d9" />
-                <rect x="3.5" y="9.75" width="9" height="2.5" fill="#6d28d9" />
-                <rect x="5.5" y="0" width="5" height="3.5" fill="#6d28d9" opacity="0.65" />
-                <rect x="5.5" y="18.5" width="5" height="3.5" fill="#6d28d9" opacity="0.65" />
-                <circle cx="8" cy="11" r="2.6" stroke="#6d28d9" strokeWidth="1" fill="none" opacity="0.6" />
-              </svg>
-            </span>
-            <span>eadroom</span>
-          </span>
+          <Wordmark size={28} />
           <p className="mt-3 text-sm text-slate-500 text-center">{t('auth.tagline')}</p>
         </div>
 

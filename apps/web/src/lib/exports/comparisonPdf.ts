@@ -94,7 +94,7 @@ export function exportComparisonPDF(input: ExportComparisonInput): void {
   finalizeFooters(doc)
 
   const safe = (s: string) => s.replace(/[^A-Za-z0-9-]+/g, '-').replace(/^-|-$/g, '') || 'scenario'
-  doc.save(`headroom-compare-${safe(input.scenarioA.name)}-vs-${safe(input.scenarioB.name)}.pdf`)
+  doc.save(`85percent-compare-${safe(input.scenarioA.name)}-vs-${safe(input.scenarioB.name)}.pdf`)
 }
 
 // ---------------------------------------------------------------------------

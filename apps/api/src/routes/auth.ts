@@ -1,7 +1,7 @@
 /**
  * Authentication routes — TOTP two-factor + self-service password recovery.
  *
- * Architecture note: Headroom uses Supabase Auth, so the password store lives in
+ * Architecture note: 85Percent uses Supabase Auth, so the password store lives in
  * Supabase `auth.users` and the JWT is minted by Supabase — not here. To honour
  * the spec's "withhold the JWT until 2FA passes" requirement on top of that, we
  * proxy login through the backend:
@@ -37,7 +37,7 @@ import { writeAuditLog } from '../lib/audit.js'
 // Allow ±1 time-step (±30s) of clock drift between the authenticator app and us.
 authenticator.options = { window: 1 }
 
-const TOTP_ISSUER = 'Headroom'
+const TOTP_ISSUER = '85Percent'
 const RESET_TTL_MS = 60 * 60 * 1000 // 1 hour
 
 // Password policy — mirrors the signup rules enforced on the client.

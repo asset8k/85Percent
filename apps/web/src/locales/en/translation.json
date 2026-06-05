@@ -92,7 +92,7 @@
       "adjustedRevenue": "Adjusted revenue:",
       "manageScenarios": "Manage scenarios"
     },
-    "disclaimer": "Headroom is a decision-support tool. It does not constitute legal or financial advice. Always verify against the official EFL Handbook.",
+    "disclaimer": "85Percent is a decision-support tool. It does not constitute legal or financial advice. Always verify against the official EFL Handbook.",
     "notifications": {
       "title": "Notifications",
       "aria": "Notifications",
@@ -117,7 +117,7 @@
   },
   "auth": {
     "tagline": "Financial compliance for professional football.",
-    "disclaimer": "Headroom is a decision-support tool. It does not constitute legal or financial advice.",
+    "disclaimer": "85Percent is a decision-support tool. It does not constitute legal or financial advice.",
     "workEmail": "Work Email",
     "password": "Password",
     "checkEmail": "Check your email",
@@ -346,7 +346,7 @@
   "rules": {
     "eyebrow": "Reference",
     "title": "The Squad Cost Ratio system",
-    "intro": "From the 2026/27 season, the Premier League and the EFL Championship cap squad spending as a share of football revenue under the Squad Cost Ratio (SCR), replacing the old Profitability & Sustainability Rules. This page is Headroom's plain-English summary of how the system works — the same logic the engine uses to compute your position.",
+    "intro": "From the 2026/27 season, the Premier League and the EFL Championship cap squad spending as a share of football revenue under the Squad Cost Ratio (SCR), replacing the old Profitability & Sustainability Rules. This page is 85Percent's plain-English summary of how the system works — the same logic the engine uses to compute your position.",
     "officialLink": "Read the official Premier League statement",
     "refOnly": "Reference only — not legal advice. Verify against the official 2026/27 Handbook.",
     "s1": {
@@ -425,7 +425,7 @@
         ["7 July (PL)", "SSR assessments — Working Capital, Liquidity, Positive Equity"]
       ]
     },
-    "footer": "This summary reflects Headroom's reading of the published framework. The Premier League's own statement is the authoritative source."
+    "footer": "This summary reflects 85Percent's reading of the published framework. The Premier League's own statement is the authoritative source."
   },
   "calendar": {
     "title": "Compliance Calendar {{season}}",
@@ -945,7 +945,7 @@
     "sourceLabel": "Source: SCR rules",
     "summarized": "Earlier conversation summarized",
     "greetingTitle": "How can I help with compliance?",
-    "greetingBody": "I explain the SCR rules and the figures Headroom has calculated, grounded in the {{source}}. Verify material decisions against the official 2026/27 Handbook — I'm an analyst aid, not a legal advisor.",
+    "greetingBody": "I explain the SCR rules and the figures 85Percent has calculated, grounded in the {{source}}. Verify material decisions against the official 2026/27 Handbook — I'm an analyst aid, not a legal advisor.",
     "examplePrompts": [
       "What is the Squad Cost Ratio and how is it calculated?",
       "What happens if we breach the 85% threshold?",
@@ -1093,7 +1093,7 @@
       "aiTitle": "AI Usage",
       "aiSub": "Your Compliance Analyst runs on prepaid credit, billed per query at cost plus a small margin.",
       "currentBalance": "Current balance",
-      "topUpHint": "To top up your balance, please contact Headroom support.",
+      "topUpHint": "To top up your balance, please contact 85Percent support.",
       "depleted": "Depleted",
       "passwordTitle": "Password",
       "passwordSub": "Min 8 chars · uppercase · lowercase · number · special character.",

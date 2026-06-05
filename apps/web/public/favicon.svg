@@ -1,11 +1,7 @@
 <svg width="32" height="32" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
   <rect width="32" height="32" rx="6" fill="white"/>
-  <!-- H scaled to maintain 16:22 aspect ratio, centred in 32×32 -->
-  <!-- H area: 19px wide × 26px tall, offset x=6.5 y=3 -->
-  <rect x="6.5" y="3" width="4" height="26" fill="#6d28d9"/>
-  <rect x="21.5" y="3" width="4" height="26" fill="#6d28d9"/>
-  <rect x="10.5" y="13.5" width="11" height="3" fill="#6d28d9"/>
-  <rect x="13" y="3" width="6" height="4" fill="#6d28d9" opacity="0.65"/>
-  <rect x="13" y="25" width="6" height="4" fill="#6d28d9" opacity="0.65"/>
-  <circle cx="16" cy="15" r="3" stroke="#6d28d9" stroke-width="1.2" fill="none" opacity="0.6"/>
+  <!-- 85Percent mark: bold "85" in brand violet -->
+  <text x="16" y="17" text-anchor="middle" dominant-baseline="central"
+    font-family="Inter, system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
+    font-size="20" font-weight="800" letter-spacing="-1" fill="#6d28d9">85</text>
 </svg>

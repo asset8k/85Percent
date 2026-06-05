@@ -219,7 +219,7 @@ export function exportSquadPDF(input: ExportSquadInput): void {
   }
 
   finalizeFooters(doc)
-  doc.save(`headroom-squad-${input.financials.season}.pdf`)
+  doc.save(`85percent-squad-${input.financials.season}.pdf`)
 }
 
 // ---------------------------------------------------------------------------

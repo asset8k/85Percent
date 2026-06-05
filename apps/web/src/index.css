@@ -127,7 +127,7 @@
   100% { transform: translateX(200%); }
 }
 
-/* Headroom mark gentle pulse — used by PageLoader */
+/* 85Percent mark gentle pulse — used by PageLoader */
 @keyframes hr-mark-pulse {
   0%, 100% { opacity: 0.55; transform: scale(1); }
   50%      { opacity: 1;    transform: scale(1.05); }

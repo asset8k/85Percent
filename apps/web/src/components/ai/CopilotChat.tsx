@@ -2,7 +2,7 @@
  * CopilotChat — the Compliance Analyst.
  *
  * A RAG-grounded assistant that explains SCR regulations and the figures the
- * Headroom engine has already computed. Two layouts share one conversation:
+ * 85Percent engine has already computed. Two layouts share one conversation:
  *   • Drawer (default) — a right-hand slide-in for quick questions.
  *   • Fullscreen — an expanded workspace with a session sidebar for switching
  *     between saved conversations.

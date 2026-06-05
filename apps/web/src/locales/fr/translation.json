@@ -92,7 +92,7 @@
       "adjustedRevenue": "Revenus ajustés :",
       "manageScenarios": "Gérer les scénarios"
     },
-    "disclaimer": "Headroom est un outil d'aide à la décision. Il ne constitue pas un avis juridique ou financier. Vérifiez toujours avec le Manuel officiel de l'EFL.",
+    "disclaimer": "85Percent est un outil d'aide à la décision. Il ne constitue pas un avis juridique ou financier. Vérifiez toujours avec le Manuel officiel de l'EFL.",
     "notifications": {
       "title": "Notifications",
       "aria": "Notifications",
@@ -117,7 +117,7 @@
   },
   "auth": {
     "tagline": "La conformité financière pour le football professionnel.",
-    "disclaimer": "Headroom est un outil d'aide à la décision. Il ne constitue pas un avis juridique ou financier.",
+    "disclaimer": "85Percent est un outil d'aide à la décision. Il ne constitue pas un avis juridique ou financier.",
     "workEmail": "E-mail professionnel",
     "password": "Mot de passe",
     "checkEmail": "Vérifiez votre e-mail",
@@ -346,7 +346,7 @@
   "rules": {
     "eyebrow": "Référence",
     "title": "Le système du ratio de coût de l'effectif",
-    "intro": "À partir de la saison 2026/27, la Premier League et l'EFL Championship plafonnent les dépenses d'effectif en proportion des revenus du football via le ratio de coût de l'effectif (SCR), qui remplace les anciennes Règles de rentabilité et de durabilité. Cette page est le résumé en langage clair de Headroom sur le fonctionnement du système — la même logique que le moteur utilise pour calculer votre position.",
+    "intro": "À partir de la saison 2026/27, la Premier League et l'EFL Championship plafonnent les dépenses d'effectif en proportion des revenus du football via le ratio de coût de l'effectif (SCR), qui remplace les anciennes Règles de rentabilité et de durabilité. Cette page est le résumé en langage clair de 85Percent sur le fonctionnement du système — la même logique que le moteur utilise pour calculer votre position.",
     "officialLink": "Lire le communiqué officiel de la Premier League",
     "refOnly": "Référence uniquement — pas un avis juridique. Vérifiez avec le Manuel officiel 2026/27.",
     "s1": {
@@ -425,7 +425,7 @@
         ["7 juillet (PL)", "Évaluations SSR — Fonds de roulement, Liquidité, Capitaux propres positifs"]
       ]
     },
-    "footer": "Ce résumé reflète l'interprétation par Headroom du cadre publié. Le communiqué de la Premier League elle-même fait autorité."
+    "footer": "Ce résumé reflète l'interprétation par 85Percent du cadre publié. Le communiqué de la Premier League elle-même fait autorité."
   },
   "calendar": {
     "title": "Calendrier de conformité {{season}}",
@@ -945,7 +945,7 @@
     "sourceLabel": "Source : règles du SCR",
     "summarized": "Conversation précédente résumée",
     "greetingTitle": "Comment puis-je vous aider sur la conformité ?",
-    "greetingBody": "J'explique les règles du SCR et les chiffres que Headroom a calculés, en m'appuyant sur {{source}}. Vérifiez les décisions importantes avec le Manuel officiel 2026/27 — je suis une aide à l'analyse, pas un conseiller juridique.",
+    "greetingBody": "J'explique les règles du SCR et les chiffres que 85Percent a calculés, en m'appuyant sur {{source}}. Vérifiez les décisions importantes avec le Manuel officiel 2026/27 — je suis une aide à l'analyse, pas un conseiller juridique.",
     "examplePrompts": [
       "Qu'est-ce que le ratio de coût de l'effectif et comment se calcule-t-il ?",
       "Que se passe-t-il si nous dépassons le seuil de 85 % ?",
@@ -1093,7 +1093,7 @@
       "aiTitle": "Utilisation de l'IA",
       "aiSub": "Votre Analyste de conformité fonctionne avec un crédit prépayé, facturé par requête au coût plus une petite marge.",
       "currentBalance": "Solde actuel",
-      "topUpHint": "Pour recharger votre solde, veuillez contacter le support de Headroom.",
+      "topUpHint": "Pour recharger votre solde, veuillez contacter le support de 85Percent.",
       "depleted": "Épuisé",
       "passwordTitle": "Mot de passe",
       "passwordSub": "Min. 8 caractères · majuscule · minuscule · chiffre · caractère spécial.",

@@ -214,7 +214,7 @@ export function RosterPage() {
             <Button
               variant="ghost"
               onClick={() => exportAmortisationXLSX({
-                clubName: clubName ?? 'Headroom FC',
+                clubName: clubName ?? '85Percent FC',
                 season: financials?.season ?? seasonKey(useSeasonStore.getState().startYear),
                 players: active,
                 currency: useClubStore.getState().baseCurrency,

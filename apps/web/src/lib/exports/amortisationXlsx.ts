@@ -214,5 +214,5 @@ export function exportAmortisationXLSX(input: ExportAmortisationInput): void {
 
   // ── Save ────────────────────────────────────────────────────────────────
   const safeClub = input.clubName.replace(/[^A-Za-z0-9-]+/g, '-').replace(/^-|-$/g, '') || 'club'
-  downloadWorkbook(wb, `headroom-amortisation-${safeClub}-${filenameTimestamp()}.xlsx`)
+  downloadWorkbook(wb, `85percent-amortisation-${safeClub}-${filenameTimestamp()}.xlsx`)
 }

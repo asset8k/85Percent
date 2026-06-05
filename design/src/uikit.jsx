@@ -1,4 +1,4 @@
-// UI Kit — visual catalog of every reusable element in Headroom.
+// UI Kit — visual catalog of every reusable element in 85Percent.
 // Imports the same component sources as the app so the kit can never drift.
 
 function Section({ id, title, subtitle, children }) {
@@ -681,12 +681,12 @@ function UIKitPage() {
             <div className="flex items-center gap-3 mb-4">
               <span className="inline-block w-1.5 h-9 rounded-full bg-violet-600" />
               <div>
-                <span className="meta-label text-violet-700">Headroom Design System</span>
+                <span className="meta-label text-violet-700">85Percent Design System</span>
                 <h1 className="text-[34px] font-bold text-slate-900 tracking-tight leading-none mt-2">UI Kit</h1>
               </div>
             </div>
             <p className="text-[14px] text-slate-600 max-w-2xl leading-relaxed">
-              Every component, token, and pattern used across Headroom. Built for B2B financial software — clean, precise, never decorative. Reuse these primitives when extending the product so the visual system stays coherent.
+              Every component, token, and pattern used across 85Percent. Built for B2B financial software — clean, precise, never decorative. Reuse these primitives when extending the product so the visual system stays coherent.
             </p>
           </div>
 
@@ -705,7 +705,7 @@ function UIKitPage() {
           </div>
 
           <footer className="mt-20 pt-8 border-t border-slate-100 flex items-center justify-between">
-            <p className="text-[11px] text-slate-400">Headroom Design System · Maintained alongside the application.</p>
+            <p className="text-[11px] text-slate-400">85Percent Design System · Maintained alongside the application.</p>
             <p className="text-[11px] text-slate-400 num">v0.4.2</p>
           </footer>
         </main>

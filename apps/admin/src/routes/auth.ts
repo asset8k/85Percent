@@ -30,7 +30,7 @@ export async function authRoutes(app: FastifyInstance) {
 function loginPage(error: boolean): string {
   const body = html`
     <div class="card" style="max-width:380px;margin:40px auto;">
-      <h1>Headroom Admin</h1>
+      <h1>85Percent Admin</h1>
       <p class="muted">Sign in to manage users and run maintenance jobs.</p>
       ${error ? html`<div class="flash err">Invalid username or password.</div>` : ''}
       <form method="post" action="/login">
@@ -46,7 +46,7 @@ function loginPage(error: boolean): string {
   return (
     '<!doctype html>' +
     html`<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
-      <title>Sign in · Headroom Admin</title><style>${raw(LOGIN_STYLE)}</style></head>
+      <title>Sign in · 85Percent Admin</title><style>${raw(LOGIN_STYLE)}</style></head>
       <body>${body}</body></html>`.html
   )
 }

@@ -1,5 +1,5 @@
 /**
- * Select — Headroom UI Kit dropdown.
+ * Select — 85Percent UI Kit dropdown.
  *
  * A styled replacement for the native `<select>` (whose arrow and padding can't
  * be controlled consistently across browsers). Renders a trigger button in the

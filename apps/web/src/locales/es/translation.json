@@ -92,7 +92,7 @@
       "adjustedRevenue": "Ingresos ajustados:",
       "manageScenarios": "Gestionar escenarios"
     },
-    "disclaimer": "Headroom es una herramienta de apoyo a la decisión. No constituye asesoramiento jurídico ni financiero. Verifica siempre con el Manual oficial de la EFL.",
+    "disclaimer": "85Percent es una herramienta de apoyo a la decisión. No constituye asesoramiento jurídico ni financiero. Verifica siempre con el Manual oficial de la EFL.",
     "notifications": {
       "title": "Notificaciones",
       "aria": "Notificaciones",
@@ -117,7 +117,7 @@
   },
   "auth": {
     "tagline": "Cumplimiento financiero para el fútbol profesional.",
-    "disclaimer": "Headroom es una herramienta de apoyo a la decisión. No constituye asesoramiento jurídico ni financiero.",
+    "disclaimer": "85Percent es una herramienta de apoyo a la decisión. No constituye asesoramiento jurídico ni financiero.",
     "workEmail": "Correo profesional",
     "password": "Contraseña",
     "checkEmail": "Revisa tu correo",
@@ -346,7 +346,7 @@
   "rules": {
     "eyebrow": "Referencia",
     "title": "El sistema del ratio de coste de plantilla",
-    "intro": "A partir de la temporada 2026/27, la Premier League y la EFL Championship limitan el gasto en plantilla como porcentaje de los ingresos del fútbol mediante el ratio de coste de plantilla (SCR), que sustituye a las antiguas Reglas de Rentabilidad y Sostenibilidad. Esta página es el resumen en lenguaje claro de Headroom sobre cómo funciona el sistema: la misma lógica que utiliza el motor para calcular tu posición.",
+    "intro": "A partir de la temporada 2026/27, la Premier League y la EFL Championship limitan el gasto en plantilla como porcentaje de los ingresos del fútbol mediante el ratio de coste de plantilla (SCR), que sustituye a las antiguas Reglas de Rentabilidad y Sostenibilidad. Esta página es el resumen en lenguaje claro de 85Percent sobre cómo funciona el sistema: la misma lógica que utiliza el motor para calcular tu posición.",
     "officialLink": "Leer el comunicado oficial de la Premier League",
     "refOnly": "Solo de referencia, no es asesoramiento jurídico. Verifica con el Manual oficial 2026/27.",
     "s1": {
@@ -425,7 +425,7 @@
         ["7 de julio (PL)", "Evaluaciones SSR: Capital circulante, Liquidez, Patrimonio positivo"]
       ]
     },
-    "footer": "Este resumen refleja la interpretación de Headroom del marco publicado. El comunicado de la propia Premier League es la fuente autorizada."
+    "footer": "Este resumen refleja la interpretación de 85Percent del marco publicado. El comunicado de la propia Premier League es la fuente autorizada."
   },
   "calendar": {
     "title": "Calendario de cumplimiento {{season}}",
@@ -945,7 +945,7 @@
     "sourceLabel": "Fuente: reglas del SCR",
     "summarized": "Conversación anterior resumida",
     "greetingTitle": "¿En qué puedo ayudarte con el cumplimiento?",
-    "greetingBody": "Explico las reglas del SCR y las cifras que Headroom ha calculado, basándome en {{source}}. Verifica las decisiones importantes con el Manual oficial 2026/27: soy una ayuda de análisis, no un asesor jurídico.",
+    "greetingBody": "Explico las reglas del SCR y las cifras que 85Percent ha calculado, basándome en {{source}}. Verifica las decisiones importantes con el Manual oficial 2026/27: soy una ayuda de análisis, no un asesor jurídico.",
     "examplePrompts": [
       "¿Qué es el ratio de coste de plantilla y cómo se calcula?",
       "¿Qué ocurre si superamos el umbral del 85 %?",
@@ -1093,7 +1093,7 @@
       "aiTitle": "Uso de IA",
       "aiSub": "Tu Analista de Cumplimiento funciona con crédito de prepago, facturado por consulta a coste más un pequeño margen.",
       "currentBalance": "Saldo actual",
-      "topUpHint": "Para recargar tu saldo, contacta con el soporte de Headroom.",
+      "topUpHint": "Para recargar tu saldo, contacta con el soporte de 85Percent.",
       "depleted": "Agotado",
       "passwordTitle": "Contraseña",
       "passwordSub": "Mín. 8 caracteres · mayúscula · minúscula · número · carácter especial.",

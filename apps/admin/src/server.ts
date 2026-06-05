@@ -1,5 +1,5 @@
 /**
- * Headroom Admin — a standalone, server-rendered Fastify control panel.
+ * 85Percent Admin — a standalone, server-rendered Fastify control panel.
  *
  * Separate from the platform (its own port, its own session auth) but talks to
  * the same Supabase project via the service-role key. Lets an operator:
@@ -33,7 +33,7 @@ async function main() {
 
   await app.listen({ port: env.port, host: '0.0.0.0' })
   // eslint-disable-next-line no-console
-  console.log(`Headroom Admin → http://localhost:${env.port}`)
+  console.log(`85Percent Admin → http://localhost:${env.port}`)
 }
 
 main().catch((err) => {

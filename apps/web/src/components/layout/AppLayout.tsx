@@ -109,7 +109,7 @@ export function AppLayout() {
       <div className="flex-1 flex flex-col min-w-0">
         <header className="h-16 sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-200 flex items-center gap-4 px-8">
           <div className="flex-1 flex items-center gap-2 text-[13px] text-slate-500 min-w-0">
-            <span className="text-slate-700 font-medium">{clubName ?? 'Headroom'}</span>
+            <span className="text-slate-700 font-medium">{clubName ?? '85Percent'}</span>
             <span className="text-slate-300 select-none">/</span>
             <span className="capitalize">{pageTitle}</span>
           </div>

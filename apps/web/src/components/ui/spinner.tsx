@@ -8,7 +8,7 @@ export function Spinner({ size = 14 }: { size?: number }) {
 }
 
 /**
- * Full-pane loader using the Headroom mark — two violet pillars + a center
+ * Full-pane loader using the 85Percent mark — two violet pillars + a center
  * orbit that gently pulse like a heartbeat. The bars scale on Y so the "H"
  * appears to breathe; the orbit ring fades in sync. Much more branded than a
  * generic spinner.

@@ -15,7 +15,7 @@ const passage = (content: string): RetrievedPassage => ({ content, source_url: K
 
 test('buildSystemPrompt: carries identity, product, domain, modules and guardrails', () => {
   const p = buildSystemPrompt([passage('The SCR ceiling is 85% of revenue.')])
-  assert.match(p, /Headroom Compliance Analyst/)
+  assert.match(p, /85Percent Compliance Analyst/)
   // Product + domain framing
   assert.match(p, /Squad Cost Ratio/)
   assert.match(p, /85%/)

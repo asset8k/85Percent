@@ -52,7 +52,7 @@ export function buildContextInjection({ module, subject, data }: CopilotContext)
   return `${CONTEXT_PREFIX} ${heading}
 Context from the ${module}. ${MODULE_BRIEF[module]}
 
-These figures were computed by the Headroom engine — treat them as authoritative and do NOT recalculate them. Be specific with the numbers, keep it concise and decision-focused, and flag anything material to verify against the official Handbook.
+These figures were computed by the 85Percent engine — treat them as authoritative and do NOT recalculate them. Be specific with the numbers, keep it concise and decision-focused, and flag anything material to verify against the official Handbook.
 
 ${JSON.stringify(data, null, 2)}`
 }
