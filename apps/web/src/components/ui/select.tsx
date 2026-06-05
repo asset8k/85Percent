@@ -12,6 +12,7 @@
  */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 
 export interface SelectOption<T extends string = string> {
@@ -38,9 +39,11 @@ export function Select<T extends string = string>({
   options,
   disabled,
   className,
-  placeholder = 'Select',
+  placeholder,
   ariaLabel,
 }: SelectProps<T>) {
+  const { t } = useTranslation()
+  const placeholderText = placeholder ?? t('picker.select')
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -87,7 +90,7 @@ export function Select<T extends string = string>({
               <span className="truncate text-slate-900">{selected.label}</span>
             </>
           ) : (
-            <span className="text-slate-400">{placeholder}</span>
+            <span className="text-slate-400">{placeholderText}</span>
           )}
         </span>
         <svg

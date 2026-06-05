@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useNotificationsStore } from '@/stores/notifications'
 import { useSeasonStore, seasonKey } from '@/stores/season'
+import { formatDate } from '@/lib/locale'
 import type { NotificationItem, NotificationType } from '@/lib/api'
 
 /**
@@ -27,17 +30,17 @@ function notificationLink(item: NotificationItem): string | null {
   return null
 }
 
-function relativeTime(iso: string): string {
+function relativeTime(iso: string, t: TFunction): string {
   const then = new Date(iso).getTime()
   const diffMs = Date.now() - then
   const min = Math.floor(diffMs / 60_000)
-  if (min < 1) return 'just now'
-  if (min < 60) return `${min}m ago`
+  if (min < 1) return t('chrome.notifications.time.justNow')
+  if (min < 60) return t('chrome.notifications.time.minutes', { n: min })
   const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr}h ago`
+  if (hr < 24) return t('chrome.notifications.time.hours', { n: hr })
   const day = Math.floor(hr / 24)
-  if (day < 7) return `${day}d ago`
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+  if (day < 7) return t('chrome.notifications.time.days', { n: day })
+  return formatDate(iso, { day: '2-digit', month: 'short' })
 }
 
 function TypeIcon({ type }: { type: NotificationType }) {
@@ -63,6 +66,7 @@ function TypeIcon({ type }: { type: NotificationType }) {
 }
 
 function NotificationRow({ item, actionable, onClick }: { item: NotificationItem; actionable: boolean; onClick: () => void }) {
+  const { t } = useTranslation()
   return (
     <button
       type="button"
@@ -81,10 +85,10 @@ function NotificationRow({ item, actionable, onClick }: { item: NotificationItem
         </div>
         <p className="text-[12px] text-slate-500 mt-0.5 leading-snug">{item.message}</p>
         <div className="flex items-center gap-2 mt-1">
-          <span className="text-[11px] text-slate-400 num">{relativeTime(item.createdAt)}</span>
+          <span className="text-[11px] text-slate-400 num">{relativeTime(item.createdAt, t)}</span>
           {actionable && (
             <span className="inline-flex items-center gap-0.5 text-[11px] font-medium text-violet-600 group-hover:text-violet-700">
-              View roster
+              {t('chrome.notifications.viewRoster')}
               <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M5 12h14" /><path d="M13 6l6 6-6 6" />
               </svg>
@@ -97,6 +101,7 @@ function NotificationRow({ item, actionable, onClick }: { item: NotificationItem
 }
 
 export function NotificationBell() {
+  const { t } = useTranslation()
   const { items, unreadCount, loaded, load, refresh, markRead, markAllRead } = useNotificationsStore()
   const seasonStartYear = useSeasonStore((s) => s.startYear)
   const navigate = useNavigate()
@@ -143,7 +148,7 @@ export function NotificationBell() {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+        aria-label={unreadCount > 0 ? t('chrome.notifications.ariaUnread', { count: unreadCount }) : t('chrome.notifications.aria')}
         className={`relative inline-flex items-center justify-center w-9 h-9 rounded-full border transition-colors ${
           open ? 'border-slate-300 bg-slate-50 ring-2 ring-slate-200/60' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
         }`}
@@ -163,7 +168,7 @@ export function NotificationBell() {
         {open && (
           <motion.div
             role="dialog"
-            aria-label="Notifications"
+            aria-label={t('chrome.notifications.aria')}
             initial={{ opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4, transition: { duration: 0.12 } }}
@@ -172,7 +177,7 @@ export function NotificationBell() {
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
-                <span className="text-[14px] font-semibold text-slate-900">Notifications</span>
+                <span className="text-[14px] font-semibold text-slate-900">{t('chrome.notifications.title')}</span>
                 {unreadCount > 0 && (
                   <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-violet-100 text-violet-700 text-[11px] font-medium num">
                     {unreadCount}
@@ -185,14 +190,14 @@ export function NotificationBell() {
                   onClick={() => markAllRead()}
                   className="text-[12px] font-medium text-violet-600 hover:text-violet-700"
                 >
-                  Mark all as read
+                  {t('chrome.notifications.markAllRead')}
                 </button>
               )}
             </div>
 
             <div className="max-h-[400px] overflow-y-auto divide-y divide-slate-100">
               {!loaded ? (
-                <div className="px-4 py-10 text-center text-[13px] text-slate-400">Loading…</div>
+                <div className="px-4 py-10 text-center text-[13px] text-slate-400">{t('common.loading')}</div>
               ) : items.length === 0 ? (
                 <div className="px-4 py-10 text-center">
                   <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-slate-50 text-slate-300 mb-2">
@@ -201,8 +206,8 @@ export function NotificationBell() {
                       <path d="M13.73 21a2 2 0 0 1-3.46 0" />
                     </svg>
                   </div>
-                  <p className="text-[13px] text-slate-500">You're all caught up</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5">Compliance and contract alerts will appear here.</p>
+                  <p className="text-[13px] text-slate-500">{t('chrome.notifications.emptyTitle')}</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">{t('chrome.notifications.emptyHint')}</p>
                 </div>
               ) : (
                 items.map((item) => (

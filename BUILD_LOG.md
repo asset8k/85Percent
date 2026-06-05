@@ -3091,3 +3091,92 @@ build step, no second port). Run: `pnpm --filter @headroom/admin dev`.
   placeholder so the two sides stay balanced.
 - Delta footer (B vs A) colour-codes ΔSCR / ΔCosts / ΔRevenue (red = worse,
   green = better) with signed values. typecheck clean.
+
+### Spanish translation rollout — wave 1 (i18n)
+- Began full app translation to Spanish, module by module, on the existing
+  i18next/react-i18next scaffolding (single `translation` namespace, nested by
+  module). `en` is the source/fallback; `es` translated in lockstep.
+- Translation files grew from 24 lines (3 demo keys) to **239 keys** with full
+  **en↔es parity** (verified by a flat-key diff: 0 missing, 0 extra).
+- Modules completed this wave (wired with `t()` / `<Trans>` + es copy):
+  - **Foundation** — `common` (buttons, statuses, positions GK/DEF/MID/FWD →
+    POR/DEF/MED/DEL, action plurals), compliance `gauge` legend.
+  - **Chrome** — Sidebar (workspace, change-club modal, first-run nudge),
+    AppLayout top bar + SCR breakdown popover, NotificationBell (incl. relative
+    time), SeasonSelector.
+  - **Auth** — LoginPage (sign-in / sign-up / 2FA / OTP / forgot-password,
+    invite banner via `<Trans>`, zod validation messages now built from `t`
+    via `makeSignInSchema`/`makeSignUpSchema`), ResetPasswordPage.
+  - **Dashboard** — DashboardPage (hero SCR, headroom, scenario inclusion,
+    financial-risk, consequence engine, per-player table with localized
+    position pills + expiry labels), LeagueImpactTable (locale-aware ordinals),
+    ComplianceGauge.
+  - **Financials** — page shell (FinancialTab itself lands with Settings).
+- Football/finance terminology preserved: SCR = "ratio de coste de plantilla",
+  levy = "recargo", points deduction = "descuento de puntos", squad =
+  "plantilla", wage = "salario", amortisation = "amortización", agent fee =
+  "comisión de agente", Green/Red threshold = "umbral verde/rojo".
+- Verified: `tsc --noEmit` clean, `vite build` OK (2758 modules), engine tests
+  119/119 pass, en/es JSON valid + full key parity.
+- Remaining (pending, same pattern): Roster, Scenarios + simulator panels,
+  League Table, Calendar, Rules, SSR, Onboarding, Settings (ClubSetupPage +
+  FinancialTab), AI chat, UI primitives. fr/it fall back to en until translated.
+
+### Spanish translation — complete (whole app, en↔es)
+- Finished translating the **entire web app** to Spanish, module by module, on the
+  existing i18next/react-i18next setup (single `translation` namespace, nested by
+  module). `en` is source/fallback; `es` translated in lockstep at **full parity**.
+- **1015 keys**, en↔es verified by flat-key diff (0 missing, 0 extra).
+- Every page + shared surface wired with `t()` / `<Trans>`:
+  - **Chrome**: Sidebar, AppLayout + SCR breakdown popover, NotificationBell,
+    SeasonSelector.
+  - **Auth**: Login (sign-in/up, 2FA, OTP, forgot — zod messages built from `t`),
+    ResetPassword.
+  - **Pages**: Dashboard (+LeagueImpactTable, ComplianceGauge), Roster (full —
+    CSV import + staging editor, manual/edit player, manager add/edit, contract
+    ledger + phase editor, extension wizard, NBV/carried-book-value, all modals),
+    Scenarios (builder, action editors, projection, compare modal), League Table,
+    Rules (regulatory reference via `<Trans>` + `returnObjects` lists), Calendar
+    (regulatory event timeline + expiry drawer), SSR (3 calculator tabs),
+    Onboarding (league teasers + club wizard), Financials, Settings (FinancialTab,
+    BaseCurrency, Profile/AI-usage/Password/2FA, Team & invites, Activity log,
+    Danger zone).
+  - **AI chat**: CopilotChat (greeting, example prompts, composer, balance chip,
+    context ring, header, history, depleted state) + CopilotTrigger.
+  - **UI primitives**: StatusBadge default labels, DatePicker (localized month/day
+    names via Intl + aria), Select / CountryPicker placeholders.
+- **Locale-aware formatting**: dates/numbers now render via the active interface
+  locale (`lib/locale.ts` Intl helpers) — Roster/Calendar/SSR/LeagueTable/Settings
+  date columns, SSR month grid, DatePicker calendar, league-impact ordinals.
+- **Football/finance terminology preserved**: SCR = "ratio de coste de plantilla",
+  levy = "recargo", points deduction = "descuento de puntos", squad = "plantilla",
+  wage = "salario", amortisation = "amortización", agent fee = "comisión de
+  agente", Green/Red threshold = "umbral verde/rojo", table abbrevs PJ/PG/PE/PP/
+  GF/GC/DG, positions POR/DEF/MED/DEL.
+- **Verified**: `tsc --noEmit` clean, `vite build` OK (2758 modules), engine tests
+  119/119, en/es JSON valid + 1015-key parity. fr/it still fall back to en (next
+  languages to translate — keys are all in place).
+
+### French + Italian translations — complete (all 4 languages live)
+- Added full **French (fr)** and **Italian (it)** translations using the English
+  file as the source template — both translated key-for-key, preserving every
+  `{{interpolation}}`, plural suffix (`_one`/`_other`), `<Trans>` tag
+  (`<s> <b> <n> <e> <v> <d> <c0…c4>`), and array (lists, calendar rows, example
+  prompts).
+- **All four locales now at 1015 keys with exact parity** (en/es/fr/it — 0
+  missing, 0 extra each). `i18n.ts` already imported + registered fr/it, so the
+  Settings → Interface Language picker offers English / Español / Français /
+  Italiano and switches instantly.
+- Football/finance terminology localized professionally per language:
+  - FR: SCR = "ratio de coût de l'effectif", effectif, prélèvement, retrait de
+    points, indemnité de transfert, amortissement, commission d'agent, seuil
+    vert/rouge; table J/G/N/P/BP/BC/Diff; postes GB/DÉF/MIL/ATT.
+  - IT: SCR = "rapporto costo rosa", rosa, prelievo, penalizzazione in punti,
+    costo del trasferimento, ammortamento, commissione del procuratore, soglia
+    verde/rossa; table G/V/N/P/GF/GS/DR; ruoli POR/DIF/CEN/ATT; svincolo,
+    allenatore, ingaggio.
+- Locale-aware dates/numbers already in place flow through to fr/it automatically
+  (month/day names, ordinals, currency-symbol-aware fields).
+- **Verified**: 4-locale parity check (1015 each), `tsc --noEmit` clean,
+  `vite build` OK, engine tests 119/119. The Spanish/French/Italian apps are
+  fully translated; English remains the source & fallback.

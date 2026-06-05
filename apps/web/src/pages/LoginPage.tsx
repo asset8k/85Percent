@@ -1,4 +1,6 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
+import { useTranslation, Trans } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -10,27 +12,32 @@ import { Spinner } from '@/components/ui/spinner'
 import type { InviteLookupResponse } from '@/lib/api'
 
 // ── Schemas ────────────────────────────────────────────────────────────────
+// Built from a translate function so validation messages localize with the UI.
 
-const SignInSchema = z.object({
-  email: z.string().email('Please enter a valid email address'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
-})
-type SignInData = z.infer<typeof SignInSchema>
+function makeSignInSchema(t: TFunction) {
+  return z.object({
+    email: z.string().email(t('validation.email')),
+    password: z.string().min(6, t('validation.passwordMin6')),
+  })
+}
+type SignInData = z.infer<ReturnType<typeof makeSignInSchema>>
 
-const SignUpSchema = z.object({
-  email: z.string().email('Please enter a valid email address'),
-  password: z.string()
-    .min(8, 'Password must be at least 8 characters')
-    .regex(/[A-Z]/, 'Must contain at least one uppercase letter')
-    .regex(/[a-z]/, 'Must contain at least one lowercase letter')
-    .regex(/[0-9]/, 'Must contain at least one number')
-    .regex(/[^A-Za-z0-9]/, 'Must contain at least one special character'),
-  confirmPassword: z.string(),
-}).refine((d) => d.password === d.confirmPassword, {
-  message: "Passwords don't match",
-  path: ['confirmPassword'],
-})
-type SignUpData = z.infer<typeof SignUpSchema>
+function makeSignUpSchema(t: TFunction) {
+  return z.object({
+    email: z.string().email(t('validation.email')),
+    password: z.string()
+      .min(8, t('validation.passwordMin8'))
+      .regex(/[A-Z]/, t('validation.passwordUpper'))
+      .regex(/[a-z]/, t('validation.passwordLower'))
+      .regex(/[0-9]/, t('validation.passwordNumber'))
+      .regex(/[^A-Za-z0-9]/, t('validation.passwordSpecial')),
+    confirmPassword: z.string(),
+  }).refine((d) => d.password === d.confirmPassword, {
+    message: t('validation.passwordMatch'),
+    path: ['confirmPassword'],
+  })
+}
+type SignUpData = z.infer<ReturnType<typeof makeSignUpSchema>>
 
 // ── Shared input style ──────────────────────────────────────────────────────
 
@@ -43,19 +50,20 @@ function inviteAccessSummary(invite: {
   canEditRoster: boolean
   canEditScenarios: boolean
   isWorkspaceAdmin: boolean
-}): string {
+}, t: TFunction): string {
   if (invite.title && invite.title.trim()) return invite.title.trim()
-  if (invite.isWorkspaceAdmin) return 'a workspace admin'
+  if (invite.isWorkspaceAdmin) return t('auth.invite.access.admin')
   const parts: string[] = []
-  if (invite.canEditRoster) parts.push('edit the roster')
-  if (invite.canEditScenarios) parts.push('edit scenarios')
-  if (parts.length === 0) return 'a read-only member'
-  return `a member who can ${parts.join(' and ')}`
+  if (invite.canEditRoster) parts.push(t('auth.invite.access.editRoster'))
+  if (invite.canEditScenarios) parts.push(t('auth.invite.access.editScenarios'))
+  if (parts.length === 0) return t('auth.invite.access.readOnly')
+  return t('auth.invite.access.memberCan', { parts: parts.join(t('auth.invite.access.and')) })
 }
 
 // ── Root ────────────────────────────────────────────────────────────────────
 
 export function LoginPage() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [search] = useSearchParams()
   const inviteToken = search.get('invite')
@@ -105,21 +113,25 @@ export function LoginPage() {
             </span>
             <span>eadroom</span>
           </span>
-          <p className="mt-3 text-sm text-slate-500 text-center">Financial compliance for professional football.</p>
+          <p className="mt-3 text-sm text-slate-500 text-center">{t('auth.tagline')}</p>
         </div>
 
         {/* Invitation context banner — shown when ?invite=<token> resolves */}
         {invite && (
           <div className="mb-5 rounded-xl border border-violet-100 bg-violet-50/60 px-5 py-4">
-            <div className="meta-label text-violet-700">Invitation to {invite.clubName}</div>
+            <div className="meta-label text-violet-700">{t('auth.invite.title', { club: invite.clubName })}</div>
             <p className="text-[13px] text-slate-700 mt-1.5">
-              You've been invited to join as <span className="font-medium">{inviteAccessSummary(invite)}</span>. Create your account using the email <span className="num">{invite.email}</span>.
+              <Trans
+                i18nKey="auth.invite.body"
+                values={{ summary: inviteAccessSummary(invite, t), email: invite.email }}
+                components={{ s: <span className="font-medium" />, e: <span className="num" /> }}
+              />
             </p>
           </div>
         )}
         {inviteError && (
           <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-5 py-4">
-            <div className="meta-label text-red-700">Invitation problem</div>
+            <div className="meta-label text-red-700">{t('auth.invite.problem')}</div>
             <p className="text-[13px] text-red-700 mt-1.5">{inviteError}</p>
           </div>
         )}
@@ -174,7 +186,7 @@ export function LoginPage() {
         </div>
 
         <p className="mt-6 text-[12px] text-slate-400 text-center leading-relaxed px-4">
-          Headroom is a decision-support tool. It does not constitute legal or financial advice.
+          {t('auth.disclaimer')}
         </p>
       </div>
     </div>
@@ -196,7 +208,9 @@ function SignInForm({
   onSwitchToSignUp: () => void
   onForgot: () => void
 }) {
-  const form = useForm<SignInData>({ resolver: zodResolver(SignInSchema) })
+  const { t } = useTranslation()
+  const schema = useMemo(() => makeSignInSchema(t), [t])
+  const form = useForm<SignInData>({ resolver: zodResolver(schema) })
 
   // Login is proxied through the backend so the JWT can be withheld until the
   // TOTP step passes. When 2FA is off, the backend returns the Supabase session
@@ -209,7 +223,7 @@ function SignInForm({
         onNeed2fa(data.email, data.password)
         return
       }
-      if (!res.session) { onError('Login failed. Please try again.'); return }
+      if (!res.session) { onError(t('auth.signin.loginFailed')); return }
       const { error } = await supabase.auth.setSession({
         access_token: res.session.access_token,
         refresh_token: res.session.refresh_token,
@@ -217,31 +231,31 @@ function SignInForm({
       if (error) { onError(error.message); return }
       onSuccess()
     } catch (e) {
-      onError(e instanceof Error ? e.message : 'Invalid email or password')
+      onError(e instanceof Error ? e.message : t('auth.signin.invalidCreds'))
     }
   }
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
-      <Field label="Work Email" error={form.formState.errors.email?.message}>
+      <Field label={t('auth.workEmail')} error={form.formState.errors.email?.message}>
         <input type="email" placeholder="you@club.com" {...form.register('email')} className={INPUT} />
       </Field>
-      <Field label="Password" error={form.formState.errors.password?.message}>
+      <Field label={t('auth.password')} error={form.formState.errors.password?.message}>
         <input type="password" placeholder="••••••••" {...form.register('password')} className={INPUT} />
       </Field>
       <div className="-mt-1 text-right">
         <button type="button" onClick={onForgot} className="text-[12px] text-violet-600 hover:text-violet-700 font-medium">
-          Forgot password?
+          {t('auth.signin.forgot')}
         </button>
       </div>
       <Button type="submit" className="w-full mt-1" disabled={form.formState.isSubmitting}>
         {form.formState.isSubmitting && <Spinner size={14} />}
-        {form.formState.isSubmitting ? 'Signing in…' : 'Sign In'}
+        {form.formState.isSubmitting ? t('auth.signin.signingIn') : t('auth.signin.signIn')}
       </Button>
       <p className="text-center text-[13px] text-slate-500 mt-1">
-        Don't have an account?{' '}
+        {t('auth.signin.noAccount')}{' '}
         <button type="button" onClick={onSwitchToSignUp} className="text-violet-600 hover:text-violet-700 font-medium">
-          Create one
+          {t('auth.signin.createOne')}
         </button>
       </p>
     </form>
@@ -266,6 +280,7 @@ function TwoFactorForm({
   onError: (msg: string) => void
   onBack: () => void
 }) {
+  const { t } = useTranslation()
   // Same boxed-cell UX as the registration OTP screen (auto-advance, paste,
   // backspace, auto-submit on the last digit) — just 6 cells with 3+3 grouping.
   const [digits, setDigits] = useState<string[]>(Array(TOTP_LENGTH).fill(''))
@@ -286,7 +301,7 @@ function TwoFactorForm({
       if (error) { onError(error.message); setLoading(false); return }
       onSuccess()
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Invalid authentication code')
+      onError(err instanceof Error ? err.message : t('auth.twoFactor.invalidCode'))
       setDigits(Array(TOTP_LENGTH).fill(''))
       setLoading(false)
       inputs.current[0]?.focus()
@@ -330,9 +345,9 @@ function TwoFactorForm({
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5">
       <div>
-        <p className="text-sm font-medium text-slate-900 mb-1">Two-factor authentication</p>
+        <p className="text-sm font-medium text-slate-900 mb-1">{t('auth.twoFactor.title')}</p>
         <p className="text-[13px] text-slate-500">
-          Enter the {TOTP_LENGTH}-digit code from your authenticator app.
+          {t('auth.twoFactor.hint', { length: TOTP_LENGTH })}
         </p>
       </div>
 
@@ -357,10 +372,10 @@ function TwoFactorForm({
 
       <Button type="submit" className="w-full" disabled={loading || digits.join('').length < TOTP_LENGTH}>
         {loading && <Spinner size={14} />}
-        {loading ? 'Verifying…' : 'Verify'}
+        {loading ? t('auth.verifying') : t('auth.verify')}
       </Button>
       <button type="button" onClick={onBack} className="text-[13px] text-slate-500 hover:text-slate-700 transition-colors text-center">
-        ← Back to sign in
+        ← {t('auth.backToSignIn')}
       </button>
     </form>
   )
@@ -376,6 +391,7 @@ function ForgotPasswordForm({
   onError: (msg: string) => void
   onBack: () => void
 }) {
+  const { t } = useTranslation()
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const [sent, setSent] = useState(false)
@@ -388,7 +404,7 @@ function ForgotPasswordForm({
       await api.auth.forgotPassword(email.trim())
       setSent(true)
     } catch (err) {
-      onError(err instanceof Error ? err.message : 'Something went wrong')
+      onError(err instanceof Error ? err.message : t('auth.forgot.genericError'))
     } finally {
       setLoading(false)
     }
@@ -398,14 +414,17 @@ function ForgotPasswordForm({
     return (
       <div className="flex flex-col gap-5">
         <div>
-          <p className="text-sm font-medium text-slate-900 mb-1">Check your email</p>
+          <p className="text-sm font-medium text-slate-900 mb-1">{t('auth.checkEmail')}</p>
           <p className="text-[13px] text-slate-500">
-            If an account exists for <span className="font-medium text-slate-700">{email}</span>, we've sent a link to
-            reset your password. It expires in 1 hour.
+            <Trans
+              i18nKey="auth.forgot.sentBody"
+              values={{ email }}
+              components={{ s: <span className="font-medium text-slate-700" /> }}
+            />
           </p>
         </div>
         <button type="button" onClick={onBack} className="text-[13px] text-slate-500 hover:text-slate-700 transition-colors">
-          ← Back to sign in
+          ← {t('auth.backToSignIn')}
         </button>
       </div>
     )
@@ -414,18 +433,18 @@ function ForgotPasswordForm({
   return (
     <form onSubmit={submit} className="flex flex-col gap-4">
       <div>
-        <p className="text-sm font-medium text-slate-900 mb-1">Reset your password</p>
-        <p className="text-[13px] text-slate-500">Enter your work email and we'll send you a reset link.</p>
+        <p className="text-sm font-medium text-slate-900 mb-1">{t('auth.forgot.title')}</p>
+        <p className="text-[13px] text-slate-500">{t('auth.forgot.subtitle')}</p>
       </div>
-      <Field label="Work Email">
+      <Field label={t('auth.workEmail')}>
         <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@club.com" className={INPUT} />
       </Field>
       <Button type="submit" className="w-full mt-1" disabled={loading || !email.trim()}>
         {loading && <Spinner size={14} />}
-        {loading ? 'Sending…' : 'Send reset link'}
+        {loading ? t('auth.forgot.sending') : t('auth.forgot.send')}
       </Button>
       <button type="button" onClick={onBack} className="text-[13px] text-slate-500 hover:text-slate-700 transition-colors text-center">
-        ← Back to sign in
+        ← {t('auth.backToSignIn')}
       </button>
     </form>
   )
@@ -448,8 +467,10 @@ function SignUpForm({
   /** When true, the email input becomes read-only — invite emails are bound to the token. */
   emailLocked?: boolean
 }) {
+  const { t } = useTranslation()
+  const schema = useMemo(() => makeSignUpSchema(t), [t])
   const form = useForm<SignUpData>({
-    resolver: zodResolver(SignUpSchema),
+    resolver: zodResolver(schema),
     ...(prefillEmail ? { defaultValues: { email: prefillEmail } } : {}),
   })
 
@@ -477,7 +498,7 @@ function SignUpForm({
 
   return (
     <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
-      <Field label="Work Email" error={form.formState.errors.email?.message}>
+      <Field label={t('auth.workEmail')} error={form.formState.errors.email?.message}>
         <input
           type="email"
           placeholder="you@club.com"
@@ -487,23 +508,23 @@ function SignUpForm({
         />
       </Field>
       <Field
-        label="Password"
-        helper="Min 8 chars · uppercase · lowercase · number · special character"
+        label={t('auth.password')}
+        helper={t('auth.signup.passwordHelper')}
         error={form.formState.errors.password?.message}
       >
         <input type="password" placeholder="••••••••" {...form.register('password')} className={INPUT} />
       </Field>
-      <Field label="Confirm Password" error={form.formState.errors.confirmPassword?.message}>
+      <Field label={t('auth.signup.confirmPassword')} error={form.formState.errors.confirmPassword?.message}>
         <input type="password" placeholder="••••••••" {...form.register('confirmPassword')} className={INPUT} />
       </Field>
       <Button type="submit" className="w-full mt-2" disabled={form.formState.isSubmitting}>
         {form.formState.isSubmitting && <Spinner size={14} />}
-        {form.formState.isSubmitting ? 'Creating account…' : 'Create Account'}
+        {form.formState.isSubmitting ? t('auth.signup.creating') : t('auth.signup.create')}
       </Button>
       <p className="text-center text-[13px] text-slate-500 mt-1">
-        Already have an account?{' '}
+        {t('auth.signup.haveAccount')}{' '}
         <button type="button" onClick={onSwitchToSignIn} className="text-violet-600 hover:text-violet-700 font-medium">
-          Sign in
+          {t('auth.signup.signIn')}
         </button>
       </p>
     </form>
@@ -525,6 +546,7 @@ function OTPForm({
   onError: (msg: string) => void
   onBack: () => void
 }) {
+  const { t } = useTranslation()
   const [digits, setDigits] = useState<string[]>(Array(OTP_LENGTH).fill(''))
   const [loading, setLoading] = useState(false)
   const [resendCooldown, setResendCooldown] = useState(0)
@@ -577,7 +599,7 @@ function OTPForm({
     const { error } = await supabase.auth.verifyOtp({ email, token: code, type: 'signup' })
     setLoading(false)
     if (error) {
-      onError('Invalid or expired code. Please try again.')
+      onError(t('auth.otp.invalidCode'))
       setDigits(Array(OTP_LENGTH).fill(''))
       inputs.current[0]?.focus()
       return
@@ -603,9 +625,13 @@ function OTPForm({
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5">
       <div>
-        <p className="text-sm font-medium text-slate-900 mb-1">Check your email</p>
+        <p className="text-sm font-medium text-slate-900 mb-1">{t('auth.checkEmail')}</p>
         <p className="text-[13px] text-slate-500">
-          We sent an {OTP_LENGTH}-digit code to <span className="font-medium text-slate-700">{email}</span>
+          <Trans
+            i18nKey="auth.otp.body"
+            values={{ length: OTP_LENGTH, email }}
+            components={{ s: <span className="font-medium text-slate-700" /> }}
+          />
         </p>
       </div>
 
@@ -634,18 +660,18 @@ function OTPForm({
 
       <Button type="submit" className="w-full" disabled={loading || digits.join('').length < OTP_LENGTH}>
         {loading && <Spinner size={14} />}
-        {loading ? 'Verifying…' : 'Verify'}
+        {loading ? t('auth.verifying') : t('auth.verify')}
       </Button>
 
       <div className="flex items-center justify-between text-[13px] text-slate-500">
         <button type="button" onClick={onBack} className="hover:text-slate-700 transition-colors">
-          ← Back
+          ← {t('auth.back')}
         </button>
         {resendCooldown > 0 ? (
-          <span className="text-slate-400">Resend in {resendCooldown}s</span>
+          <span className="text-slate-400">{t('auth.otp.resendIn', { n: resendCooldown })}</span>
         ) : (
           <button type="button" onClick={resend} className="text-violet-600 hover:text-violet-700 font-medium transition-colors">
-            Resend code
+            {t('auth.otp.resend')}
           </button>
         )}
       </div>

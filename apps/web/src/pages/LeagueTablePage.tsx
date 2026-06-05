@@ -8,9 +8,11 @@
  * club row and annotates promotion / play-off / relegation zones.
  */
 
+import { useTranslation } from 'react-i18next'
 import { Card } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { activeLocale } from '@/lib/locale'
 import { useClubStore } from '@/stores/club'
 import { useLeagueTable, type UseLeagueTableResult } from '@/lib/useLeagueTable'
 import type { LeagueTableRow } from '@/lib/api'
@@ -51,17 +53,18 @@ export function LeagueTablePage() {
 }
 
 function PageHeader({ competition }: { competition?: string }) {
+  const { t } = useTranslation()
   return (
     <div className="mb-6 flex items-center gap-3">
       <span className="inline-block w-1.5 h-7 rounded-full bg-violet-600" />
       <div className="flex-1">
         <h1 className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">
-          League Table
+          {t('nav.leagueTable')}
         </h1>
         <p className="text-[13px] text-slate-500 mt-1.5">
           {competition
-            ? `Live ${competition} standings — the current real-world table.`
-            : 'Live standings — the current real-world table.'}
+            ? t('leagueTablePage.subtitleWith', { competition })
+            : t('leagueTablePage.subtitle')}
         </p>
       </div>
     </div>
@@ -72,6 +75,7 @@ function PageHeader({ competition }: { competition?: string }) {
 // skeleton / error fallback. Exported shape is the hook result so the same
 // component drives both states cleanly.
 function LeagueTableCard({ lt }: { lt: UseLeagueTableResult }) {
+  const { t } = useTranslation()
   const { data, loading, error, clubRowIndex } = lt
   const clubName = useClubStore((s) => s.clubName)
 
@@ -80,15 +84,15 @@ function LeagueTableCard({ lt }: { lt: UseLeagueTableResult }) {
   if (error || !data) {
     return (
       <Card className="p-8 text-center">
-        <p className="text-[14px] font-medium text-slate-900">Couldn’t load the league table</p>
+        <p className="text-[14px] font-medium text-slate-900">{t('leagueTablePage.errorTitle')}</p>
         <p className="text-[13px] text-slate-500 mt-1.5 max-w-md mx-auto">
-          The standings service is unavailable right now. Check your connection and try again in a moment.
+          {t('leagueTablePage.errorBody')}
         </p>
         <button
           onClick={lt.reload}
           className="mt-4 inline-flex items-center gap-1.5 px-3.5 py-1.5 text-[13px] font-medium rounded-full border border-slate-200 text-slate-700 hover:border-slate-300 transition-colors"
         >
-          Retry
+          {t('leagueTablePage.retry')}
         </button>
       </Card>
     )
@@ -104,7 +108,7 @@ function LeagueTableCard({ lt }: { lt: UseLeagueTableResult }) {
           <div>
             <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">{data.competition}</h3>
             <p className="text-[12px] text-slate-500 mt-0.5">
-              {data.season} season · {total} clubs
+              {t('leagueTablePage.seasonClubs', { season: data.season, count: total })}
             </p>
           </div>
         </div>
@@ -116,15 +120,15 @@ function LeagueTableCard({ lt }: { lt: UseLeagueTableResult }) {
           <thead className="border-b border-slate-100 bg-slate-50/40">
             <tr>
               <th className="meta-label px-6 py-3 text-right w-12">#</th>
-              <th className="meta-label px-6 py-3 text-left">Club</th>
-              <StatTh label="P" hint="Played" />
-              <StatTh label="W" hint="Won" />
-              <StatTh label="D" hint="Drawn" />
-              <StatTh label="L" hint="Lost" />
-              <StatTh label="GF" hint="Goals for" />
-              <StatTh label="GA" hint="Goals against" />
-              <StatTh label="GD" hint="Goal difference" />
-              <th className="meta-label px-6 py-3 text-right">Pts</th>
+              <th className="meta-label px-6 py-3 text-left">{t('leagueTablePage.th.club')}</th>
+              <StatTh label={t('leagueTablePage.th.played')} hint={t('leagueTablePage.hint.played')} />
+              <StatTh label={t('leagueTablePage.th.won')} hint={t('leagueTablePage.hint.won')} />
+              <StatTh label={t('leagueTablePage.th.drawn')} hint={t('leagueTablePage.hint.drawn')} />
+              <StatTh label={t('leagueTablePage.th.lost')} hint={t('leagueTablePage.hint.lost')} />
+              <StatTh label={t('leagueTablePage.th.goalsFor')} hint={t('leagueTablePage.hint.goalsFor')} />
+              <StatTh label={t('leagueTablePage.th.goalsAgainst')} hint={t('leagueTablePage.hint.goalsAgainst')} />
+              <StatTh label={t('leagueTablePage.th.goalDifference')} hint={t('leagueTablePage.hint.goalDifference')} />
+              <th className="meta-label px-6 py-3 text-right">{t('leagueTablePage.th.points')}</th>
             </tr>
           </thead>
           <tbody>
@@ -146,6 +150,7 @@ function LeagueTableCard({ lt }: { lt: UseLeagueTableResult }) {
 }
 
 function TableRow({ row, isClub, zone }: { row: LeagueTableRow; isClub: boolean; zone: Zone }) {
+  const { t } = useTranslation()
   return (
     <tr
       className={cn(
@@ -171,7 +176,7 @@ function TableRow({ row, isClub, zone }: { row: LeagueTableRow; isClub: boolean;
           </span>
           {isClub && (
             <span className="text-[10px] font-semibold uppercase tracking-wide text-violet-600 bg-violet-100 rounded px-1.5 py-0.5">
-              You
+              {t('leagueTablePage.you')}
             </span>
           )}
         </span>
@@ -239,25 +244,26 @@ function StatTd({ value, muted }: { value: number; muted?: boolean }) {
 }
 
 function DataSourceTag({ source, fetchedAt }: { source: 'live' | 'fallback'; fetchedAt: string }) {
+  const { t } = useTranslation()
   const when = new Date(fetchedAt)
   const time = isNaN(when.getTime())
     ? ''
-    : when.toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' })
+    : new Intl.DateTimeFormat(activeLocale(), { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' }).format(when)
   if (source === 'live') {
     return (
       <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2.5 py-1">
         <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500" />
-        Live · updated {time}
+        {t('leagueTablePage.liveUpdated', { time })}
       </span>
     )
   }
   return (
     <span
       className="inline-flex items-center gap-1.5 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1"
-      title="The live standings service was unreachable — showing the most recent cached table."
+      title={t('leagueTablePage.cachedTitle')}
     >
       <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" />
-      Cached snapshot
+      {t('leagueTablePage.cachedSnapshot')}
     </span>
   )
 }
@@ -271,20 +277,21 @@ function LegendFooter({
   clubFound: boolean
   clubName: string | null
 }) {
+  const { t } = useTranslation()
   return (
     <div className="px-6 py-3.5 border-t border-slate-100 bg-slate-50/40 flex items-center justify-between flex-wrap gap-2">
       <div className="flex items-center gap-4 flex-wrap">
         {leagueId === 'efl-championship' && (
           <>
-            <LegendDot className="bg-green-500" label="Automatic promotion" />
-            <LegendDot className="bg-violet-400" label="Play-offs" />
+            <LegendDot className="bg-green-500" label={t('leagueTablePage.promotion')} />
+            <LegendDot className="bg-violet-400" label={t('leagueTablePage.playoffs')} />
           </>
         )}
-        <LegendDot className="bg-red-500" label="Relegation" />
+        <LegendDot className="bg-red-500" label={t('leagueTablePage.relegation')} />
       </div>
       {!clubFound && clubName && (
         <span className="text-[11px] text-slate-400">
-          {clubName} not matched in the live table
+          {t('leagueTablePage.notMatched', { club: clubName })}
         </span>
       )}
     </div>

@@ -136,7 +136,7 @@ export function Sidebar() {
     return true
   })
 
-  const leagueLabel = leagueId === 'premier-league' ? 'Premier League' : 'EFL Championship'
+  const leagueLabel = leagueId === 'premier-league' ? t('chrome.leaguePremier') : t('chrome.leagueChampionship')
 
   // Club crest (or initials fallback) — reused in the clickable + static rows.
   const clubAvatar = clubLogoUrl ? (
@@ -232,7 +232,7 @@ export function Sidebar() {
               <div className="relative rounded-xl bg-violet-600 text-white shadow-lg shadow-violet-600/25 p-3.5">
                 <button
                   onClick={() => { setNudgeDismissed(true) }}
-                  aria-label="Dismiss"
+                  aria-label={t('chrome.nudge.dismiss')}
                   className="absolute top-2 right-2 text-white/60 hover:text-white transition-colors"
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -240,16 +240,16 @@ export function Sidebar() {
                   </svg>
                 </button>
                 <div className="flex items-center gap-1.5 text-[12px] font-semibold">
-                  <span aria-hidden>👋</span> Start here
+                  <span aria-hidden>👋</span> {t('chrome.nudge.startHere')}
                 </div>
                 <p className="mt-1 text-[12px] leading-snug text-violet-100 pr-3">
-                  Pick your club to instantly pre-fill the full squad, contracts and head coach.
+                  {t('chrome.nudge.body')}
                 </p>
                 <button
                   onClick={() => { setNudgeDismissed(true); navigate('/onboarding') }}
                   className="mt-2.5 inline-flex items-center gap-1 text-[12px] font-semibold text-white bg-white/15 hover:bg-white/25 rounded-lg px-2.5 py-1.5 transition-colors"
                 >
-                  Choose a club
+                  {t('chrome.nudge.choose')}
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M5 12h14" /><path d="M13 6l6 6-6 6" />
                   </svg>
@@ -261,11 +261,11 @@ export function Sidebar() {
           )}
         </AnimatePresence>
 
-        <div className="meta-label mb-2">Workspace</div>
+        <div className="meta-label mb-2">{t('chrome.workspace')}</div>
         {can.switchLeague ? (
           <button
             onClick={() => setChangeOpen(true)}
-            title="Change club"
+            title={t('chrome.changeClub')}
             className={cn(
               'group flex w-full items-center gap-2.5 mb-3 -mx-1 px-1 py-1 rounded-lg text-left hover:bg-slate-50 transition-colors',
               showClubNudge && 'ring-2 ring-violet-400 ring-offset-1 bg-violet-50/60',
@@ -273,7 +273,7 @@ export function Sidebar() {
           >
             {clubAvatar}
             <div className="min-w-0 flex-1">
-              <div className="text-[13px] font-medium text-slate-900 truncate">{clubName ?? 'Your Club'}</div>
+              <div className="text-[13px] font-medium text-slate-900 truncate">{clubName ?? t('chrome.yourClub')}</div>
               <div className="text-[11px] text-slate-400">{leagueLabel}</div>
             </div>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-slate-300 group-hover:text-slate-500 transition-colors flex-shrink-0">
@@ -284,7 +284,7 @@ export function Sidebar() {
           <div className="flex items-center gap-2.5 mb-3">
             {clubAvatar}
             <div className="min-w-0">
-              <div className="text-[13px] font-medium text-slate-900 truncate">{clubName ?? 'Your Club'}</div>
+              <div className="text-[13px] font-medium text-slate-900 truncate">{clubName ?? t('chrome.yourClub')}</div>
               <div className="text-[11px] text-slate-400">{leagueLabel}</div>
             </div>
           </div>
@@ -299,14 +299,14 @@ export function Sidebar() {
           }
         >
           {SettingsIcon}
-          <span>Settings</span>
+          <span>{t('chrome.settings')}</span>
         </NavLink>
         <button
           onClick={signOut}
           className="flex w-full items-center gap-2 text-[13px] text-slate-400 hover:text-slate-700 transition-colors py-1"
         >
           {LogoutIcon}
-          <span>Sign out</span>
+          <span>{t('chrome.signOut')}</span>
         </button>
       </div>
 
@@ -332,26 +332,26 @@ export function Sidebar() {
                 <div className="px-5 pt-5 pb-2 flex items-center gap-3">
                   {clubAvatar}
                   <div className="min-w-0">
-                    <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">Change club</h3>
-                    <p className="text-[12px] text-slate-400 truncate">Currently: {clubName ?? 'Your Club'}</p>
+                    <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">{t('chrome.changeModal.title')}</h3>
+                    <p className="text-[12px] text-slate-400 truncate">{t('chrome.changeModal.currently', { name: clubName ?? t('chrome.yourClub') })}</p>
                   </div>
                 </div>
                 <div className="px-5 pb-4">
                   <p className="text-[13px] text-slate-600 leading-relaxed">
-                    Picking a new club will <span className="font-medium text-slate-800">replace your current
-                    squad</span> with a fresh pre-filled roster (players, contracts and head coach). New wages
-                    start at £0 for you to fill in. Your financial settings are kept.
+                    {t('chrome.changeModal.bodyPrefix')}
+                    <span className="font-medium text-slate-800">{t('chrome.changeModal.bodyBold')}</span>
+                    {t('chrome.changeModal.bodySuffix')}
                   </p>
                 </div>
                 <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-end gap-3">
-                  <Button variant="ghost" onClick={() => setChangeOpen(false)}>Cancel</Button>
+                  <Button variant="ghost" onClick={() => setChangeOpen(false)}>{t('common.cancel')}</Button>
                   <Button
                     onClick={() => {
                       setChangeOpen(false)
                       navigate('/onboarding')
                     }}
                   >
-                    Choose a new club
+                    {t('chrome.changeModal.confirm')}
                   </Button>
                 </div>
               </motion.div>

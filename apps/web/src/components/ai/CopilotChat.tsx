@@ -16,6 +16,8 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { useNavigate } from 'react-router-dom'
 import { useChat, type Message } from 'ai/react'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -47,12 +49,6 @@ const authedFetch: typeof fetch = async (input, init) => {
   return fetch(input as RequestInfo, { ...init, headers })
 }
 
-const EXAMPLE_PROMPTS = [
-  'What is the Squad Cost Ratio and how is it calculated?',
-  'What happens if we breach the 85% threshold?',
-  'Explain the difference between the levy and points-deduction zones.',
-]
-
 /** Shared Analyst avatar — one consistent format everywhere in the chat. */
 function AnalystAvatar({ compact = false, className }: { compact?: boolean; className?: string }) {
   return (
@@ -68,19 +64,20 @@ function AnalystAvatar({ compact = false, className }: { compact?: boolean; clas
   )
 }
 
-function timeAgo(ts: number): string {
+function timeAgo(ts: number, t: TFunction): string {
   const s = Math.floor((Date.now() - ts) / 1000)
-  if (s < 60) return 'just now'
+  if (s < 60) return t('ai.time.justNow')
   const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m ago`
+  if (m < 60) return t('ai.time.minutes', { n: m })
   const h = Math.floor(m / 60)
-  if (h < 24) return `${h}h ago`
+  if (h < 24) return t('ai.time.hours', { n: h })
   const d = Math.floor(h / 24)
-  return d === 1 ? 'yesterday' : `${d}d ago`
+  return d === 1 ? t('ai.time.yesterday') : t('ai.time.days', { n: d })
 }
 
 // ── source chip — deep-links to the in-app Rules reference (not the website) ─
 function SourceChip() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const close = useCopilot((s) => s.close)
   return (
@@ -89,11 +86,11 @@ function SourceChip() {
         close()
         navigate('/rules')
       }}
-      title="Open the SCR rules reference"
+      title={t('ai.sourceTitle')}
       className="mt-2.5 inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-medium text-violet-700 transition-colors hover:bg-violet-100"
     >
       <BookIcon size={11} />
-      Source: SCR rules
+      {t('ai.sourceLabel')}
     </button>
   )
 }
@@ -113,6 +110,7 @@ function MessageList({
   /** Balance spent — example prompts are non-actionable until topped up. */
   depleted: boolean
 }) {
+  const { t } = useTranslation()
   const ref = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
 
@@ -140,7 +138,7 @@ function MessageList({
           <div className="flex items-center gap-2 text-[11px] text-slate-400">
             <span className="h-px flex-1 bg-slate-100" />
             <span className="flex items-center gap-1">
-              <BookIcon size={11} /> Earlier conversation summarized
+              <BookIcon size={11} /> {t('ai.summarized')}
             </span>
             <span className="h-px flex-1 bg-slate-100" />
           </div>
@@ -149,15 +147,13 @@ function MessageList({
           <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-5">
             <div className="flex items-center gap-2.5 text-slate-800">
               <AnalystAvatar />
-              <p className="text-[14px] font-semibold">How can I help with compliance?</p>
+              <p className="text-[14px] font-semibold">{t('ai.greetingTitle')}</p>
             </div>
             <p className="mt-2 text-[13px] leading-relaxed text-slate-600">
-              I explain the SCR rules and the figures Headroom has calculated, grounded in the{' '}
-              {KNOWLEDGE_SOURCE_LABEL}. Verify material decisions against the official 2026/27
-              Handbook — I'm an analyst aid, not a legal advisor.
+              {t('ai.greetingBody', { source: KNOWLEDGE_SOURCE_LABEL })}
             </p>
             <div className="mt-3 flex flex-col gap-1.5">
-              {EXAMPLE_PROMPTS.map((p) => (
+              {(t('ai.examplePrompts', { returnObjects: true }) as string[]).map((p) => (
                 <button
                   key={p}
                   onClick={() => onExample(p)}
@@ -184,7 +180,7 @@ function MessageList({
               >
                 <div className="inline-flex items-center gap-1.5 rounded-full border border-violet-200 bg-violet-50 px-3 py-1.5 text-[11px] font-medium text-violet-700">
                   <SparkIcon size={12} />
-                  Analyzing {contextLabel}
+                  {t('ai.analyzing', { label: contextLabel })}
                 </div>
               </motion.div>
             )
@@ -261,6 +257,7 @@ function Composer({
   /** Balance is exhausted — lock the composer until an admin tops it up. */
   depleted: boolean
 }) {
+  const { t } = useTranslation()
   const taRef = useRef<HTMLTextAreaElement>(null)
 
   // Auto-grow up to a cap.
@@ -283,9 +280,9 @@ function Composer({
             </svg>
           </span>
           <div className="min-w-0">
-            <p className="text-[13px] font-semibold text-red-700">AI balance depleted</p>
+            <p className="text-[13px] font-semibold text-red-700">{t('ai.depletedTitle')}</p>
             <p className="mt-0.5 text-[12px] leading-relaxed text-red-600/90">
-              Please contact your workspace admin to top up before sending more messages.
+              {t('ai.depletedBody')}
             </p>
           </div>
         </div>
@@ -296,7 +293,7 @@ function Composer({
             value={input}
             onChange={onChange}
             rows={1}
-            placeholder="Ask about SCR, a player, or a scenario…"
+            placeholder={t('ai.composerPlaceholder')}
             className="flex-1 resize-none bg-transparent py-1 text-[13.5px] leading-relaxed text-slate-900 placeholder:text-slate-400 focus:outline-none"
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -309,7 +306,7 @@ function Composer({
           {isLoading ? (
             <button
               onClick={onStop}
-              aria-label="Stop"
+              aria-label={t('ai.stop')}
               className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-slate-200 text-slate-600 transition-colors hover:bg-slate-300"
             >
               <StopIcon />
@@ -318,7 +315,7 @@ function Composer({
             <button
               onClick={onSubmit}
               disabled={input.trim().length === 0}
-              aria-label="Send"
+              aria-label={t('ai.send')}
               className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white transition-colors hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <SendIcon />
@@ -334,11 +331,12 @@ function Composer({
 // composer. Carries the Analyst spark mark + the remaining credit, and shifts
 // violet → amber → red as the balance runs low. Hover reveals the full label.
 function BalanceChip({ balanceUsd }: { balanceUsd: number | null }) {
+  const { t } = useTranslation()
   if (balanceUsd === null) {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-300">
         <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-slate-300" />
-        Loading credit…
+        {t('ai.loadingCredit')}
       </span>
     )
   }
@@ -351,7 +349,7 @@ function BalanceChip({ balanceUsd }: { balanceUsd: number | null }) {
       : 'bg-violet-50 text-violet-700'
   return (
     <span
-      title="Remaining AI credit"
+      title={t('ai.remainingCredit')}
       className={cn(
         'group inline-flex items-center gap-1.5 rounded-full py-1 pl-2 pr-2.5 text-[11px] font-medium transition-colors',
         tone,
@@ -360,7 +358,7 @@ function BalanceChip({ balanceUsd }: { balanceUsd: number | null }) {
       <SparkIcon size={11} className="opacity-80" />
       <span className="num tabular-nums">{formatUsd(balanceUsd)}</span>
       <span className="max-w-0 overflow-hidden whitespace-nowrap opacity-0 transition-all duration-200 group-hover:max-w-[60px] group-hover:opacity-60">
-        credit
+        {t('ai.credit')}
       </span>
     </span>
   )
@@ -380,6 +378,7 @@ function ContextRing({
   compacting: boolean
   compacted: boolean
 }) {
+  const { t } = useTranslation()
   const pct = Math.round(Math.min(1, Math.max(0, ratio)) * 100)
   const size = 18
   const stroke = 2.5
@@ -387,7 +386,9 @@ function ContextRing({
   const circumference = 2 * Math.PI * r
   const offset = circumference * (1 - Math.min(1, Math.max(0, ratio)))
   const color = compacting ? '#a78bfa' : ratio < 0.6 ? '#7c3aed' : ratio < 0.85 ? '#f59e0b' : '#ef4444'
-  const tip = compacting ? 'Compacting context…' : `Chat context · ${pct}%${compacted ? ' · compacted' : ''}`
+  const tip = compacting
+    ? t('ai.ringCompacting')
+    : t('ai.ringContext', { pct }) + (compacted ? ` · ${t('ai.ringCompacted')}` : '')
 
   return (
     <div className="group relative flex h-8 w-6 flex-shrink-0 items-center justify-center">
@@ -436,25 +437,26 @@ function Header({
   onToggleFullscreen: () => void
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   return (
     <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
       <div className="flex items-center gap-2.5">
         <AnalystAvatar className="shadow-sm shadow-violet-600/20" />
         <div>
           <h2 className="text-[15px] font-semibold leading-tight tracking-tight text-slate-900">
-            Compliance Analyst
+            {t('ai.title')}
           </h2>
-          <p className="text-[11px] leading-tight text-slate-400">Grounded in PL rules · not legal advice</p>
+          <p className="text-[11px] leading-tight text-slate-400">{t('ai.subtitle')}</p>
         </div>
       </div>
       <div className="flex items-center gap-1.5">
         <BalanceChip balanceUsd={balanceUsd} />
         <div className="flex items-center gap-1">
-          <IconBtn onClick={onNew} title="New chat"><PlusIcon /></IconBtn>
-          <IconBtn onClick={onToggleFullscreen} title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
+          <IconBtn onClick={onNew} title={t('ai.newChat')}><PlusIcon /></IconBtn>
+          <IconBtn onClick={onToggleFullscreen} title={fullscreen ? t('ai.exitFullscreen') : t('ai.fullscreen')}>
             {fullscreen ? <CollapseIcon /> : <ExpandIcon />}
           </IconBtn>
-          <IconBtn onClick={onClose} title="Close"><CloseIcon /></IconBtn>
+          <IconBtn onClick={onClose} title={t('ai.close')}><CloseIcon /></IconBtn>
         </div>
       </div>
     </div>
@@ -476,6 +478,7 @@ function IconBtn({ onClick, title, children }: { onClick: () => void; title: str
 
 // ── session sidebar (fullscreen only) ──────────────────────────────────────
 function SessionSidebar({ onPick }: { onPick: (id: string) => void }) {
+  const { t } = useTranslation()
   const { sessions, activeId, newSession, deleteSession } = useCopilot()
   const ordered = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt)
 
@@ -486,15 +489,15 @@ function SessionSidebar({ onPick }: { onPick: (id: string) => void }) {
           onClick={() => newSession()}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-3 py-2.5 text-[13px] font-medium text-white transition-colors hover:bg-violet-700"
         >
-          <PlusIcon size={15} /> New chat
+          <PlusIcon size={15} /> {t('ai.newChat')}
         </button>
       </div>
       <div className="flex-1 overflow-y-auto px-2 pb-3">
         <p className="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-          History
+          {t('ai.history')}
         </p>
         {ordered.length === 0 && (
-          <p className="px-2 py-2 text-[12px] text-slate-400">No conversations yet.</p>
+          <p className="px-2 py-2 text-[12px] text-slate-400">{t('ai.noConversations')}</p>
         )}
         {ordered.map((s) => (
           <div
@@ -513,12 +516,12 @@ function SessionSidebar({ onPick }: { onPick: (id: string) => void }) {
               >
                 {s.title}
               </p>
-              <p className="text-[10.5px] text-slate-400">{timeAgo(s.updatedAt)}</p>
+              <p className="text-[10.5px] text-slate-400">{timeAgo(s.updatedAt, t)}</p>
             </button>
             <button
               onClick={() => deleteSession(s.id)}
-              title="Delete chat"
-              aria-label="Delete chat"
+              title={t('ai.deleteChat')}
+              aria-label={t('ai.deleteChat')}
               className="flex-shrink-0 rounded-md p-1 text-slate-300 opacity-0 transition-all hover:bg-white hover:text-red-500 group-hover:opacity-100"
             >
               <TrashIcon />
@@ -532,6 +535,7 @@ function SessionSidebar({ onPick }: { onPick: (id: string) => void }) {
 
 // ── main component ─────────────────────────────────────────────────────────
 export function CopilotChat() {
+  const { t } = useTranslation()
   const {
     isOpen,
     isFullscreen,
@@ -791,7 +795,7 @@ export function CopilotChat() {
           exit={{ x: '100%' }}
           transition={{ type: 'spring', stiffness: 380, damping: 38 }}
           role="dialog"
-          aria-label="Compliance Analyst"
+          aria-label={t('ai.title')}
         >
           {header}
           {body}
@@ -803,6 +807,7 @@ export function CopilotChat() {
 
 /** Floating launcher — opens the Analyst (continues the active session). */
 export function CopilotLauncher() {
+  const { t } = useTranslation()
   const { isOpen, toggle } = useCopilot()
   if (isOpen) return null
   return (
@@ -811,10 +816,10 @@ export function CopilotLauncher() {
       animate={{ opacity: 1, y: 0 }}
       onClick={() => toggle()}
       className="fixed bottom-6 right-6 z-30 flex items-center gap-2 rounded-full bg-gradient-to-br from-violet-600 to-violet-700 pl-4 pr-5 py-3 text-[14px] font-semibold text-white shadow-lg shadow-violet-600/30 transition-transform hover:scale-[1.03]"
-      aria-label="Open Compliance Analyst"
+      aria-label={t('ai.launcherAria')}
     >
       <SparkIcon size={16} />
-      Analyst
+      {t('ai.launcherLabel')}
     </motion.button>
   )
 }

@@ -12,6 +12,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation, Trans } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -33,6 +35,7 @@ import { exportAmortisationXLSX } from '@/lib/exports/amortisationXlsx'
 import { findCountry } from '@/lib/countries'
 import { Flag } from '@/components/ui/flag'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
+import { activeLocale } from '@/lib/locale'
 import { useCopilot } from '@/stores/copilot'
 import { CopilotTriggerIcon } from '@/components/ai/CopilotTrigger'
 import type {
@@ -61,6 +64,7 @@ const POSITIONS: PlayerPosition[] = ['GK', 'DEF', 'MID', 'FWD']
 // Top-level page
 // ---------------------------------------------------------------------------
 export function RosterPage() {
+  const { t } = useTranslation()
   const can = useCan()
   const navigate = useNavigate()
   const { clubName, financials, setFinancials } = useClubStore()
@@ -136,7 +140,7 @@ export function RosterPage() {
       setManager(m.manager)
       setFinancials(f)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load roster')
+      setError(e instanceof Error ? e.message : t('roster.failLoad'))
     } finally {
       setLoading(false)
     }
@@ -153,7 +157,7 @@ export function RosterPage() {
       await api.roster.restorePlayer(id)
       await refresh()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to restore player')
+      setError(e instanceof Error ? e.message : t('roster.failRestore'))
     } finally {
       setPendingActionId(null)
     }
@@ -167,7 +171,7 @@ export function RosterPage() {
       setConfirmDeleteId(null)
       await refresh()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to delete player')
+      setError(e instanceof Error ? e.message : t('roster.failDelete'))
     } finally {
       setPendingActionId(null)
     }
@@ -198,10 +202,10 @@ export function RosterPage() {
         <span className="inline-block w-1.5 h-7 rounded-full bg-violet-600" />
         <div className="flex-1">
           <h1 className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">
-            Roster
+            {t('nav.roster')}
           </h1>
           <p className="text-[13px] text-slate-500 mt-1.5">
-            Your squad. Squad costs are derived from these contracts.
+            {t('roster.subtitle')}
           </p>
         </div>
         {tab === 'squad' && (
@@ -215,16 +219,16 @@ export function RosterPage() {
                 currency: useClubStore.getState().baseCurrency,
               })}
               disabled={active.length === 0}
-              title="Download per-player amortisation schedules as an Excel workbook"
+              title={t('roster.exportExcelTitle')}
             >
-              Export Excel
+              {t('roster.exportExcel')}
             </Button>
             {can.mutateRoster && (
               <>
                 <Button variant="secondary" onClick={() => setCsvOpen(true)}>
-                  Upload CSV / Excel
+                  {t('roster.uploadCsv')}
                 </Button>
-                <Button onClick={() => setManualOpen(true)}>Add Player</Button>
+                <Button onClick={() => setManualOpen(true)}>{t('roster.addPlayer')}</Button>
               </>
             )}
           </div>
@@ -234,10 +238,10 @@ export function RosterPage() {
       {/* Tabs */}
       <div className="flex items-center gap-6 border-b border-slate-200 mb-5">
         <TabButton active={tab === 'squad'} onClick={() => setTab('squad')}>
-          Squad <span className="ml-1.5 text-[12px] text-slate-400">({active.length})</span>
+          {t('roster.tabSquad')} <span className="ml-1.5 text-[12px] text-slate-400">({active.length})</span>
         </TabButton>
         <TabButton active={tab === 'archived'} onClick={() => setTab('archived')}>
-          Archived <span className="ml-1.5 text-[12px] text-slate-400">({archived.length})</span>
+          {t('roster.tabArchived')} <span className="ml-1.5 text-[12px] text-slate-400">({archived.length})</span>
         </TabButton>
       </div>
 
@@ -267,12 +271,10 @@ export function RosterPage() {
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-[13px] text-amber-900 font-semibold">
-                      We have loaded your squad template
+                      {t('roster.redout.title')}
                     </p>
                     <p className="text-[12.5px] text-amber-800 mt-1 leading-relaxed">
-                      While biographical data is complete, employee wages default to zero, and book values
-                      reflect parsed historical transfer records. Please audit these rows before executing
-                      compliance simulations.
+                      {t('roster.redout.body')}
                     </p>
 
                     {/* Wage-entry progress */}
@@ -281,14 +283,14 @@ export function RosterPage() {
                         <div className="h-full rounded-full bg-amber-500 transition-all" style={{ width: `${pct}%` }} />
                       </div>
                       <span className="text-[11.5px] font-medium text-amber-800 num whitespace-nowrap">
-                        {filled}/{withContract} wages added
+                        {t('roster.redout.progress', { filled, total: withContract })}
                       </span>
                     </div>
 
                     {can.mutateRoster && (
                       <div className="mt-3 flex items-center gap-2">
                         <Button size="sm" variant="secondary" onClick={() => setCsvOpen(true)}>
-                          Upload wages CSV / Excel
+                          {t('roster.redout.uploadWages')}
                         </Button>
                       </div>
                     )}
@@ -310,10 +312,10 @@ export function RosterPage() {
           {/* Filter chips */}
           <div className="flex items-center gap-2 mb-4 flex-wrap">
             <FilterChip active={filter === 'all'} onClick={() => setFilter('all')}>
-              All
+              {t('dashboard.table.filterAll')}
             </FilterChip>
             <FilterChip active={filter === 'expiring'} onClick={() => setFilter('expiring')}>
-              Expiring ≤ 6 mo
+              {t('dashboard.table.filterExpiring')}
             </FilterChip>
             {POSITIONS.map((pos) => (
               <FilterChip
@@ -321,22 +323,22 @@ export function RosterPage() {
                 active={filter === pos}
                 onClick={() => setFilter(pos)}
               >
-                {pos}
+                {t(`common.positions.${pos}`)}
               </FilterChip>
             ))}
           </div>
 
           {filteredActive.length === 0 ? (
             <EmptyState
-              title={active.length === 0 ? 'No players yet' : 'No players match this filter'}
+              title={active.length === 0 ? t('roster.empty.noPlayers') : t('roster.empty.noMatch')}
               hint={
                 active.length === 0
-                  ? 'Pre-fill your squad from our club library, upload a CSV, or add players manually.'
-                  : 'Try clearing the filter to see all players.'
+                  ? t('roster.empty.noPlayersHint')
+                  : t('roster.empty.noMatchHint')
               }
               action={
                 active.length === 0 && can.switchLeague ? (
-                  <Button onClick={() => navigate('/onboarding')}>Pre-fill from a club</Button>
+                  <Button onClick={() => navigate('/onboarding')}>{t('roster.empty.prefillCta')}</Button>
                 ) : undefined
               }
             />
@@ -353,8 +355,8 @@ export function RosterPage() {
         <>
           {archived.length === 0 ? (
             <EmptyState
-              title="No archived players"
-              hint="Players you archive will appear here for audit history."
+              title={t('roster.empty.noArchived')}
+              hint={t('roster.empty.noArchivedHint')}
             />
           ) : (
             <PlayerTable
@@ -467,6 +469,7 @@ function PlayerTable({
   onConfirmDelete?: (id: string) => void
   onCancelDelete?: () => void
 }) {
+  const { t } = useTranslation()
   const showActions = archived && canMutate && !!onRestore && !!onRequestDelete && !!onConfirmDelete && !!onCancelDelete
   const { format: fmtMoney } = useWorkspaceCurrency()
 
@@ -516,13 +519,13 @@ function PlayerTable({
         <thead className="border-b border-slate-100">
           <tr>
             <SortableTh field="squadNumber" label="#"            align="right" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-            <SortableTh field="name"        label="Name"                       sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-            <SortableTh field="position"    label="Position"                   sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-            <SortableTh field="wage"        label="Annual Wage" align="right"  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-            <SortableTh field="book"        label="Book Value"  align="right"  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} info={<BookValueInfo />} />
-            <SortableTh field="contractEnd" label="Contract End"               sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-            <SortableTh field="expiry"      label={archived ? 'Archived' : 'To Expiry'} align="right" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-            {showActions && <Th align="right">Actions</Th>}
+            <SortableTh field="name"        label={t('roster.th.name')}        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+            <SortableTh field="position"    label={t('roster.th.position')}    sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+            <SortableTh field="wage"        label={t('roster.th.wage')} align="right"  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+            <SortableTh field="book"        label={t('roster.th.book')} align="right"  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} info={<BookValueInfo />} />
+            <SortableTh field="contractEnd" label={t('roster.th.contractEnd')}  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+            <SortableTh field="expiry"      label={archived ? t('roster.th.archived') : t('roster.th.expiry')} align="right" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+            {showActions && <Th align="right">{t('roster.th.actions')}</Th>}
           </tr>
         </thead>
         <tbody>
@@ -545,13 +548,13 @@ function PlayerTable({
                 </span>
                 {!archived && p.monthsToExpiry != null && p.monthsToExpiry < 0 && (
                   <span className="ml-2 inline-block text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-100 text-red-700 align-middle">
-                    EXPIRED
+                    {t('roster.expiredBadge')}
                   </span>
                 )}
                 {onAskCopilot && !archived && p.contract && (
                   <CopilotTriggerIcon
                     onClick={() => onAskCopilot(p)}
-                    title={`Ask the Analyst — ${p.name}`}
+                    title={t('roster.askAnalyst', { name: p.name })}
                     className="ml-1.5 align-middle opacity-0 transition-opacity focus:opacity-100 group-hover:opacity-100"
                   />
                 )}
@@ -648,15 +651,16 @@ function ArchivedRowActions({
   onConfirmDelete: (id: string) => void
   onCancelDelete: () => void
 }) {
+  const { t } = useTranslation()
   const confirming = confirmDeleteId === playerId
   const pending = pendingActionId === playerId
 
   if (confirming) {
     return (
       <span className="inline-flex items-center gap-2 justify-end">
-        <span className="text-[11px] text-slate-600 whitespace-nowrap">Delete {playerName}?</span>
+        <span className="text-[11px] text-slate-600 whitespace-nowrap">{t('roster.rowActions.deletePrompt', { name: playerName })}</span>
         <IconButton
-          label={pending ? 'Deleting…' : 'Confirm delete'}
+          label={pending ? t('roster.rowActions.deleting') : t('roster.rowActions.confirmDelete')}
           tone="danger"
           disabled={pending}
           onClick={() => onConfirmDelete(playerId)}
@@ -664,7 +668,7 @@ function ArchivedRowActions({
           {pending ? <Spinner size={14} /> : <CheckIcon />}
         </IconButton>
         <IconButton
-          label="Cancel"
+          label={t('common.cancel')}
           tone="neutral"
           disabled={pending}
           onClick={onCancelDelete}
@@ -678,7 +682,7 @@ function ArchivedRowActions({
   return (
     <span className="inline-flex items-center gap-1.5 justify-end">
       <IconButton
-        label={pending ? 'Restoring…' : 'Restore player'}
+        label={pending ? t('roster.rowActions.restoring') : t('roster.rowActions.restorePlayer')}
         tone="violet"
         disabled={pending}
         onClick={() => onRestore(playerId)}
@@ -686,7 +690,7 @@ function ArchivedRowActions({
         {pending ? <Spinner size={14} /> : <RestoreIcon />}
       </IconButton>
       <IconButton
-        label="Delete permanently"
+        label={t('roster.rowActions.deletePermanently')}
         tone="danger"
         disabled={pending}
         onClick={() => onRequestDelete(playerId)}
@@ -780,14 +784,13 @@ function CloseIcon() {
 // staging surfaces. Bio-only ingestion leaves wages and transfer fees blank, so
 // these prompts guide the CFO to enter official numbers without the old wall of
 // red error states.
-const FINANCIAL_WARNING_TEXT =
-  'Financial figure required. Please input the official value to calculate the Squad Cost Ratio.'
-
 // Subtle amber AlertTriangle + hover/focus tooltip. The tooltip is rendered in a
 // portal to <body> and positioned off the icon's screen rect, so it escapes the
 // `overflow-hidden`/`overflow-auto` table containers that previously clipped it.
 // Keyboard-focusable for a11y.
 function FinancialWarning({ className }: { className?: string }) {
+  const { t } = useTranslation()
+  const warningText = t('roster.financialWarning')
   const iconRef = useRef<HTMLSpanElement>(null)
   const [coords, setCoords] = useState<{ top: number; right: number } | null>(null)
 
@@ -810,7 +813,7 @@ function FinancialWarning({ className }: { className?: string }) {
         size={14}
         strokeWidth={2}
         tabIndex={0}
-        aria-label={FINANCIAL_WARNING_TEXT}
+        aria-label={warningText}
         className="text-amber-500 outline-none cursor-help"
       />
       {coords &&
@@ -820,7 +823,7 @@ function FinancialWarning({ className }: { className?: string }) {
             className="pointer-events-none fixed z-[1000] w-56 -translate-y-full rounded-lg bg-slate-900 px-3 py-2 text-left text-[11.5px] font-normal normal-case leading-snug text-white shadow-lg"
             style={{ top: coords.top - 8, right: coords.right }}
           >
-            {FINANCIAL_WARNING_TEXT}
+            {warningText}
           </span>,
           document.body,
         )}
@@ -952,45 +955,47 @@ function NationalityFlag({ nationality }: { nationality: string | null }) {
 }
 
 function PositionPill({ position }: { position: string | null }) {
+  const { t } = useTranslation()
   if (!position) {
     return <span className="text-[12px] text-slate-400">—</span>
   }
   return (
     <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 whitespace-nowrap">
-      {position}
+      {t(`common.positions.${position}`, { defaultValue: position })}
     </span>
   )
 }
 
 // "49" → "4 years 1 month" — years lead, months only when non-zero, singular/plural correct.
-function formatExpiryLabel(months: number): string {
+function formatExpiryLabel(months: number, t: TFunction): string {
   const years = Math.floor(months / 12)
   const rem = months % 12
-  if (years === 0) return `${rem} ${rem === 1 ? 'month' : 'months'}`
-  const yearPart = `${years} ${years === 1 ? 'year' : 'years'}`
+  if (years === 0) return t('dashboard.expiry.months', { count: rem })
+  const yearPart = t('dashboard.expiry.years', { count: years })
   if (rem === 0) return yearPart
-  return `${yearPart} ${rem} ${rem === 1 ? 'month' : 'months'}`
+  return `${yearPart} ${t('dashboard.expiry.months', { count: rem })}`
 }
 
 function ExpiryChip({ months }: { months: number | null }) {
+  const { t } = useTranslation()
   if (months == null) return <span className="text-slate-400">—</span>
   if (months < 0) {
-    return <span className="text-red-700 num">expired</span>
+    return <span className="text-red-700 num">{t('dashboard.expiry.expired')}</span>
   }
   if (months <= 6) {
     return (
       <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-md bg-amber-100 text-amber-700 whitespace-nowrap">
-        {formatExpiryLabel(months)}
+        {formatExpiryLabel(months, t)}
       </span>
     )
   }
-  return <span className="text-slate-500 whitespace-nowrap">{formatExpiryLabel(months)}</span>
+  return <span className="text-slate-500 whitespace-nowrap">{formatExpiryLabel(months, t)}</span>
 }
 
 function formatDate(iso: string): string {
   const d = new Date(iso + (iso.length === 10 ? 'T00:00:00Z' : ''))
   if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  return new Intl.DateTimeFormat(activeLocale(), { timeZone: 'UTC', day: '2-digit', month: 'short', year: 'numeric' }).format(d)
 }
 
 // Compute integer age in years from an ISO YYYY-MM-DD DOB.
@@ -1132,6 +1137,7 @@ function CSVUploadModal({
   onClose: () => void
   onCommitted: () => void
 }) {
+  const { t } = useTranslation()
   const { symbol } = useWorkspaceCurrency()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [parsing, setParsing] = useState(false)
@@ -1151,7 +1157,7 @@ function CSVUploadModal({
       const result = await api.roster.parseCsv(text)
       setRows(result.rows)
     } catch (e) {
-      setGlobalError(e instanceof Error ? e.message : 'Failed to parse file')
+      setGlobalError(e instanceof Error ? e.message : t('roster.csv.failParse'))
     } finally {
       setParsing(false)
     }
@@ -1171,26 +1177,26 @@ function CSVUploadModal({
       await api.roster.commit(payload, existingCount > 0 ? mode : 'append')
       onCommitted()
     } catch (e) {
-      setGlobalError(e instanceof Error ? e.message : 'Failed to commit roster')
+      setGlobalError(e instanceof Error ? e.message : t('roster.csv.failCommit'))
       setCommitting(false)
     }
   }
 
   return (
-    <ModalShell onClose={onClose} title="Import roster from CSV or Excel">
+    <ModalShell onClose={onClose} title={t('roster.csv.title')}>
       <div className="max-h-[80vh] flex flex-col">
         <div className="px-5 pb-3">
           <p className="text-[13px] text-slate-600">
-            Upload a <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded">.csv</code> or{' '}
-            <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded">.xlsx</code> file. Required columns:{' '}
-            <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded">
-              name, position, transfer_fee_pounds, weekly_wage_pounds, agent_fee_pounds, contract_start, contract_end
-            </code>
-            . Optional:{' '}
-            <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded">
-              squad_number, nationality, date_of_birth, joined_date, carried_book_value_pounds
-            </code>
-            . Dates as <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded">YYYY-MM-DD</code>.
+            <Trans
+              i18nKey="roster.csv.instructions"
+              components={{
+                c0: <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded" />,
+                c1: <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded" />,
+                c2: <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded" />,
+                c3: <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded" />,
+                c4: <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded" />,
+              }}
+            />
           </p>
           <div className="flex items-center gap-3 mt-4">
             <input
@@ -1209,13 +1215,13 @@ function CSVUploadModal({
               disabled={parsing}
             >
               {parsing ? <Spinner size={14} /> : null}
-              {parsing ? 'Parsing…' : rows.length > 0 ? 'Choose different file' : 'Choose CSV or Excel file'}
+              {parsing ? t('roster.csv.parsing') : rows.length > 0 ? t('roster.csv.chooseDifferent') : t('roster.csv.chooseFile')}
             </Button>
             {rows.length > 0 && (
               <span className="text-[13px] text-slate-500">
-                {rows.length} rows · {rows.filter((r) => r.ok).length} valid ·{' '}
+                {t('roster.csv.rows', { count: rows.length })} · {t('roster.csv.valid', { count: rows.filter((r) => r.ok).length })} ·{' '}
                 <span className={rows.some((r) => !r.ok) ? 'text-red-600' : ''}>
-                  {rows.filter((r) => !r.ok).length} errors
+                  {t('roster.csv.errors', { count: rows.filter((r) => !r.ok).length })}
                 </span>
               </span>
             )}
@@ -1228,26 +1234,25 @@ function CSVUploadModal({
           <div className="px-5 pb-3">
             <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
               <div className="meta-label mb-2">
-                You already have {existingCount} {existingCount === 1 ? 'player' : 'players'}
+                {t('roster.csv.alreadyHave', { count: existingCount })}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <ImportModeOption
                   active={mode === 'replace'}
                   onClick={() => setMode('replace')}
-                  title="Replace squad"
-                  desc={`Wipe the current ${existingCount} and import these`}
+                  title={t('roster.csv.replaceSquad')}
+                  desc={t('roster.csv.replaceDesc', { count: existingCount })}
                 />
                 <ImportModeOption
                   active={mode === 'append'}
                   onClick={() => setMode('append')}
-                  title="Add to squad"
-                  desc="Keep the current squad and add these on top"
+                  title={t('roster.csv.addToSquad')}
+                  desc={t('roster.csv.addToSquadDesc')}
                 />
               </div>
               {mode === 'replace' && (
                 <p className="mt-2 text-[12px] text-amber-700">
-                  The current {existingCount} active {existingCount === 1 ? 'player' : 'players'} and their
-                  contracts will be removed. Your head coach is kept.
+                  {t('roster.csv.replaceWarning', { count: existingCount })}
                 </p>
               )}
             </div>
@@ -1268,15 +1273,15 @@ function CSVUploadModal({
               <thead className="bg-slate-50 sticky top-0">
                 <tr>
                   <Th>#</Th>
-                  <Th>Name</Th>
-                  <Th>Pos</Th>
-                  <Th align="right">Shirt</Th>
-                  <Th>DOB</Th>
-                  <Th align="right">Fee ({symbol})</Th>
-                  <Th align="right">Wage {symbol}/wk</Th>
-                  <Th align="right">Agent ({symbol})</Th>
-                  <Th>Start</Th>
-                  <Th>End</Th>
+                  <Th>{t('roster.csv.th.name')}</Th>
+                  <Th>{t('roster.csv.th.pos')}</Th>
+                  <Th align="right">{t('roster.csv.th.shirt')}</Th>
+                  <Th>{t('roster.csv.th.dob')}</Th>
+                  <Th align="right">{t('roster.csv.th.fee', { symbol })}</Th>
+                  <Th align="right">{t('roster.csv.th.wage', { symbol })}</Th>
+                  <Th align="right">{t('roster.csv.th.agent', { symbol })}</Th>
+                  <Th>{t('roster.csv.th.start')}</Th>
+                  <Th>{t('roster.csv.th.end')}</Th>
                 </tr>
               </thead>
               <tbody>
@@ -1296,15 +1301,15 @@ function CSVUploadModal({
 
         <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-end gap-3">
           <Button variant="ghost" onClick={onClose} disabled={committing}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button onClick={commit} disabled={!allValid || committing}>
             {committing ? <Spinner size={14} /> : null}
             {committing
-              ? 'Committing…'
+              ? t('roster.csv.committing')
               : existingCount > 0 && mode === 'replace'
-              ? `Replace with ${rows.filter((r) => r.ok).length} players`
-              : `Commit ${rows.filter((r) => r.ok).length} players`}
+              ? t('roster.csv.replaceWith', { count: rows.filter((r) => r.ok).length })
+              : t('roster.csv.commit', { count: rows.filter((r) => r.ok).length })}
           </Button>
         </div>
       </div>
@@ -1325,6 +1330,7 @@ function StagingRowDisplay({
   row: RosterStagingRow
   onChange: (next: RosterStagingRow) => void
 }) {
+  const { t } = useTranslation()
   const { format: fmtMoney } = useWorkspaceCurrency()
   const [editing, setEditing] = useState(false)
   const p = row.parsed
@@ -1356,7 +1362,7 @@ function StagingRowDisplay({
               onClick={() => setEditing(true)}
               className="text-[11px] font-medium text-violet-600 hover:text-violet-700"
             >
-              Fix
+              {t('roster.csv.fix')}
             </button>
           )}
         </div>
@@ -1379,6 +1385,7 @@ function StagingRowEditor({
   onClose: () => void
   onChange: (next: RosterStagingRow) => void
 }) {
+  const { t } = useTranslation()
   // Editor seeds from existing parsed data or empty defaults
   const [name, setName] = useState(row.parsed?.name ?? '')
   const [position, setPosition] = useState<PlayerPosition>(row.parsed?.position ?? 'MID')
@@ -1476,7 +1483,7 @@ function StagingRowEditor({
           onChange={setDateOfBirth}
           min={sixtyYearsAgoISO}
           max={todayISO}
-          placeholder="DOB"
+          placeholder={t('roster.csv.dobPlaceholder')}
         />
       </td>
       <td className="px-2 py-2">
@@ -1486,8 +1493,8 @@ function StagingRowEditor({
         {showCarried ? (
           <div className="mt-1.5">
             <div className="flex items-center justify-end gap-1 mb-0.5">
-              <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">Carried BV</span>
-              <InfoTooltip text={CARRIED_BOOK_VALUE_TOOLTIP} />
+              <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">{t('roster.csv.carriedBV')}</span>
+              <InfoTooltip text={t('roster.nbv.carriedTooltip')} />
             </div>
             <NumericInput value={carriedPounds} onChange={setCarriedPounds} className={cellNumeric} placeholder="0" />
           </div>
@@ -1497,7 +1504,7 @@ function StagingRowEditor({
             onClick={() => setShowCarried(true)}
             className="mt-1 block w-full text-right text-[10.5px] font-medium text-violet-600 hover:text-violet-700"
           >
-            Set Carried BV
+            {t('roster.csv.setCarriedBV')}
           </button>
         )}
       </td>
@@ -1510,14 +1517,14 @@ function StagingRowEditor({
         <NumericInput value={agentPounds} onChange={setAgentPounds} className={cellNumeric} placeholder="0" />
       </td>
       <td className="px-2 py-2 align-top">
-        <DatePicker value={startDate} onChange={setStartDate} placeholder="Start date" />
+        <DatePicker value={startDate} onChange={setStartDate} placeholder={t('roster.csv.startPlaceholder')} />
       </td>
       <td className="px-2 py-2 align-top">
-        <DatePicker value={endDate} onChange={setEndDate} placeholder="End date" />
+        <DatePicker value={endDate} onChange={setEndDate} placeholder={t('roster.csv.endPlaceholder')} />
         <div className="flex items-center justify-end gap-2 mt-2">
-          <button onClick={onClose} className="text-[12px] text-slate-500 hover:text-slate-700">Cancel</button>
+          <button onClick={onClose} className="text-[12px] text-slate-500 hover:text-slate-700">{t('common.cancel')}</button>
           <button onClick={save} disabled={saving} className="text-[12px] font-medium text-violet-600 hover:text-violet-700 disabled:opacity-60">
-            {saving ? 'Re-checking…' : 'Save'}
+            {saving ? t('roster.csv.rechecking') : t('common.save')}
           </button>
         </div>
       </td>
@@ -1542,6 +1549,7 @@ function ManualPlayerModal({
   onClose: () => void
   onCreated: () => void
 }) {
+  const { t } = useTranslation()
   const [name, setName] = useState('')
   const [position, setPosition] = useState<PlayerPosition>('MID')
   const [squadNumber, setSquadNumber] = useState(NaN)
@@ -1588,15 +1596,15 @@ function ManualPlayerModal({
       await api.roster.createPlayer(payload)
       onCreated()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to create player')
+      setError(e instanceof Error ? e.message : t('roster.form.failCreatePlayer'))
       setSaving(false)
     }
   }
 
   return (
-    <ModalShell onClose={onClose} title="Add player">
+    <ModalShell onClose={onClose} title={t('roster.manual.title')}>
       <form onSubmit={submit} className="px-5 pb-5 space-y-4 max-h-[80vh] overflow-y-auto overflow-x-visible">
-        <Field label="Name">
+        <Field label={t('roster.form.name')}>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -1607,26 +1615,26 @@ function ManualPlayerModal({
         </Field>
 
         <div className="grid grid-cols-[1fr_1fr] gap-4">
-          <Field label="Position">
+          <Field label={t('roster.form.position')}>
             <select value={position} onChange={(e) => setPosition(e.target.value as PlayerPosition)} className={fieldClass}>
-              {POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+              {POSITIONS.map((p) => <option key={p} value={p}>{t(`common.positions.${p}`)}</option>)}
             </select>
           </Field>
-          <Field label="Squad number (optional)">
-            <NumericInput value={squadNumber} onChange={setSquadNumber} className={fieldClass} placeholder="e.g. 9" />
+          <Field label={t('roster.form.squadNumberOptional')}>
+            <NumericInput value={squadNumber} onChange={setSquadNumber} className={fieldClass} placeholder={t('roster.form.squadNumberPlaceholder')} />
           </Field>
         </div>
-        <Field label="Nationality (optional)">
-          <CountryPicker value={nationality} onChange={setNationality} placeholder="Select country" />
+        <Field label={t('roster.form.nationalityOptional')}>
+          <CountryPicker value={nationality} onChange={setNationality} placeholder={t('roster.form.selectCountry')} />
         </Field>
 
         <Field
           label={
             <span className="flex items-center justify-between">
-              <span>Date of birth (optional)</span>
+              <span>{t('roster.form.dobOptional')}</span>
               {computedAge != null && (
                 <span className="text-[11px] font-normal text-slate-500 normal-case tracking-normal">
-                  Age <span className="num text-slate-700 font-medium">{computedAge}</span>
+                  {t('roster.form.age')} <span className="num text-slate-700 font-medium">{computedAge}</span>
                 </span>
               )}
             </span>
@@ -1637,28 +1645,28 @@ function ManualPlayerModal({
             onChange={setDateOfBirth}
             min={sixtyYearsAgoISO}
             max={todayISO}
-            placeholder="Select date of birth"
+            placeholder={t('roster.form.selectDob')}
           />
         </Field>
 
         <div className="grid grid-cols-3 gap-4">
-          <Field label="Transfer fee (£)">
+          <Field label={t('roster.form.transferFee')}>
             <PoundInput value={transferPounds} onChange={setTransferPounds} />
           </Field>
-          <Field label="Weekly wage (£)">
+          <Field label={t('roster.form.weeklyWage')}>
             <PoundInput value={weeklyWagePounds} onChange={setWeeklyWagePounds} />
           </Field>
-          <Field label="Agent fee (£)">
+          <Field label={t('roster.form.agentFee')}>
             <PoundInput value={agentPounds} onChange={setAgentPounds} />
           </Field>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Contract start">
-            <DatePicker value={startDate} onChange={setStartDate} required placeholder="Select start date" />
+          <Field label={t('roster.form.contractStart')}>
+            <DatePicker value={startDate} onChange={setStartDate} required placeholder={t('roster.form.selectStartDate')} />
           </Field>
-          <Field label="Contract end">
-            <DatePicker value={endDate} onChange={setEndDate} required placeholder="Select end date" />
+          <Field label={t('roster.form.contractEnd')}>
+            <DatePicker value={endDate} onChange={setEndDate} required placeholder={t('roster.form.selectEndDate')} />
           </Field>
         </div>
 
@@ -1666,12 +1674,12 @@ function ManualPlayerModal({
           <Field
             label={
               <span className="inline-flex items-center gap-1.5">
-                Joined the club (optional)
-                <InfoTooltip text="When the player first joined. Leave blank for a new signing — it defaults to the contract start. Set it only if they joined earlier and have since extended." />
+                {t('roster.form.joinedOptional')}
+                <InfoTooltip text={t('roster.form.joinedTooltip')} />
               </span>
             }
           >
-            <DatePicker value={joinedDate} onChange={setJoinedDate} placeholder="Defaults to contract start" />
+            <DatePicker value={joinedDate} onChange={setJoinedDate} placeholder={t('roster.form.joinedDefaultPlaceholder')} />
           </Field>
         </div>
 
@@ -1683,11 +1691,11 @@ function ManualPlayerModal({
 
         <div className="flex items-center justify-end gap-3 pt-2">
           <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button type="submit" disabled={saving}>
             {saving ? <Spinner size={14} /> : null}
-            {saving ? 'Saving…' : 'Add player'}
+            {saving ? t('common.saving') : t('roster.form.addPlayer')}
           </Button>
         </div>
       </form>
@@ -1707,6 +1715,7 @@ function PlayerEditDrawer({
   onClose: () => void
   onSaved: () => void
 }) {
+  const { t } = useTranslation()
   const can = useCan()
   const { format: fmtMoney } = useWorkspaceCurrency()
   const c = player.contract
@@ -1824,7 +1833,7 @@ function PlayerEditDrawer({
 
       onSaved()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save')
+      setError(e instanceof Error ? e.message : t('roster.edit.failSave'))
       setSaving(false)
     }
   }
@@ -1836,7 +1845,7 @@ function PlayerEditDrawer({
       await api.roster.archivePlayer(player.id)
       onSaved()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to archive')
+      setError(e instanceof Error ? e.message : t('roster.edit.failArchive'))
       setArchiving(false)
       setConfirmArchive(false)
     }
@@ -1844,9 +1853,9 @@ function PlayerEditDrawer({
 
   return (
     <>
-    <ModalShell onClose={onClose} title={`Edit ${player.name}`}>
+    <ModalShell onClose={onClose} title={t('roster.edit.title', { name: player.name })}>
       <form onSubmit={save} className="px-5 pb-5 space-y-4 max-h-[80vh] overflow-y-auto overflow-x-visible">
-        <Field label="Name">
+        <Field label={t('roster.form.name')}>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -1857,26 +1866,26 @@ function PlayerEditDrawer({
         </Field>
 
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Position">
+          <Field label={t('roster.form.position')}>
             <select value={position} onChange={(e) => setPosition(e.target.value as PlayerPosition)} className={fieldClass}>
-              {POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
+              {POSITIONS.map((p) => <option key={p} value={p}>{t(`common.positions.${p}`)}</option>)}
             </select>
           </Field>
-          <Field label="Squad number">
-            <NumericInput value={squadNumber} onChange={setSquadNumber} className={fieldClass} placeholder="e.g. 9" />
+          <Field label={t('roster.form.squadNumber')}>
+            <NumericInput value={squadNumber} onChange={setSquadNumber} className={fieldClass} placeholder={t('roster.form.squadNumberPlaceholder')} />
           </Field>
         </div>
-        <Field label="Nationality">
-          <CountryPicker value={nationality} onChange={setNationality} placeholder="Select country" />
+        <Field label={t('roster.form.nationality')}>
+          <CountryPicker value={nationality} onChange={setNationality} placeholder={t('roster.form.selectCountry')} />
         </Field>
 
         <Field
           label={
             <span className="flex items-center justify-between">
-              <span>Date of birth (optional)</span>
+              <span>{t('roster.form.dobOptional')}</span>
               {computedAge != null && (
                 <span className="text-[11px] font-normal text-slate-500 normal-case tracking-normal">
-                  Age <span className="num text-slate-700 font-medium">{computedAge}</span>
+                  {t('roster.form.age')} <span className="num text-slate-700 font-medium">{computedAge}</span>
                 </span>
               )}
             </span>
@@ -1887,30 +1896,30 @@ function PlayerEditDrawer({
             onChange={setDateOfBirth}
             min={sixtyYearsAgoISO}
             max={todayISO}
-            placeholder="Select date of birth"
+            placeholder={t('roster.form.selectDob')}
           />
         </Field>
 
         {c && (
           <>
             <div className="border-t border-slate-100 pt-4">
-              <div className="meta-label mb-3">Contract</div>
+              <div className="meta-label mb-3">{t('roster.edit.contract')}</div>
               <div className="grid grid-cols-3 gap-4">
-                <Field label="Transfer fee (£)">
+                <Field label={t('roster.form.transferFee')}>
                   <PoundInput
                     value={transferPounds}
                     onChange={setTransferPounds}
                     invalid={!Number.isFinite(transferPounds) || transferPounds === 0}
                   />
                 </Field>
-                <Field label="Weekly wage (£)">
+                <Field label={t('roster.form.weeklyWage')}>
                   <PoundInput
                     value={weeklyWagePounds}
                     onChange={setWeeklyWagePounds}
                     invalid={!Number.isFinite(weeklyWagePounds) || weeklyWagePounds === 0}
                   />
                 </Field>
-                <Field label="Agent fee (£)">
+                <Field label={t('roster.form.agentFee')}>
                   <PoundInput value={agentPounds} onChange={setAgentPounds} />
                 </Field>
               </div>
@@ -1928,19 +1937,19 @@ function PlayerEditDrawer({
                 <Field
                   label={
                     <span className="inline-flex items-center gap-1.5">
-                      Contract start
+                      {t('roster.form.contractStart')}
                       {player.joinedDate && player.joinedDate !== startDate && (
                         <InfoTooltip
-                          text={`This is a later extension date — amortisation runs from here, not from when the player joined (${formatDate(player.joinedDate)}).`}
+                          text={t('roster.edit.extStartTooltip', { date: formatDate(player.joinedDate) })}
                         />
                       )}
                     </span>
                   }
                 >
-                  <DatePicker value={startDate} onChange={setStartDate} required placeholder="Select start date" />
+                  <DatePicker value={startDate} onChange={setStartDate} required placeholder={t('roster.form.selectStartDate')} />
                 </Field>
-                <Field label="Contract end">
-                  <DatePicker value={endDate} onChange={setEndDate} required placeholder="Select end date" />
+                <Field label={t('roster.form.contractEnd')}>
+                  <DatePicker value={endDate} onChange={setEndDate} required placeholder={t('roster.form.selectEndDate')} />
                 </Field>
               </div>
 
@@ -1948,24 +1957,24 @@ function PlayerEditDrawer({
                 <Field
                   label={
                     <span className="inline-flex items-center gap-1.5">
-                      Joined the club
-                      <InfoTooltip text="When the player first joined. Defaults to the contract start for a new signing; it only differs once they've signed an extension." />
+                      {t('roster.form.joined')}
+                      <InfoTooltip text={t('roster.form.joinedTooltipEdit')} />
                     </span>
                   }
                 >
-                  <DatePicker value={joinedDate} onChange={setJoinedDate} placeholder="Select join date" />
+                  <DatePicker value={joinedDate} onChange={setJoinedDate} placeholder={t('roster.form.selectJoinDate')} />
                 </Field>
               </div>
 
               <p className="mt-2 text-[12px] text-slate-500">
-                Current book value: <span className="num text-slate-700">{fmtMoney(c.bookValuePence)}</span>
+                {t('roster.edit.currentBookValue', { value: fmtMoney(c.bookValuePence) })}
               </p>
 
               {/* Contract ledger — only meaningful once there's history beyond
                   the initial signing. The current phase is always shown above. */}
               {phases.length > 1 && (
                 <div className="mt-4">
-                  <div className="meta-label mb-2">Contract phases</div>
+                  <div className="meta-label mb-2">{t('roster.edit.contractPhases')}</div>
                   <ContractLedger phases={phases} kind="player" canEdit={can.mutateRoster} onChanged={reloadPhases} />
                 </div>
               )}
@@ -1973,7 +1982,7 @@ function PlayerEditDrawer({
               {can.mutateRoster && (
                 <div className="mt-4">
                   <Button type="button" variant="outline" onClick={() => setExtendOpen(true)}>
-                    <ExtendIcon /> Log contract extension
+                    <ExtendIcon /> {t('roster.edit.logExtension')}
                   </Button>
                 </div>
               )}
@@ -1991,29 +2000,29 @@ function PlayerEditDrawer({
           {can.mutateRoster ? (
             confirmArchive ? (
               <div className="flex items-center gap-2">
-                <span className="text-[13px] text-slate-700">Archive {player.name}?</span>
+                <span className="text-[13px] text-slate-700">{t('roster.edit.archivePrompt', { name: player.name })}</span>
                 <Button type="button" variant="destructive" onClick={archive} disabled={archiving}>
                   {archiving ? <Spinner size={14} /> : null}
-                  {archiving ? 'Archiving…' : 'Confirm'}
+                  {archiving ? t('roster.edit.archiving') : t('roster.edit.confirm')}
                 </Button>
                 <Button type="button" variant="ghost" onClick={() => setConfirmArchive(false)} disabled={archiving}>
-                  Cancel
+                  {t('common.cancel')}
                 </Button>
               </div>
             ) : (
               <Button type="button" variant="ghost" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => setConfirmArchive(true)}>
-                Archive player
+                {t('roster.edit.archivePlayer')}
               </Button>
             )
           ) : <div />}
           <div className="flex items-center gap-3">
             <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
-              Close
+              {t('roster.form.close')}
             </Button>
             {can.mutateRoster && (
               <Button type="submit" disabled={saving}>
                 {saving ? <Spinner size={14} /> : null}
-                {saving ? 'Saving…' : 'Save changes'}
+                {saving ? t('common.saving') : t('roster.edit.saveChanges')}
               </Button>
             )}
           </div>
@@ -2050,6 +2059,7 @@ function ManagerCard({
   onAdd: () => void
   onEdit: () => void
 }) {
+  const { t } = useTranslation()
   const { format } = useWorkspaceCurrency()
   if (!manager) {
     return (
@@ -2060,13 +2070,13 @@ function ManagerCard({
               <CoachIcon />
             </span>
             <div>
-              <div className="text-[14px] font-semibold text-slate-900">No Head Coach set</div>
+              <div className="text-[14px] font-semibold text-slate-900">{t('roster.manager.noCoachTitle')}</div>
               <div className="text-[12px] text-slate-500 mt-0.5">
-                The manager's wages, compensation fee and agent fees count toward your Squad Cost Ratio.
+                {t('roster.manager.noCoachBody')}
               </div>
             </div>
           </div>
-          {canMutate && <Button onClick={onAdd}>Add Head Coach</Button>}
+          {canMutate && <Button onClick={onAdd}>{t('roster.manager.addCoach')}</Button>}
         </div>
       </Card>
     )
@@ -2092,13 +2102,13 @@ function ManagerCard({
           <NationalityFlag nationality={manager.nationality} />
           <span className="text-[14px] font-medium text-slate-900 truncate">{manager.name}</span>
           <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-md bg-violet-100 text-violet-700 whitespace-nowrap">
-            Head Coach
+            {t('roster.manager.headCoach')}
           </span>
         </div>
 
         <div className="flex items-center gap-8">
           <div className="text-right">
-            <div className="meta-label">Annual wage</div>
+            <div className="meta-label">{t('roster.manager.annualWage')}</div>
             <div className="num text-[13px] mt-0.5 whitespace-nowrap text-slate-900">
               {!c ? (
                 '—'
@@ -2126,6 +2136,7 @@ function ManagerAddModal({
   onClose: () => void
   onCreated: () => void
 }) {
+  const { t } = useTranslation()
   const [name, setName] = useState('')
   const [nationality, setNationality] = useState<string | null>(null)
   const [compPounds, setCompPounds] = useState(NaN)
@@ -2154,47 +2165,47 @@ function ManagerAddModal({
       await api.roster.createManager(payload)
       onCreated()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add manager')
+      setError(err instanceof Error ? err.message : t('roster.manager.failAdd'))
       setSaving(false)
     }
   }
 
   return (
-    <ModalShell onClose={onClose} title="Add Head Coach">
+    <ModalShell onClose={onClose} title={t('roster.manager.addCoach')}>
       <form onSubmit={submit} className="px-5 pb-5 space-y-4 max-h-[80vh] overflow-y-auto overflow-x-visible">
-        <Field label="Name">
+        <Field label={t('roster.form.name')}>
           <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={80} className={fieldClass} />
         </Field>
-        <Field label="Nationality">
-          <CountryPicker value={nationality} onChange={setNationality} placeholder="Select country" />
+        <Field label={t('roster.form.nationality')}>
+          <CountryPicker value={nationality} onChange={setNationality} placeholder={t('roster.form.selectCountry')} />
         </Field>
         <div className="grid grid-cols-3 gap-4">
-          <Field label="Compensation fee (£)">
+          <Field label={t('roster.form.compFee')}>
             <PoundInput value={compPounds} onChange={setCompPounds} />
           </Field>
-          <Field label="Weekly wage (£)">
+          <Field label={t('roster.form.weeklyWage')}>
             <PoundInput value={weeklyWagePounds} onChange={setWeeklyWagePounds} />
           </Field>
-          <Field label="Agent fee (£)">
+          <Field label={t('roster.form.agentFee')}>
             <PoundInput value={agentPounds} onChange={setAgentPounds} />
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Contract start">
-            <DatePicker value={startDate} onChange={setStartDate} required placeholder="Select start date" />
+          <Field label={t('roster.form.contractStart')}>
+            <DatePicker value={startDate} onChange={setStartDate} required placeholder={t('roster.form.selectStartDate')} />
           </Field>
-          <Field label="Contract end">
-            <DatePicker value={endDate} onChange={setEndDate} required placeholder="Select end date" />
+          <Field label={t('roster.form.contractEnd')}>
+            <DatePicker value={endDate} onChange={setEndDate} required placeholder={t('roster.form.selectEndDate')} />
           </Field>
         </div>
         {error && (
           <div className="border border-red-200 bg-red-50 rounded-lg px-4 py-3 text-[13px] text-red-700">{error}</div>
         )}
         <div className="flex items-center justify-end gap-3 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
           <Button type="submit" disabled={saving}>
             {saving ? <Spinner size={14} /> : null}
-            {saving ? 'Saving…' : 'Add Head Coach'}
+            {saving ? t('common.saving') : t('roster.manager.addCoach')}
           </Button>
         </div>
       </form>
@@ -2213,6 +2224,7 @@ function ManagerDrawer({
   onClose: () => void
   onSaved: () => void
 }) {
+  const { t } = useTranslation()
   const can = useCan()
   const { format: fmtMoney } = useWorkspaceCurrency()
   const c = manager.contract
@@ -2269,10 +2281,10 @@ function ManagerDrawer({
         // The CFO has started filling it in — create the INITIAL phase so the
         // manager begins counting toward SCR. All three are required to seed it.
         if (!startDate || !endDate) {
-          throw new Error('Enter both a contract start and end date for the head coach.')
+          throw new Error(t('roster.manager.needDates'))
         }
         if (!isFinite(weeklyWagePounds) || weeklyWagePounds <= 0) {
-          throw new Error('Enter a weekly wage for the head coach.')
+          throw new Error(t('roster.manager.needWage'))
         }
         const input: ManagerContractInput = {
           compensationFeePence: compPence,
@@ -2285,7 +2297,7 @@ function ManagerDrawer({
       }
       onSaved()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save')
+      setError(err instanceof Error ? err.message : t('roster.manager.failSave'))
       setSaving(false)
     }
   }
@@ -2297,7 +2309,7 @@ function ManagerDrawer({
       await api.roster.updateManager(manager.id, { isActive: false })
       onSaved()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remove manager')
+      setError(err instanceof Error ? err.message : t('roster.manager.failRemove'))
       setRemoving(false)
       setConfirmRemove(false)
     }
@@ -2305,63 +2317,62 @@ function ManagerDrawer({
 
   return (
     <>
-    <ModalShell onClose={onClose} title={`Edit ${manager.name}`}>
+    <ModalShell onClose={onClose} title={t('roster.manager.editTitle', { name: manager.name })}>
       <form onSubmit={save} className="px-5 pb-5 space-y-4 max-h-[80vh] overflow-y-auto overflow-x-visible">
-        <Field label="Name">
+        <Field label={t('roster.form.name')}>
           <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={80} className={fieldClass} />
         </Field>
-        <Field label="Nationality">
-          <CountryPicker value={nationality} onChange={setNationality} placeholder="Select country" />
+        <Field label={t('roster.form.nationality')}>
+          <CountryPicker value={nationality} onChange={setNationality} placeholder={t('roster.form.selectCountry')} />
         </Field>
 
         <div className="border-t border-slate-100 pt-4">
           <div className="flex items-center gap-2 mb-3">
-            <span className="meta-label">{c ? 'Current contract' : 'Contract'}</span>
+            <span className="meta-label">{c ? t('roster.manager.currentContract') : t('roster.manager.contract')}</span>
             {c ? (
               <PhaseTypePill phaseType={c.phaseType} />
             ) : (
               <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-amber-100 text-amber-700">
-                Not set
+                {t('roster.manager.notSet')}
               </span>
             )}
           </div>
           {!c && (
             <p className="mb-3 text-[12px] text-slate-500">
-              No contract was imported for this head coach. Add the wage, fee and dates below so they
-              count toward your Squad Cost Ratio.
+              {t('roster.manager.noContractBody')}
             </p>
           )}
           <div className="grid grid-cols-3 gap-4">
-            <Field label="Compensation fee (£)">
+            <Field label={t('roster.form.compFee')}>
               <PoundInput value={compPounds} onChange={setCompPounds} />
             </Field>
-            <Field label="Weekly wage (£)">
+            <Field label={t('roster.form.weeklyWage')}>
               <PoundInput value={weeklyWagePounds} onChange={setWeeklyWagePounds} />
             </Field>
-            <Field label="Agent fee (£)">
+            <Field label={t('roster.form.agentFee')}>
               <PoundInput value={agentPounds} onChange={setAgentPounds} />
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-4 mt-4">
-            <Field label="Contract start">
-              <DatePicker value={startDate} onChange={setStartDate} required={!!c} placeholder="Select start date" />
+            <Field label={t('roster.form.contractStart')}>
+              <DatePicker value={startDate} onChange={setStartDate} required={!!c} placeholder={t('roster.form.selectStartDate')} />
             </Field>
-            <Field label="Contract end">
-              <DatePicker value={endDate} onChange={setEndDate} required={!!c} placeholder="Select end date" />
+            <Field label={t('roster.form.contractEnd')}>
+              <DatePicker value={endDate} onChange={setEndDate} required={!!c} placeholder={t('roster.form.selectEndDate')} />
             </Field>
           </div>
           {c && (
             <p className="mt-2 text-[12px] text-slate-500">
-              Current book value: <span className="num text-slate-700">{fmtMoney(c.bookValuePence)}</span>
+              {t('roster.manager.currentBookValue', { value: fmtMoney(c.bookValuePence) })}
               {c.feePence > 0 && (
-                <> · Amortised <span className="num text-slate-700">{fmtMoney(annualAmortisation(c.feePence, c.contractLengthYears))}/yr</span></>
+                <> · {t('roster.manager.amortised', { value: fmtMoney(annualAmortisation(c.feePence, c.contractLengthYears)) })}</>
               )}
             </p>
           )}
 
           {c && phases.length > 1 && (
             <div className="mt-4">
-              <div className="meta-label mb-2">Contract phases</div>
+              <div className="meta-label mb-2">{t('roster.manager.contractPhases')}</div>
               <ContractLedger phases={phases} kind="manager" canEdit={can.mutateRoster} onChanged={reloadPhases} />
             </div>
           )}
@@ -2369,7 +2380,7 @@ function ManagerDrawer({
           {c && can.mutateRoster && (
             <div className="mt-4">
               <Button type="button" variant="outline" onClick={() => setExtendOpen(true)}>
-                <ExtendIcon /> Log contract extension
+                <ExtendIcon /> {t('roster.edit.logExtension')}
               </Button>
             </div>
           )}
@@ -2383,25 +2394,25 @@ function ManagerDrawer({
           {can.mutateRoster ? (
             confirmRemove ? (
               <div className="flex items-center gap-2">
-                <span className="text-[13px] text-slate-700">Remove {manager.name}?</span>
+                <span className="text-[13px] text-slate-700">{t('roster.manager.removePrompt', { name: manager.name })}</span>
                 <Button type="button" variant="destructive" onClick={remove} disabled={removing}>
                   {removing ? <Spinner size={14} /> : null}
-                  {removing ? 'Removing…' : 'Confirm'}
+                  {removing ? t('roster.manager.removing') : t('roster.manager.confirm')}
                 </Button>
-                <Button type="button" variant="ghost" onClick={() => setConfirmRemove(false)} disabled={removing}>Cancel</Button>
+                <Button type="button" variant="ghost" onClick={() => setConfirmRemove(false)} disabled={removing}>{t('common.cancel')}</Button>
               </div>
             ) : (
               <Button type="button" variant="ghost" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => setConfirmRemove(true)}>
-                Remove Head Coach
+                {t('roster.manager.removeCoach')}
               </Button>
             )
           ) : <div />}
           <div className="flex items-center gap-3">
-            <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Close</Button>
+            <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>{t('roster.form.close')}</Button>
             {can.mutateRoster && (
               <Button type="submit" disabled={saving}>
                 {saving ? <Spinner size={14} /> : null}
-                {saving ? 'Saving…' : 'Save changes'}
+                {saving ? t('common.saving') : t('roster.edit.saveChanges')}
               </Button>
             )}
           </div>
@@ -2440,6 +2451,7 @@ function ContractLedger({
   canEdit?: boolean
   onChanged?: () => void
 }) {
+  const { t } = useTranslation()
   const { format: fmtMoney } = useWorkspaceCurrency()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
@@ -2455,7 +2467,7 @@ function ContractLedger({
       setConfirmDeleteId(null)
       onChanged?.()
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : 'Failed to delete phase')
+      setDeleteError(err instanceof Error ? err.message : t('roster.ledger.failDelete'))
     } finally {
       setDeletingId(null)
     }
@@ -2484,9 +2496,9 @@ function ContractLedger({
                 <div className="flex items-center gap-2">
                   <PhaseTypePill phaseType={p.phaseType} />
                   {p.isCurrent ? (
-                    <span className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">Active</span>
+                    <span className="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">{t('roster.ledger.active')}</span>
                   ) : (
-                    <span className="inline-block text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">Archived</span>
+                    <span className="inline-block text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">{t('roster.ledger.archivedTag')}</span>
                   )}
                 </div>
                 <div className="num tabular-nums text-[12px] text-slate-500 mt-1.5 whitespace-nowrap">
@@ -2501,21 +2513,21 @@ function ContractLedger({
               {canEdit && !editing && (
                 confirming ? (
                   <div className="flex items-center gap-1.5 flex-shrink-0">
-                    <span className="text-[11px] text-slate-600 whitespace-nowrap">Delete?</span>
-                    <IconButton label={deleting ? 'Deleting…' : 'Confirm delete'} tone="danger" disabled={deleting} onClick={() => doDelete(p.id)}>
+                    <span className="text-[11px] text-slate-600 whitespace-nowrap">{t('roster.ledger.deletePrompt')}</span>
+                    <IconButton label={deleting ? t('roster.ledger.deleting') : t('roster.ledger.confirmDelete')} tone="danger" disabled={deleting} onClick={() => doDelete(p.id)}>
                       {deleting ? <Spinner size={14} /> : <CheckIcon />}
                     </IconButton>
-                    <IconButton label="Cancel" tone="neutral" disabled={deleting} onClick={() => setConfirmDeleteId(null)}>
+                    <IconButton label={t('common.cancel')} tone="neutral" disabled={deleting} onClick={() => setConfirmDeleteId(null)}>
                       <CloseIcon />
                     </IconButton>
                   </div>
                 ) : (
                   <div className="flex items-center gap-1.5 flex-shrink-0">
-                    <IconButton label="Edit phase" tone="violet" onClick={() => setEditingId(p.id)}>
+                    <IconButton label={t('roster.ledger.editPhase')} tone="violet" onClick={() => setEditingId(p.id)}>
                       <EditIcon />
                     </IconButton>
                     <IconButton
-                      label={p.isCurrent ? "The live phase can't be deleted" : 'Delete phase'}
+                      label={p.isCurrent ? t('roster.ledger.liveCantDelete') : t('roster.ledger.deletePhase')}
                       tone="danger"
                       disabled={p.isCurrent}
                       onClick={() => setConfirmDeleteId(p.id)}
@@ -2539,9 +2551,9 @@ function ContractLedger({
               />
             ) : (
               <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-3 gap-2 text-[12px]">
-                <LedgerCell label="Fee" value={fmtMoney(p.feePence)} />
-                <LedgerCell label="Wage/yr" value={fmtMoney(p.annualWagePence)} />
-                <LedgerCell label={p.isCurrent ? 'Book value' : 'Carried out'} value={fmtMoney(p.bookValuePence)} />
+                <LedgerCell label={t('roster.ledger.fee')} value={fmtMoney(p.feePence)} />
+                <LedgerCell label={t('roster.ledger.wagePerYear')} value={fmtMoney(p.annualWagePence)} />
+                <LedgerCell label={p.isCurrent ? t('roster.ledger.bookValue') : t('roster.ledger.carriedOut')} value={fmtMoney(p.bookValuePence)} />
               </div>
             )}
           </div>
@@ -2575,6 +2587,7 @@ function PhaseEditor({
   onCancel: () => void
   onSaved: () => void
 }) {
+  const { t } = useTranslation()
   const [feePounds, setFeePounds] = useState(phase.feePence / 100)
   const [weeklyWagePounds, setWeeklyWagePounds] = useState(Math.round(phase.annualWagePence / 52 / 100))
   const [agentPounds, setAgentPounds] = useState(phase.agentFeePence / 100)
@@ -2609,7 +2622,7 @@ function PhaseEditor({
       }
       onSaved()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save phase')
+      setError(err instanceof Error ? err.message : t('roster.phase.failSave'))
       setSaving(false)
     }
   }
@@ -2617,30 +2630,30 @@ function PhaseEditor({
   return (
     <div className="mt-3 space-y-3">
       <div className="grid grid-cols-3 gap-3">
-        <Field label="Fee (£)">
+        <Field label={t('roster.phase.fee')}>
           <PoundInput value={feePounds} onChange={setFeePounds} />
         </Field>
-        <Field label="Weekly wage (£)">
+        <Field label={t('roster.phase.weeklyWage')}>
           <PoundInput value={weeklyWagePounds} onChange={setWeeklyWagePounds} />
         </Field>
-        <Field label="Agent fee (£)">
+        <Field label={t('roster.phase.agentFee')}>
           <PoundInput value={agentPounds} onChange={setAgentPounds} />
         </Field>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Start">
-          <DatePicker value={startDate} onChange={setStartDate} required placeholder="Start date" />
+        <Field label={t('roster.phase.start')}>
+          <DatePicker value={startDate} onChange={setStartDate} required placeholder={t('roster.phase.startDate')} />
         </Field>
-        <Field label="End">
-          <DatePicker value={endDate} onChange={setEndDate} required placeholder="End date" />
+        <Field label={t('roster.phase.end')}>
+          <DatePicker value={endDate} onChange={setEndDate} required placeholder={t('roster.phase.endDate')} />
         </Field>
       </div>
       {error && <div className="text-[12px] text-red-600">{error}</div>}
       <div className="flex items-center justify-end gap-1.5">
-        <IconButton label="Cancel" tone="neutral" disabled={saving} onClick={onCancel}>
+        <IconButton label={t('common.cancel')} tone="neutral" disabled={saving} onClick={onCancel}>
           <CloseIcon />
         </IconButton>
-        <IconButton label={saving ? 'Saving…' : 'Save phase'} tone="violet" disabled={saving} onClick={save}>
+        <IconButton label={saving ? t('common.saving') : t('roster.phase.savePhase')} tone="violet" disabled={saving} onClick={save}>
           {saving ? <Spinner size={14} /> : <CheckIcon />}
         </IconButton>
       </div>
@@ -2649,6 +2662,7 @@ function PhaseEditor({
 }
 
 function PhaseTypePill({ phaseType }: { phaseType: ContractPhase['phaseType'] }) {
+  const { t } = useTranslation()
   const isExt = phaseType === 'EXTENSION'
   return (
     <span
@@ -2657,7 +2671,7 @@ function PhaseTypePill({ phaseType }: { phaseType: ContractPhase['phaseType'] })
         isExt ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-600'
       )}
     >
-      {isExt ? 'Extension' : 'Initial'}
+      {isExt ? t('roster.phase.extension') : t('roster.phase.initial')}
     </span>
   )
 }
@@ -2681,6 +2695,7 @@ function ExtendContractWizard({
   submit: (input: ExtendContractInput) => Promise<unknown>
   onExtended: () => void
 }) {
+  const { t } = useTranslation()
   // The extension begins exactly when the current deal expires — it's derived
   // from the current contract's end date, never picked by hand. (Previously a
   // free date field let you "extend" a deal from an arbitrary, even already-
@@ -2707,45 +2722,47 @@ function ExtendContractWizard({
       await submit(input)
       onExtended()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to log extension')
+      setError(err instanceof Error ? err.message : t('roster.extension.failLog'))
       setSubmitting(false)
     }
   }
 
   return (
-    <ModalShell onClose={onClose} title={`Extend ${subjectLabel}`}>
+    <ModalShell onClose={onClose} title={t('roster.extension.title', { name: subjectLabel })}>
       <form onSubmit={go} className="px-5 pb-5 space-y-4">
         <div className="rounded-lg bg-violet-50/70 border border-violet-100 px-4 py-3 text-[12.5px] text-slate-600">
-          The new deal picks up exactly where the current one ends —{' '}
-          <span className="num font-medium text-slate-800">{formatDate(effectiveDate)}</span>. The terms below
-          apply from that date.
+          <Trans
+            i18nKey="roster.extension.intro"
+            values={{ date: formatDate(effectiveDate) }}
+            components={{ d: <span className="num font-medium text-slate-800" /> }}
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Effective date of extension">
+          <Field label={t('roster.extension.effectiveDate')}>
             {/* Auto-set to the current contract's expiry — not editable. */}
             <div className="w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-slate-50 text-slate-500 num cursor-not-allowed flex items-center justify-between">
               <span>{formatDate(effectiveDate)}</span>
-              <span className="text-[10.5px] uppercase tracking-wide text-slate-400 not-italic">at expiry</span>
+              <span className="text-[10.5px] uppercase tracking-wide text-slate-400 not-italic">{t('roster.extension.atExpiry')}</span>
             </div>
           </Field>
           <Field
             label={
               <span className="flex items-center gap-1.5">
-                <span>New contract end date</span>
-                <InfoTooltip text="For compliance calculations, the remaining book value will be spread over the new duration, strictly capped at a maximum of 5 years." />
+                <span>{t('roster.extension.newEndDate')}</span>
+                <InfoTooltip text={t('roster.extension.newEndTooltip')} />
               </span>
             }
           >
-            <DatePicker value={newEndDate} onChange={setNewEndDate} required min={effectiveDate} placeholder="Select end date" />
+            <DatePicker value={newEndDate} onChange={setNewEndDate} required min={effectiveDate} placeholder={t('roster.form.selectEndDate')} />
           </Field>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <Field label="New weekly wage (£)">
+          <Field label={t('roster.extension.newWeeklyWage')}>
             <PoundInput value={weeklyWagePounds} onChange={setWeeklyWagePounds} />
           </Field>
-          <Field label="New agent fees (£)">
+          <Field label={t('roster.extension.newAgentFees')}>
             <PoundInput value={agentPounds} onChange={setAgentPounds} />
           </Field>
         </div>
@@ -2755,10 +2772,10 @@ function ExtendContractWizard({
         )}
 
         <div className="flex items-center justify-end gap-3 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose} disabled={submitting}>Cancel</Button>
+          <Button type="button" variant="ghost" onClick={onClose} disabled={submitting}>{t('common.cancel')}</Button>
           <Button type="submit" disabled={submitting}>
             {submitting ? <Spinner size={14} /> : null}
-            {submitting ? 'Logging…' : 'Log extension'}
+            {submitting ? t('roster.extension.logging') : t('roster.extension.logExtension')}
           </Button>
         </div>
       </form>
@@ -2774,6 +2791,7 @@ function ExtendContractWizard({
 // and positioned off the icon's screen rect so the table's overflow clipping
 // can't hide it. Hover-only, keyboard-focusable for a11y.
 function BookValueInfo() {
+  const { t } = useTranslation()
   const iconRef = useRef<HTMLSpanElement>(null)
   const [coords, setCoords] = useState<{ top: number; right: number } | null>(null)
 
@@ -2801,7 +2819,7 @@ function BookValueInfo() {
         strokeWidth="2"
         tabIndex={0}
         className="text-slate-400 hover:text-slate-600 focus:text-slate-600 outline-none cursor-help"
-        aria-label="How Net Book Value is calculated"
+        aria-label={t('roster.nbv.ariaHow')}
       >
         <circle cx="12" cy="12" r="10" />
         <path d="M12 16v-4M12 8h.01" />
@@ -2813,13 +2831,12 @@ function BookValueInfo() {
             className="pointer-events-none fixed z-[1000] -translate-y-full rounded-lg bg-slate-900 px-3 py-2.5 text-left font-normal normal-case leading-relaxed text-white shadow-lg"
             style={{ width: 300, top: coords.top - 8, right: coords.right }}
           >
-            <span className="block text-[12px] font-semibold mb-1">How Net Book Value is Calculated:</span>
+            <span className="block text-[12px] font-semibold mb-1">{t('roster.nbv.title')}</span>
             <span className="block text-[11.5px] text-slate-200">
-              The transfer fee you enter, amortised evenly over the contract length (capped at 5 years).
-              Free signings and academy graduates carry £0.
+              {t('roster.nbv.body')}
             </span>
             <span className="mt-2 block rounded bg-slate-800 px-2 py-1 text-[11px] font-medium text-white">
-              Formula: Initial Fee − (Annual Amortisation × Years Elapsed)
+              {t('roster.nbv.formula')}
             </span>
           </span>,
           document.body,
@@ -2833,6 +2850,7 @@ function BookValueInfo() {
 // is clamped to the viewport so it can't be clipped by the modal's edge (the
 // "NEW CONTRACT END DATE" icon sits close to the right border).
 function InfoTooltip({ text }: { text: string }) {
+  const { t } = useTranslation()
   const iconRef = useRef<HTMLButtonElement>(null)
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null)
 
@@ -2858,7 +2876,7 @@ function InfoTooltip({ text }: { text: string }) {
       <button
         ref={iconRef}
         type="button"
-        aria-label="More information"
+        aria-label={t('roster.form.moreInfo')}
         onMouseEnter={show}
         onMouseLeave={hide}
         onFocus={show}
@@ -2912,6 +2930,7 @@ function ModalShell({
   title: string
   children: React.ReactNode
 }) {
+  const { t } = useTranslation()
   return (
     <AnimatePresence>
       <motion.div
@@ -2941,7 +2960,7 @@ function ModalShell({
             <h2 className="text-[16px] font-semibold text-slate-900">{title}</h2>
             <button
               onClick={onClose}
-              aria-label="Close"
+              aria-label={t('roster.form.close')}
               className="text-slate-400 hover:text-slate-700 p-1 -m-1 rounded transition-colors"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -2998,9 +3017,6 @@ function PoundInput({
   )
 }
 
-const CARRIED_BOOK_VALUE_TOOLTIP =
-  "For a player who signed a new or extended deal part-way through their contract. Enter how much of their original transfer fee was still left to write off on the day they extended — that 'remaining book value' is what we spread over the new deal, instead of guessing from a fee we don't have."
-
 // Progressive-disclosure control for the Carried Book Value override. Hidden by
 // default behind a subtle "Advanced" link; once revealed it shows a £ input
 // with an info tooltip. When `needsAudit` is set (an imported extension block
@@ -3021,6 +3037,7 @@ function CarriedBookValueField({
   onChange: (n: number) => void
   onHide: () => void
 }) {
+  const { t } = useTranslation()
   const { symbol } = useWorkspaceCurrency()
   if (!show) {
     return (
@@ -3035,7 +3052,7 @@ function CarriedBookValueField({
         )}
       >
         {needsAudit && <AlertTriangle size={11} strokeWidth={2} className="text-amber-500" />}
-        {needsAudit ? 'Set carried book value' : 'Advanced'}
+        {needsAudit ? t('roster.nbv.setCarried') : t('roster.nbv.advanced')}
       </button>
     )
   }
@@ -3051,8 +3068,8 @@ function CarriedBookValueField({
         label={
           <span className="inline-flex items-center gap-1.5">
             {needsAudit && <AlertTriangle size={13} strokeWidth={2} className="text-amber-500" />}
-            Carried Book Value ({symbol})
-            <InfoTooltip text={CARRIED_BOOK_VALUE_TOOLTIP} />
+            {t('roster.nbv.carriedLabel', { symbol })}
+            <InfoTooltip text={t('roster.nbv.carriedTooltip')} />
           </span>
         }
       >
@@ -3060,9 +3077,7 @@ function CarriedBookValueField({
       </Field>
       {needsAudit && (
         <p className="mt-2 text-[11.5px] leading-snug text-amber-700">
-          We imported this player's extended contract but not their original transfer fee, so we can't
-          work out their amortisation. Enter how much of that fee was still left to write off when they
-          extended — you'll find this "remaining book value" in your club's accounts.
+          {t('roster.nbv.carriedAudit')}
         </p>
       )}
       <button
@@ -3070,7 +3085,7 @@ function CarriedBookValueField({
         onClick={onHide}
         className="mt-2 text-[11.5px] font-medium text-slate-500 hover:text-slate-700"
       >
-        Use standard transfer fee instead
+        {t('roster.nbv.useStandard')}
       </button>
     </div>
   )

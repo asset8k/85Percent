@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { createPortal } from 'react-dom'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
@@ -18,18 +19,16 @@ import { computeActiveBaseline, type ActiveBaseline } from '@/lib/scr'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import type { ComplianceStatus } from '@headroom/shared'
 
-const DISCLAIMER =
-  'Headroom is a decision-support tool. It does not constitute legal or financial advice. Always verify against the official EFL Handbook.'
-
-const routeLabel: Record<string, string> = {
-  '/dashboard': 'Dashboard',
-  '/roster':    'Roster',
-  '/scenarios': 'Scenarios',
-  '/league-table': 'League Table',
-  '/calendar':  'Calendar',
-  '/rules':     'Rules',
-  '/financials':'Financials',
-  '/setup':     'Settings',
+// Maps the first path segment to its i18n key for the breadcrumb title.
+const routeLabelKey: Record<string, string> = {
+  '/dashboard': 'nav.dashboard',
+  '/roster':    'nav.roster',
+  '/scenarios': 'nav.scenarios',
+  '/league-table': 'nav.leagueTable',
+  '/calendar':  'nav.calendar',
+  '/rules':     'nav.rules',
+  '/financials':'nav.financials',
+  '/setup':     'chrome.settings',
 }
 
 // Initials for the avatar — first + last initial, or the first two letters of a
@@ -42,6 +41,7 @@ function initialsOf(name: string): string {
 }
 
 export function AppLayout() {
+  const { t } = useTranslation()
   const { clubName, financials, scenarios, scenariosLoaded, setScenarios, setScenariosLoaded } = useClubStore()
   const seasonStartYear = useSeasonStore((s) => s.startYear)
   const location = useLocation()
@@ -57,7 +57,8 @@ export function AppLayout() {
   const displayRole = me ? accessLabel(me) : ''
 
   const firstSegment = '/' + location.pathname.split('/')[1]
-  const pageTitle = routeLabel[firstSegment] ?? firstSegment.replace('/', '')
+  const pageTitleKey = routeLabelKey[firstSegment]
+  const pageTitle = pageTitleKey ? t(pageTitleKey) : firstSegment.replace('/', '')
 
   // Bootstrap scenarios into the store. Refresh when financials change after a save.
   useEffect(() => {
@@ -94,7 +95,7 @@ export function AppLayout() {
   const scrPct = baseline ? baseline.ratio * 100 : null
   const scrStatus = baseline?.status ?? 'green'
   const statusDot = scrStatus === 'green' ? '#16a34a' : scrStatus === 'amber' ? '#f59e0b' : '#dc2626'
-  const statusText = scrStatus === 'green' ? 'Compliant' : scrStatus === 'amber' ? 'Levy Zone' : 'Points Risk'
+  const statusText = scrStatus === 'green' ? t('common.status.compliant') : scrStatus === 'amber' ? t('common.status.levyZone') : t('common.status.pointsRisk')
 
   const stackedOn = baseline ? baseline.includedCount > 0 : false
 
@@ -136,11 +137,11 @@ export function AppLayout() {
               to="/financials"
               className="flex items-center gap-3 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-200 hover:border-slate-300 whitespace-nowrap transition-colors"
             >
-              <span className="meta-label text-slate-500">Current SCR</span>
+              <span className="meta-label text-slate-500">{t('chrome.topbar.currentScr')}</span>
               <span className="num text-[13px] text-slate-400 font-medium">—</span>
               <span className="w-px h-3.5 bg-slate-200" />
               <span className="text-[12px] font-medium text-violet-600 inline-flex items-center gap-0.5">
-                Set up financials
+                {t('chrome.topbar.setUpFinancials')}
                 <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M5 12h14" /><path d="M13 6l6 6-6 6" />
                 </svg>
@@ -185,7 +186,7 @@ export function AppLayout() {
 
         <footer className="px-8 py-5 border-t border-slate-100">
           <div className="max-w-[1280px] mx-auto flex items-center justify-between">
-            <p className="text-[11px] text-slate-400">{DISCLAIMER}</p>
+            <p className="text-[11px] text-slate-400">{t('chrome.disclaimer')}</p>
             <p className="num text-[11px] text-slate-400">v2.0 · {seasonLabel(seasonStartYear)}</p>
           </div>
         </footer>
@@ -225,9 +226,10 @@ interface SCRBadgePillProps {
 // feed the Active Baseline are still loading. Mirrors the pill's shape so the
 // header doesn't reflow when the real figure lands.
 function SCRLoadingPill() {
+  const { t } = useTranslation()
   return (
     <div className="flex items-center gap-3 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-200 whitespace-nowrap">
-      <span className="meta-label text-slate-500">Current SCR</span>
+      <span className="meta-label text-slate-500">{t('chrome.topbar.currentScr')}</span>
       <span className="h-3.5 w-12 rounded bg-slate-200 animate-pulse" />
       <span className="w-px h-3.5 bg-slate-200" />
       <span className="h-3.5 w-16 rounded bg-slate-200 animate-pulse" />
@@ -245,6 +247,7 @@ function SCRBadgePill({
   baseline,
   scenarios,
 }: SCRBadgePillProps) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const btnRef = useRef<HTMLButtonElement | null>(null)
   const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null)
@@ -297,7 +300,7 @@ function SCRBadgePill({
           open ? 'border-violet-300 ring-2 ring-violet-200/60' : 'border-violet-100 hover:border-violet-200'
         }`}
       >
-        <span className="meta-label text-violet-700">{stackedOn ? 'Projected SCR' : 'Current SCR'}</span>
+        <span className="meta-label text-violet-700">{stackedOn ? t('chrome.topbar.projectedScr') : t('chrome.topbar.currentScr')}</span>
         <AnimatedNumber
           value={scrPct}
           decimals={1}
@@ -373,6 +376,7 @@ function SCRBreakdownPopover({
   scenarios,
   onClose,
 }: SCRBreakdownPopoverProps) {
+  const { t } = useTranslation()
   const { symbol } = useWorkspaceCurrency()
   const fmtGBP = (pence: number) => fmtMoneyCompact(pence, symbol)
   const included = useMemo(() => scenarios.filter((s) => s.isIncluded), [scenarios])
@@ -389,8 +393,8 @@ function SCRBreakdownPopover({
   const deltaDir = deltaPct > 0.05 ? 'up' : deltaPct < -0.05 ? 'down' : 'flat'
 
   const squadSrc = financials.squadCostsMode === 'manual'
-    ? 'Manual override'
-    : 'Derived from active roster'
+    ? t('chrome.breakdown.manualOverride')
+    : t('chrome.breakdown.derivedFromRoster')
 
   const statusColor = scrStatus === 'green' ? '#16a34a' : scrStatus === 'amber' ? '#f59e0b' : '#dc2626'
 
@@ -402,7 +406,7 @@ function SCRBreakdownPopover({
         <motion.div
           id="scr-breakdown-popover"
           role="dialog"
-          aria-label="Projected SCR breakdown"
+          aria-label={t('chrome.breakdown.ariaTitle')}
           initial={{ opacity: 0, y: -4, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: -4, scale: 0.98, transition: { duration: 0.12 } }}
@@ -421,7 +425,7 @@ function SCRBreakdownPopover({
           <div className="px-4 pt-4 pb-3 border-b border-slate-100">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="meta-label text-violet-700">{stackedOn ? 'Projected SCR' : 'Current SCR'}</div>
+                <div className="meta-label text-violet-700">{stackedOn ? t('chrome.topbar.projectedScr') : t('chrome.topbar.currentScr')}</div>
                 <div className="flex items-baseline gap-2 mt-1">
                   <span className="num text-[22px] font-semibold text-slate-900 tabular-nums">{scrPct.toFixed(1)}%</span>
                   <span
@@ -435,7 +439,7 @@ function SCRBreakdownPopover({
               </div>
               <button
                 onClick={onClose}
-                aria-label="Close breakdown"
+                aria-label={t('chrome.breakdown.ariaClose')}
                 className="text-slate-400 hover:text-slate-600 -mr-1 mt-0.5"
               >
                 <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -445,7 +449,7 @@ function SCRBreakdownPopover({
             </div>
             {stackedOn && (
               <div className="mt-2 flex items-center gap-1.5 text-[11.5px]">
-                <span className="text-slate-500">Settings only:</span>
+                <span className="text-slate-500">{t('chrome.breakdown.settingsOnly')}</span>
                 <span className="num text-slate-700 font-medium tabular-nums">{settingsOnlyPct.toFixed(1)}%</span>
                 {deltaDir !== 'flat' && (
                   <span
@@ -462,18 +466,18 @@ function SCRBreakdownPopover({
 
           {/* Inputs from Settings */}
           <div className="px-4 py-3 border-b border-slate-100">
-            <div className="meta-label mb-2">From Settings</div>
-            <BreakdownRow label="Football-related revenue" value={fmtGBP(financials.footballRelatedRevenue)} />
+            <div className="meta-label mb-2">{t('chrome.breakdown.fromSettings')}</div>
+            <BreakdownRow label={t('chrome.breakdown.footballRevenue')} value={fmtGBP(financials.footballRelatedRevenue)} />
             {financials.ownerEquityUsed1yr != null && financials.ownerEquityUsed1yr > 0 && (
-              <BreakdownRow label="Owner-equity top-up (1yr)" value={`+ ${fmtGBP(financials.ownerEquityUsed1yr)}`} />
+              <BreakdownRow label={t('chrome.breakdown.ownerEquity')} value={`+ ${fmtGBP(financials.ownerEquityUsed1yr)}`} />
             )}
             <BreakdownRow
-              label="Squad costs"
+              label={t('chrome.breakdown.squadCosts')}
               value={fmtGBP(financials.currentSquadCosts)}
               hint={squadSrc}
             />
             <BreakdownRow
-              label="Current allowance"
+              label={t('chrome.breakdown.currentAllowance')}
               value={`${(financials.currentAllowanceRatio * 100).toFixed(0)}%`}
             />
           </div>
@@ -481,14 +485,14 @@ function SCRBreakdownPopover({
           {/* Scenarios stacked */}
           <div className="px-4 py-3">
             <div className="flex items-center justify-between mb-2">
-              <div className="meta-label">Scenarios stacked</div>
-              <span className="text-[11px] text-slate-400">{included.length} of {scenarios.length}</span>
+              <div className="meta-label">{t('chrome.breakdown.scenariosStacked')}</div>
+              <span className="text-[11px] text-slate-400">{t('chrome.breakdown.countOfTotal', { shown: included.length, total: scenarios.length })}</span>
             </div>
             {included.length === 0 ? (
               <div className="rounded-lg border border-dashed border-slate-200 px-3 py-2.5">
-                <div className="text-[12.5px] text-slate-600">No scenarios included.</div>
+                <div className="text-[12.5px] text-slate-600">{t('chrome.breakdown.noneIncluded')}</div>
                 <div className="text-[11px] text-slate-400 mt-0.5">
-                  SCR is calculated from Settings + your active roster.
+                  {t('chrome.breakdown.noneIncludedHint')}
                 </div>
               </div>
             ) : (
@@ -503,7 +507,7 @@ function SCRBreakdownPopover({
                       <span className="text-[12.5px] text-slate-800 font-medium truncate">{s.name}</span>
                     </div>
                     <span className="text-[11px] text-slate-400 num flex-shrink-0">
-                      {s.actions.length} {s.actions.length === 1 ? 'action' : 'actions'}
+                      {t('common.actions', { count: s.actions.length })}
                     </span>
                   </li>
                 ))}
@@ -514,14 +518,14 @@ function SCRBreakdownPopover({
           {/* Footer link */}
           <div className="px-4 pt-1 pb-3 border-t border-slate-100 bg-slate-50/40 flex items-center justify-between">
             <span className="text-[11px] text-slate-400">
-              Adjusted revenue: <span className="num text-slate-600">{fmtGBP(baseline.adjustedRevenue)}</span>
+              {t('chrome.breakdown.adjustedRevenue')} <span className="num text-slate-600">{fmtGBP(baseline.adjustedRevenue)}</span>
             </span>
             <Link
               to="/scenarios"
               onClick={onClose}
               className="text-[11.5px] font-medium text-violet-600 hover:text-violet-700 inline-flex items-center gap-0.5"
             >
-              Manage scenarios
+              {t('chrome.breakdown.manageScenarios')}
               <svg width={11} height={11} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M5 12h14" /><path d="M13 6l6 6-6 6" />
               </svg>

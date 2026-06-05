@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion'
+import { useTranslation } from 'react-i18next'
 
 interface ComplianceGaugeProps {
   currentPct: number
@@ -17,6 +18,7 @@ const SWEEP_SPRING = { type: 'spring' as const, stiffness: 220, damping: 26 }
 const COLOR_TWEEN = { duration: 0.35 }
 
 export function ComplianceGauge({ currentPct, projectedPct, greenPct, redPct }: ComplianceGaugeProps) {
+  const { t } = useTranslation()
   const max = Math.max(redPct + 12, projectedPct + 6, 108)
   const pos = (p: number) => (p / max) * 100
 
@@ -38,18 +40,18 @@ export function ComplianceGauge({ currentPct, projectedPct, greenPct, redPct }: 
         <div className="flex items-center gap-3">
           <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
           <div>
-            <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">Compliance Gauge</h3>
-            <p className="text-[12px] text-slate-500 mt-0.5">Where your projected position falls on the Squad Cost Ratio scale</p>
+            <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">{t('common.gauge.title')}</h3>
+            <p className="text-[12px] text-slate-500 mt-0.5">{t('common.gauge.subtitle')}</p>
           </div>
         </div>
         <div className="flex items-center gap-5 text-[11px] text-slate-500">
           <span className="inline-flex items-center gap-1.5">
             <svg width="10" height="6" viewBox="0 0 14 8"><path d="M7 8 L0 0 L14 0 Z" fill="#475569" /></svg>
-            Current
+            {t('common.gauge.current')}
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: 'white', boxShadow: `0 0 0 2px ${projColor}` }} />
-            Projected
+            {t('common.gauge.projected')}
           </span>
         </div>
       </div>
@@ -148,9 +150,9 @@ export function ComplianceGauge({ currentPct, projectedPct, greenPct, redPct }: 
 
       {/* Zone legend */}
       <div className="mt-6 pt-5 border-t border-slate-100 grid grid-cols-3 gap-4">
-        <ZoneLegend dot="#16a34a" range={`0 – ${greenPct.toFixed(0)}%`} name="Compliant" sub="Within Green Threshold" />
-        <ZoneLegend dot="#f59e0b" range={`${greenPct.toFixed(0)} – ${redPct.toFixed(0)}%`} name="Levy zone" sub="Financial penalty applies" />
-        <ZoneLegend dot="#dc2626" range={`${redPct.toFixed(0)}%+`} name="Deduction zone" sub="Points deducted" />
+        <ZoneLegend dot="#16a34a" range={`0 – ${greenPct.toFixed(0)}%`} name={t('common.gauge.compliant')} sub={t('common.gauge.withinGreen')} />
+        <ZoneLegend dot="#f59e0b" range={`${greenPct.toFixed(0)} – ${redPct.toFixed(0)}%`} name={t('common.gauge.levyZone')} sub={t('common.gauge.levySub')} />
+        <ZoneLegend dot="#dc2626" range={`${redPct.toFixed(0)}%+`} name={t('common.gauge.deductionZone')} sub={t('common.gauge.deductionSub')} />
       </div>
     </div>
   )

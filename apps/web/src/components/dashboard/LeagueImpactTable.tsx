@@ -15,14 +15,20 @@
  */
 
 import { useMemo } from 'react'
+import { useTranslation } from 'react-i18next'
+import i18n from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import type { LeagueTableRow } from '@/lib/api'
 
-// 1 → "1st", 12 → "12th"
+// 1 → "1st", 12 → "12th" in English; "1.º", "12.º" in other locales (Spanish,
+// French, Italian all use the masculine ordinal indicator for league position).
 function ordinal(n: number): string {
-  const s = ['th', 'st', 'nd', 'rd']
-  const v = n % 100
-  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]!)
+  if ((i18n.language || 'en').startsWith('en')) {
+    const s = ['th', 'st', 'nd', 'rd']
+    const v = n % 100
+    return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]!)
+  }
+  return `${n}.º`
 }
 
 interface ProjectedRow extends LeagueTableRow {
@@ -74,6 +80,7 @@ export function LeagueImpactTable({
   pointsDeducted: number
   competition: string
 }) {
+  const { t } = useTranslation()
   const { rows, before, after, afterIndex } = useMemo(
     () => project(standings, clubRowIndex, pointsDeducted),
     [standings, clubRowIndex, pointsDeducted],
@@ -94,24 +101,24 @@ export function LeagueImpactTable({
         <div className="flex items-center gap-3">
           <span className="inline-block w-1 h-5 rounded-full bg-red-600" />
           <div>
-            <h4 className="text-[14px] font-semibold text-slate-900 leading-tight">Projected league impact</h4>
+            <h4 className="text-[14px] font-semibold text-slate-900 leading-tight">{t('dashboard.leagueImpact.title')}</h4>
             <p className="text-[12px] text-slate-500 mt-0.5">
-              {clubName}’s {competition} position after a −{pointsDeducted} point sanction
+              {t('dashboard.leagueImpact.subtitle', { club: clubName, competition, count: pointsDeducted })}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <PositionBlock label="Current" value={ordinal(before)} tone="neutral" />
+          <PositionBlock label={t('dashboard.leagueImpact.current')} value={ordinal(before)} tone="neutral" />
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M5 12h14" /><path d="M13 6l6 6-6 6" />
           </svg>
-          <PositionBlock label="Projected" value={ordinal(after)} tone={placesDropped > 0 ? 'danger' : 'neutral'} />
+          <PositionBlock label={t('dashboard.leagueImpact.projected')} value={ordinal(after)} tone={placesDropped > 0 ? 'danger' : 'neutral'} />
           {placesDropped > 0 && (
             <span className="inline-flex items-center gap-1 text-[12px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-full px-2.5 py-1">
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 5v14" /><path d="M19 12l-7 7-7-7" />
               </svg>
-              {placesDropped} {placesDropped === 1 ? 'place' : 'places'}
+              {t('dashboard.leagueImpact.places', { count: placesDropped })}
             </span>
           )}
         </div>
@@ -120,8 +127,8 @@ export function LeagueImpactTable({
       {/* Before / After 5-club windows */}
       <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-100">
         <MiniTable
-          title="Before"
-          subtitle="Live table"
+          title={t('dashboard.leagueImpact.before')}
+          subtitle={t('dashboard.leagueImpact.liveTable')}
           rows={beforeWindow.map((r) => ({
             position: r.position,
             crest: r.crest,
@@ -133,8 +140,8 @@ export function LeagueImpactTable({
           tone="neutral"
         />
         <MiniTable
-          title="After"
-          subtitle={`−${pointsDeducted} pts applied`}
+          title={t('dashboard.leagueImpact.after')}
+          subtitle={t('dashboard.leagueImpact.ptsApplied', { points: pointsDeducted })}
           rows={afterWindow.map((r) => ({
             position: r.afterPosition,
             crest: r.crest,
@@ -167,6 +174,7 @@ function MiniTable({
   rows: MiniRow[]
   tone: 'neutral' | 'danger'
 }) {
+  const { t } = useTranslation()
   return (
     <div>
       <div className="px-5 py-2.5 flex items-baseline justify-between border-b border-slate-100">
@@ -207,7 +215,7 @@ function MiniTable({
                       'ml-2 text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5',
                       tone === 'danger' ? 'text-red-700 bg-red-100' : 'text-violet-700 bg-violet-100',
                     )}>
-                      You
+                      {t('dashboard.leagueImpact.you')}
                     </span>
                   )}
                 </td>

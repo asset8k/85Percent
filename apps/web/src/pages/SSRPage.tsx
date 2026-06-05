@@ -10,10 +10,12 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation, Trans } from 'react-i18next'
 import { Link } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
 import { useSeasonStore, seasonKey } from '@/stores/season'
+import { activeLocale, formatNumber } from '@/lib/locale'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -29,13 +31,14 @@ import type {
 
 type Tab = 'working-capital' | 'liquidity' | 'equity'
 
-const TABS: Array<{ id: Tab; label: string; testNo: number }> = [
-  { id: 'working-capital', label: 'Working Capital', testNo: 1 },
-  { id: 'liquidity', label: 'Liquidity', testNo: 2 },
-  { id: 'equity', label: 'Positive Equity', testNo: 3 },
+const TABS: Array<{ id: Tab; labelKey: string; testNo: number }> = [
+  { id: 'working-capital', labelKey: 'ssr.tabs.workingCapital', testNo: 1 },
+  { id: 'liquidity', labelKey: 'ssr.tabs.liquidity', testNo: 2 },
+  { id: 'equity', labelKey: 'ssr.tabs.equity', testNo: 3 },
 ]
 
 export function SSRPage() {
+  const { t } = useTranslation()
   const { leagueId } = useClubStore()
   const [tab, setTab] = useState<Tab>('working-capital')
 
@@ -45,12 +48,12 @@ export function SSRPage() {
       <div>
         <PageHeader />
         <Card className="p-12 text-center">
-          <p className="text-[15px] font-medium text-slate-900">Premier League only</p>
+          <p className="text-[15px] font-medium text-slate-900">{t('ssr.plOnly.title')}</p>
           <p className="text-[13px] text-slate-500 mt-2 max-w-md mx-auto">
-            The three SSR solvency tests apply to Premier League clubs only. Switch your club to the Premier League configuration from the Financials page to access them.
+            {t('ssr.plOnly.body')}
           </p>
           <Link to="/financials" className="inline-block mt-5">
-            <Button>Go to financials</Button>
+            <Button>{t('dashboard.setup.cta')}</Button>
           </Link>
         </Card>
       </div>
@@ -63,9 +66,9 @@ export function SSRPage() {
 
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-slate-200 mb-6">
-        {TABS.map((t) => (
-          <TabButton key={t.id} active={tab === t.id} onClick={() => setTab(t.id)} testNo={t.testNo}>
-            {t.label}
+        {TABS.map((tb) => (
+          <TabButton key={tb.id} active={tab === tb.id} onClick={() => setTab(tb.id)} testNo={tb.testNo}>
+            {t(tb.labelKey)}
           </TabButton>
         ))}
       </div>
@@ -78,13 +81,14 @@ export function SSRPage() {
 }
 
 function PageHeader() {
+  const { t } = useTranslation()
   return (
     <div className="mb-6 flex items-center gap-3">
       <span className="inline-block w-1.5 h-7 rounded-full bg-violet-600" />
       <div>
-        <h1 className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">SSR Tests</h1>
+        <h1 className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">{t('nav.ssrTests')}</h1>
         <p className="text-[13px] text-slate-500 mt-1.5">
-          Premier League solvency tests — assessed on 7 July annually.
+          {t('ssr.subtitle')}
         </p>
       </div>
     </div>
@@ -129,27 +133,30 @@ function TabButton({
 // ---------------------------------------------------------------------------
 
 // The 12 fiscal months of a season (Jul of the start year → Jun of the next),
-// derived from the active season so the grid follows the TopBar selector.
-const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+// derived from the active season so the grid follows the TopBar selector. Month
+// names are localized via the active interface locale (e.g. "jul 2026" in es).
 function monthsOfSeason(startYear: number): Array<{ key: string; label: string; short: string }> {
+  const fmt = new Intl.DateTimeFormat(activeLocale(), { month: 'short' })
   const out: Array<{ key: string; label: string; short: string }> = []
   for (let i = 6; i < 18; i++) {
     const year = startYear + Math.floor(i / 12)
     const month = i % 12 // 0-indexed
+    const short = fmt.format(new Date(Date.UTC(year, month, 1)))
     out.push({
       key: `${year}-${String(month + 1).padStart(2, '0')}`,
-      label: `${MONTH_ABBR[month]} ${year}`,
-      short: MONTH_ABBR[month] ?? '',
+      label: `${short} ${year}`,
+      short,
     })
   }
   return out
 }
 
 function WorkingCapitalTab() {
+  const { t, i18n } = useTranslation()
   const { format: fmtMoney, symbol } = useWorkspaceCurrency()
   const seasonStartYear = useSeasonStore((s) => s.startYear)
   const SEASON = seasonKey(seasonStartYear)
-  const MONTHS_OF_SEASON = useMemo(() => monthsOfSeason(seasonStartYear), [seasonStartYear])
+  const MONTHS_OF_SEASON = useMemo(() => monthsOfSeason(seasonStartYear), [seasonStartYear, i18n.language])
   const [data, setData] = useState<WorkingCapitalResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -180,7 +187,7 @@ function WorkingCapitalTab() {
       }
       setEdits(next)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load working capital')
+      setError(e instanceof Error ? e.message : t('ssr.wc.failLoad'))
     } finally {
       setLoading(false)
     }
@@ -209,7 +216,7 @@ function WorkingCapitalTab() {
       })
       await refresh()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save month')
+      setError(e instanceof Error ? e.message : t('ssr.wc.failSave'))
       setEdits((p) => ({ ...p, [ym]: { ...row, saving: false } }))
     }
   }
@@ -234,12 +241,12 @@ function WorkingCapitalTab() {
 
       <TestResultBanner
         status={status}
-        statusText={status === 'fail' ? `${failingCount} month${failingCount === 1 ? '' : 's'} fail` : undefined}
-        title="Working Capital"
+        statusText={status === 'fail' ? t('ssr.wc.statusFail', { count: failingCount }) : undefined}
+        title={t('ssr.tabs.workingCapital')}
         description={
-          <>Each fiscal month must clear <Num>{symbol}12,500,000</Num> of adjusted cashflow + qualifying funds.</>
+          <Trans i18nKey="ssr.wc.desc" values={{ amount: `${symbol}${formatNumber(12_500_000)}` }} components={{ n: <Num /> }} />
         }
-        metricLabel="Worst monthly headroom"
+        metricLabel={t('ssr.wc.metricLabel')}
         metric={
           evaluation && hasData ? (
             <SignedPence pence={evaluation.worstHeadroomPence} />
@@ -252,8 +259,8 @@ function WorkingCapitalTab() {
       {/* Visual 12-month pass/fail strip */}
       <Card className="p-6">
         <SectionHeader
-          title="Season at a glance"
-          sub="Each block is one fiscal month — green clears the floor, red falls short."
+          title={t('ssr.wc.glanceTitle')}
+          sub={t('ssr.wc.glanceSub')}
         />
         <div className="mt-5 grid grid-cols-12 gap-1.5">
           {MONTHS_OF_SEASON.map((m) => {
@@ -261,7 +268,9 @@ function WorkingCapitalTab() {
             const state = hr === undefined ? 'empty' : hr < 0 ? 'fail' : 'pass'
             return (
               <div key={m.key} className="flex flex-col items-center gap-1.5" title={
-                hr === undefined ? `${m.label}: no data` : `${m.label}: ${(hr < 0 ? '−' : '') + fmtMoney(Math.abs(hr))} headroom`
+                hr === undefined
+                  ? t('ssr.wc.tipNoData', { label: m.label })
+                  : t('ssr.wc.tipHeadroom', { label: m.label, headroom: (hr < 0 ? '−' : '') + fmtMoney(Math.abs(hr)) })
               }>
                 <div
                   className={cn(
@@ -278,9 +287,9 @@ function WorkingCapitalTab() {
         </div>
         {hasData && (
           <div className="mt-5 pt-4 border-t border-slate-100 flex items-center gap-6 text-[12px]">
-            <LegendDot className="bg-green-400" label={`${passingCount} passing`} />
-            <LegendDot className="bg-red-400" label={`${failingCount} failing`} />
-            <LegendDot className="bg-slate-200" label={`${MONTHS_OF_SEASON.length - monthsWithData} no data`} />
+            <LegendDot className="bg-green-400" label={t('ssr.wc.legendPassing', { count: passingCount })} />
+            <LegendDot className="bg-red-400" label={t('ssr.wc.legendFailing', { count: failingCount })} />
+            <LegendDot className="bg-slate-200" label={t('ssr.wc.legendNoData', { count: MONTHS_OF_SEASON.length - monthsWithData })} />
           </div>
         )}
       </Card>
@@ -288,15 +297,15 @@ function WorkingCapitalTab() {
       {/* 12-month editable grid */}
       <Card className="overflow-hidden">
         <div className="px-6 pt-5 pb-4 border-b border-slate-100">
-          <SectionHeader title="Monthly inputs" sub="Enter adjusted cashflow and qualifying funds for each month." />
+          <SectionHeader title={t('ssr.wc.inputsTitle')} sub={t('ssr.wc.inputsSub')} />
         </div>
         <table className="w-full">
           <thead className="border-b border-slate-100 bg-slate-50/60">
             <tr>
-              <Th>Month</Th>
-              <Th align="right">Adjusted Cashflow ({symbol})</Th>
-              <Th align="right">Qualifying Funds ({symbol})</Th>
-              <Th align="right">Headroom</Th>
+              <Th>{t('ssr.wc.thMonth')}</Th>
+              <Th align="right">{t('ssr.wc.thCashflow', { symbol })}</Th>
+              <Th align="right">{t('ssr.wc.thFunds', { symbol })}</Th>
+              <Th align="right">{t('ssr.wc.thHeadroom')}</Th>
               <Th align="right">{''}</Th>
             </tr>
           </thead>
@@ -338,7 +347,7 @@ function WorkingCapitalTab() {
                         className="text-[12px] font-medium text-violet-600 hover:text-violet-700 disabled:opacity-60 inline-flex items-center gap-1"
                       >
                         {edit.saving && <Spinner size={11} />}
-                        {edit.saving ? 'Saving' : 'Save'}
+                        {edit.saving ? t('ssr.wc.saving') : t('ssr.wc.save')}
                       </button>
                     )}
                   </td>
@@ -359,6 +368,7 @@ function WorkingCapitalTab() {
 const LIQUIDITY_THRESHOLD_PENCE = 85_000_000_00
 
 function LiquidityTab() {
+  const { t } = useTranslation()
   const { format: fmtMoney, symbol } = useWorkspaceCurrency()
   const seasonStartYear = useSeasonStore((s) => s.startYear)
   const SEASON = seasonKey(seasonStartYear)
@@ -381,7 +391,7 @@ function LiquidityTab() {
         setMarketValue(Math.round(result.row.squadMarketValuePence / 100))
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load liquidity')
+      setError(e instanceof Error ? e.message : t('ssr.liquidity.failLoad'))
     } finally {
       setLoading(false)
     }
@@ -402,7 +412,7 @@ function LiquidityTab() {
       })
       await load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save')
+      setError(e instanceof Error ? e.message : t('ssr.liquidity.failSave'))
     } finally {
       setSaving(false)
     }
@@ -432,24 +442,24 @@ function LiquidityTab() {
 
       <TestResultBanner
         status={status}
-        title="Liquidity"
+        title={t('ssr.tabs.liquidity')}
         description={
-          <>Liquid assets + 40% of squad market value − liquid liabilities must clear the <Num>{symbol}85,000,000</Num> stress test.</>
+          <Trans i18nKey="ssr.liquidity.desc" values={{ amount: `${symbol}${formatNumber(85_000_000)}` }} components={{ n: <Num /> }} />
         }
-        metricLabel="Liquidity headroom"
+        metricLabel={t('ssr.liquidity.metricLabel')}
         metric={preview ? <SignedPence pence={preview.headroom} /> : <span className="text-slate-300">—</span>}
       />
 
       <Card className="p-6">
-        <SectionHeader title="Inputs" sub="40% of squad market value is treated as a liquid asset." />
+        <SectionHeader title={t('ssr.liquidity.inputsTitle')} sub={t('ssr.liquidity.inputsSub')} />
         <div className="mt-5 grid grid-cols-3 gap-5">
-          <Field label="Liquid Assets (£)" helper="Cash, undrawn facilities, near-cash">
+          <Field label={t('ssr.liquidity.fAssets')} helper={t('ssr.liquidity.fAssetsHelper')}>
             <PoundInput value={assets} onChange={setAssets} />
           </Field>
-          <Field label="Liquid Liabilities (£)" helper="Short-term obligations">
+          <Field label={t('ssr.liquidity.fLiab')} helper={t('ssr.liquidity.fLiabHelper')}>
             <PoundInput value={liabilities} onChange={setLiabilities} />
           </Field>
-          <Field label="Squad Market Value (£)" helper="40% counts toward liquid assets">
+          <Field label={t('ssr.liquidity.fMv')} helper={t('ssr.liquidity.fMvHelper')}>
             <PoundInput value={marketValue} onChange={setMarketValue} />
           </Field>
         </div>
@@ -458,16 +468,16 @@ function LiquidityTab() {
           <>
             <div className="mt-6 pt-5 border-t border-slate-100">
               <div className="flex items-center justify-between mb-3">
-                <span className="meta-label">Net liquid position vs stress floor</span>
+                <span className="meta-label">{t('ssr.liquidity.netVsFloor')}</span>
                 <span className={cn('num text-[12px] font-medium', preview.headroom < 0 ? 'text-red-600' : 'text-green-700')}>
-                  {preview.headroom < 0 ? 'Below floor' : 'Above floor'}
+                  {preview.headroom < 0 ? t('ssr.liquidity.belowFloor') : t('ssr.liquidity.aboveFloor')}
                 </span>
               </div>
               <ZoneBar
                 value={preview.net}
                 threshold={LIQUIDITY_THRESHOLD_PENCE}
                 goodSide="above"
-                thresholdLabel={`${symbol}85M floor`}
+                thresholdLabel={t('ssr.liquidity.floorLabel', { symbol })}
                 formatTick={(n) => fmtCompactPence(n, symbol)}
                 valueLabel={fmtCompactPence(preview.net, symbol)}
               />
@@ -475,20 +485,20 @@ function LiquidityTab() {
 
             <div className="mt-6 pt-5 border-t border-slate-100 grid grid-cols-3 gap-5">
               <StatBlock
-                label="Effective Liquid Assets"
+                label={t('ssr.liquidity.sbEffective')}
                 value={fmtMoney(preview.effective)}
-                sub="Includes 40% squad market value"
+                sub={t('ssr.liquidity.sbEffectiveSub')}
               />
               <StatBlock
-                label="Stress Test Threshold"
+                label={t('ssr.liquidity.sbThreshold')}
                 value={fmtMoney(LIQUIDITY_THRESHOLD_PENCE)}
-                sub="PL solvency buffer"
+                sub={t('ssr.liquidity.sbThresholdSub')}
               />
               <StatBlock
-                label="Liquidity Headroom"
+                label={t('ssr.liquidity.sbHeadroom')}
                 value={`${preview.headroom < 0 ? '−' : ''}${fmtMoney(Math.abs(preview.headroom))}`}
                 valueClass={preview.headroom < 0 ? 'text-red-700' : 'text-green-700'}
-                sub={preview.headroom < 0 ? 'Short of the required floor' : 'Above the required floor'}
+                sub={preview.headroom < 0 ? t('ssr.liquidity.sbHeadroomShort') : t('ssr.liquidity.sbHeadroomAbove')}
               />
             </div>
           </>
@@ -497,7 +507,7 @@ function LiquidityTab() {
         <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-end">
           <Button onClick={save} disabled={saving || ![assets, liabilities, marketValue].every(Number.isFinite)}>
             {saving && <Spinner size={14} />}
-            {saving ? 'Saving…' : 'Save liquidity'}
+            {saving ? t('ssr.liquidity.saving') : t('ssr.liquidity.save')}
           </Button>
         </div>
       </Card>
@@ -510,6 +520,7 @@ function LiquidityTab() {
 // ---------------------------------------------------------------------------
 
 function EquityTab() {
+  const { t } = useTranslation()
   const seasonStartYear = useSeasonStore((s) => s.startYear)
   const SEASON = seasonKey(seasonStartYear)
   const [data, setData] = useState<EquityResponse | null>(null)
@@ -529,7 +540,7 @@ function EquityTab() {
         setAdjustedAssets(Math.round(result.row.adjustedAssetsPence / 100))
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load equity')
+      setError(e instanceof Error ? e.message : t('ssr.equity.failLoad'))
     } finally {
       setLoading(false)
     }
@@ -549,7 +560,7 @@ function EquityTab() {
       })
       await load()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save')
+      setError(e instanceof Error ? e.message : t('ssr.equity.failSave'))
     } finally {
       setSaving(false)
     }
@@ -575,11 +586,11 @@ function EquityTab() {
 
       <TestResultBanner
         status={status}
-        title="Positive Equity"
+        title={t('ssr.tabs.equity')}
         description={
-          <>Total liabilities ÷ adjusted assets must stay at or below <Num>{(threshold * 100).toFixed(0)}%</Num> for {SEASON}.</>
+          <Trans i18nKey="ssr.equity.desc" values={{ pct: `${(threshold * 100).toFixed(0)}%`, season: SEASON }} components={{ n: <Num /> }} />
         }
-        metricLabel="Equity ratio"
+        metricLabel={t('ssr.equity.metricLabel')}
         metric={
           preview ? (
             <span className={cn('num', preview.passing ? 'text-slate-900' : 'text-red-700')}>
@@ -592,12 +603,12 @@ function EquityTab() {
       />
 
       <Card className="p-6">
-        <SectionHeader title="Inputs" sub="The ratio of what you owe against what you own." />
+        <SectionHeader title={t('ssr.equity.inputsTitle')} sub={t('ssr.equity.inputsSub')} />
         <div className="mt-5 grid grid-cols-2 gap-5">
-          <Field label="Total Liabilities (£)" helper="All balance-sheet liabilities incl. shareholder loans">
+          <Field label={t('ssr.equity.fLiab')} helper={t('ssr.equity.fLiabHelper')}>
             <PoundInput value={liabilities} onChange={setLiabilities} />
           </Field>
-          <Field label="Adjusted Assets (£)" helper="Net book value of players + assets (whichever is higher)">
+          <Field label={t('ssr.equity.fAssets')} helper={t('ssr.equity.fAssetsHelper')}>
             <PoundInput value={adjustedAssets} onChange={setAdjustedAssets} />
           </Field>
         </div>
@@ -606,9 +617,9 @@ function EquityTab() {
           <>
             <div className="mt-6 pt-5 border-t border-slate-100">
               <div className="flex items-center justify-between mb-3">
-                <span className="meta-label">Equity ratio vs {SEASON} cap</span>
+                <span className="meta-label">{t('ssr.equity.ratioVsCap', { season: SEASON })}</span>
                 <span className={cn('num text-[12px] font-medium', preview.passing ? 'text-green-700' : 'text-red-600')}>
-                  {preview.passing ? 'Within cap' : 'Over cap'}
+                  {preview.passing ? t('ssr.equity.withinCap') : t('ssr.equity.overCap')}
                 </span>
               </div>
               <ZoneBar
@@ -616,7 +627,7 @@ function EquityTab() {
                 threshold={threshold}
                 goodSide="below"
                 domainMax={Math.max(1, preview.ratio * 1.1)}
-                thresholdLabel={`${(threshold * 100).toFixed(0)}% cap`}
+                thresholdLabel={t('ssr.equity.capLabel', { pct: `${(threshold * 100).toFixed(0)}%` })}
                 formatTick={fmtPctTick}
                 valueLabel={`${(preview.ratio * 100).toFixed(1)}%`}
               />
@@ -624,21 +635,21 @@ function EquityTab() {
 
             <div className="mt-6 pt-5 border-t border-slate-100 grid grid-cols-3 gap-5">
               <StatBlock
-                label="Equity Ratio"
+                label={t('ssr.equity.sbRatio')}
                 value={(preview.ratio * 100).toFixed(1) + '%'}
                 valueClass={preview.passing ? 'text-slate-900' : 'text-red-700'}
-                sub={`Threshold for ${SEASON}: ${(threshold * 100).toFixed(0)}%`}
+                sub={t('ssr.equity.sbRatioSub', { season: SEASON, pct: `${(threshold * 100).toFixed(0)}%` })}
               />
               <StatBlock
-                label="Margin to cap"
+                label={t('ssr.equity.sbMargin')}
                 value={`${preview.marginPp >= 0 ? '+' : ''}${preview.marginPp.toFixed(2)} pp`}
                 valueClass={preview.marginPp >= 0 ? 'text-green-700' : 'text-red-700'}
-                sub="Distance below the season threshold"
+                sub={t('ssr.equity.sbMarginSub')}
               />
               <StatBlock
-                label="Threshold Tier"
-                value={SEASON === '2026-27' ? '90% cap' : SEASON === '2027-28' ? '85% cap' : '80% cap'}
-                sub="Tightens each season through 2028-29"
+                label={t('ssr.equity.sbTier')}
+                value={t('ssr.equity.capLabel', { pct: SEASON === '2026-27' ? '90%' : SEASON === '2027-28' ? '85%' : '80%' })}
+                sub={t('ssr.equity.sbTierSub')}
               />
             </div>
           </>
@@ -647,7 +658,7 @@ function EquityTab() {
         <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-end">
           <Button onClick={save} disabled={saving || !Number.isFinite(liabilities) || !Number.isFinite(adjustedAssets)}>
             {saving && <Spinner size={14} />}
-            {saving ? 'Saving…' : 'Save equity'}
+            {saving ? t('ssr.equity.saving') : t('ssr.equity.save')}
           </Button>
         </div>
       </Card>
@@ -661,10 +672,10 @@ function EquityTab() {
 
 type TestStatus = 'pass' | 'fail' | 'nodata'
 
-const STATUS_STYLE: Record<TestStatus, { bd: string; bg: string; dot: string; text: string; label: string }> = {
-  pass:   { bd: 'border-l-green-600', bg: 'bg-green-50/50', dot: '#16a34a', text: 'text-green-700', label: 'PASS' },
-  fail:   { bd: 'border-l-red-600',   bg: 'bg-red-50/50',   dot: '#dc2626', text: 'text-red-700',   label: 'FAIL' },
-  nodata: { bd: 'border-l-slate-300', bg: 'bg-white',       dot: '#cbd5e1', text: 'text-slate-400', label: 'NO DATA' },
+const STATUS_STYLE: Record<TestStatus, { bd: string; bg: string; dot: string; text: string; labelKey: string }> = {
+  pass:   { bd: 'border-l-green-600', bg: 'bg-green-50/50', dot: '#16a34a', text: 'text-green-700', labelKey: 'ssr.status.pass' },
+  fail:   { bd: 'border-l-red-600',   bg: 'bg-red-50/50',   dot: '#dc2626', text: 'text-red-700',   labelKey: 'ssr.status.fail' },
+  nodata: { bd: 'border-l-slate-300', bg: 'bg-white',       dot: '#cbd5e1', text: 'text-slate-400', labelKey: 'ssr.status.nodata' },
 }
 
 /**
@@ -687,6 +698,7 @@ function TestResultBanner({
   metricLabel: string
   metric: React.ReactNode
 }) {
+  const { t } = useTranslation()
   const c = STATUS_STYLE[status]
   return (
     <Card className={cn('p-6 border-l-4 flex items-center justify-between gap-6', c.bd, c.bg)}>
@@ -694,7 +706,7 @@ function TestResultBanner({
         <div className="flex items-center gap-2">
           <span className="inline-block w-1.5 h-1.5 rounded-full" style={{ background: c.dot }} />
           <span className={cn('meta-label', c.text)} style={{ letterSpacing: '0.1em' }}>
-            {statusText ?? c.label}
+            {statusText ?? t(c.labelKey)}
           </span>
         </div>
         <h3 className="text-[16px] font-semibold text-slate-900 mt-2 tracking-tight">{title}</h3>
@@ -731,6 +743,7 @@ function ZoneBar({
   /** Optional explicit upper bound for the axis (defaults to a padded fit). */
   domainMax?: number
 }) {
+  const { t } = useTranslation()
   const lo = Math.min(0, value, threshold)
   const hi = domainMax ?? Math.max(value, threshold)
   const pad = (hi - lo) * 0.12 || threshold * 0.2
@@ -771,7 +784,7 @@ function ZoneBar({
         <span className="absolute right-0 text-slate-400">{formatTick(max)}</span>
       </div>
       <div className="mt-1.5 text-[11px] text-slate-400">
-        You are at <span className="num text-slate-600 font-medium">{valueLabel}</span>
+        <Trans i18nKey="ssr.zoneBar.youAreAt" values={{ value: valueLabel }} components={{ v: <span className="num text-slate-600 font-medium" /> }} />
       </div>
     </div>
   )
@@ -811,7 +824,7 @@ function SignedPence({ pence }: { pence: number }) {
   return <>{(pence < 0 ? '−' : '') + format(Math.abs(pence))}</>
 }
 
-function Num({ children }: { children: React.ReactNode }) {
+function Num({ children }: { children?: React.ReactNode }) {
   return <span className="num text-slate-900">{children}</span>
 }
 

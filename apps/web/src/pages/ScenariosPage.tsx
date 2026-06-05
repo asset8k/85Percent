@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
@@ -92,14 +93,7 @@ function newDraft(actionType: ScenarioActionType): DraftAction {
   return { id: freshId(), actionType, playerId: null }
 }
 
-const ACTION_LABEL: Record<ScenarioActionType, string> = {
-  buy:      'Permanent Buy',
-  sell:     'Permanent Sell',
-  loan_in:  'Loan In',
-  loan_out: 'Loan Out',
-  release:  'Release',
-}
-
+// Action-type display labels are translated at render via `scenarios.actionLabel.<type>`.
 const ACTION_COLOR: Record<ScenarioActionType, string> = {
   buy:      'text-violet-700 border-violet-200 bg-violet-50',
   loan_in:  'text-violet-700 border-violet-200 bg-violet-50',
@@ -156,6 +150,7 @@ function actionToDraft(a: ScenarioAction): DraftAction {
 // Main page
 // ---------------------------------------------------------------------------
 export function ScenariosPage() {
+  const { t } = useTranslation()
   const can = useCan()
   const { format: fmtMoney } = useWorkspaceCurrency()
   const openCopilot = useCopilot((s) => s.open)
@@ -187,7 +182,7 @@ export function ScenariosPage() {
           setScenarios(details)
         }
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load')
+        if (!cancelled) setError(e instanceof Error ? e.message : t('scenarios.failLoad'))
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -240,16 +235,16 @@ export function ScenariosPage() {
       s === 'green' ? 'Green — compliant' : s === 'amber' ? 'Amber — levy zone' : 'Red — points-deduction risk'
     const transactions = draftActions.map((d, i) => {
       const e = draftToEngine(d)
-      const t: Record<string, unknown> = { order: i + 1, type: ACTION_LABEL[d.actionType] }
-      if (e.transferFeePence != null) t['transferFee'] = fmtMoney(e.transferFeePence)
-      if (e.contractLengthYears != null) t['contractLength'] = `${e.contractLengthYears} yrs`
-      if (e.annualWagePence != null) t['annualWage'] = fmtMoney(e.annualWagePence)
-      if (e.agentFeePence != null) t['agentFee'] = fmtMoney(e.agentFeePence)
-      if (e.saleProceedsPence != null) t['saleProceeds'] = fmtMoney(e.saleProceedsPence)
-      if (e.playerBookValuePence != null) t['bookValueOfSale'] = fmtMoney(e.playerBookValuePence)
-      if (e.loanFeeReceivedPence != null) t['loanFeeReceived'] = fmtMoney(e.loanFeeReceivedPence)
-      if (e.loanLengthYears != null) t['loanLength'] = `${e.loanLengthYears} yrs`
-      return t
+      const tx: Record<string, unknown> = { order: i + 1, type: t(`scenarios.actionLabel.${d.actionType}`) }
+      if (e.transferFeePence != null) tx['transferFee'] = fmtMoney(e.transferFeePence)
+      if (e.contractLengthYears != null) tx['contractLength'] = `${e.contractLengthYears} yrs`
+      if (e.annualWagePence != null) tx['annualWage'] = fmtMoney(e.annualWagePence)
+      if (e.agentFeePence != null) tx['agentFee'] = fmtMoney(e.agentFeePence)
+      if (e.saleProceedsPence != null) tx['saleProceeds'] = fmtMoney(e.saleProceedsPence)
+      if (e.playerBookValuePence != null) tx['bookValueOfSale'] = fmtMoney(e.playerBookValuePence)
+      if (e.loanFeeReceivedPence != null) tx['loanFeeReceived'] = fmtMoney(e.loanFeeReceivedPence)
+      if (e.loanLengthYears != null) tx['loanLength'] = `${e.loanLengthYears} yrs`
+      return tx
     })
     openCopilot({
       module: 'Scenarios',
@@ -336,7 +331,7 @@ export function ScenariosPage() {
       setDraftActions([])
       setEditingScenarioId(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save scenario')
+      setError(e instanceof Error ? e.message : t('scenarios.failSave'))
     } finally {
       setSaving(false)
     }
@@ -348,7 +343,7 @@ export function ScenariosPage() {
       removeScenario(id)
       if (editingScenarioId === id) handleNewScenario()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to delete')
+      setError(e instanceof Error ? e.message : t('scenarios.failDelete'))
     }
   }
 
@@ -373,8 +368,8 @@ export function ScenariosPage() {
       <div>
         <PageHeader onNew={handleNewScenario} onCompare={() => setCompareOpen(true)} canCompare={scenarios.length >= 2} />
         <Card className="p-12 text-center">
-          <p className="text-[15px] font-medium text-slate-900">Club setup required</p>
-          <p className="text-[13px] text-slate-500 mt-2">Configure your club financials before building scenarios.</p>
+          <p className="text-[15px] font-medium text-slate-900">{t('scenarios.setupRequired')}</p>
+          <p className="text-[13px] text-slate-500 mt-2">{t('scenarios.setupBody')}</p>
         </Card>
       </div>
     )
@@ -393,12 +388,12 @@ export function ScenariosPage() {
         <aside className="flex flex-col gap-3">
           <Card className="p-5">
             <div className="flex items-center justify-between mb-3">
-              <div className="meta-label">Saved Scenarios</div>
+              <div className="meta-label">{t('scenarios.saved')}</div>
               <span className="text-[11px] text-slate-400 num">{scenarios.length}</span>
             </div>
             {scenarios.length === 0 ? (
               <p className="text-[12px] text-slate-500">
-                Build a plan on the right and save it to compare later.
+                {t('scenarios.savedEmpty')}
               </p>
             ) : (
               <>
@@ -417,11 +412,8 @@ export function ScenariosPage() {
                   ))}
                 </ul>
                 <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-                  <span>
-                    <span className="num text-slate-700 font-medium">
-                      {scenarios.filter((s) => s.isIncluded).length}
-                    </span>{' '}
-                    of <span className="num">{scenarios.length}</span> in active plan
+                  <span className="num">
+                    {t('scenarios.inActivePlan', { count: scenarios.filter((s) => s.isIncluded).length, total: scenarios.length })}
                   </span>
                   {activeBaseline && (
                     <span className="num text-slate-400">
@@ -448,7 +440,7 @@ export function ScenariosPage() {
               <input
                 value={draftName}
                 onChange={(e) => setDraftName(e.target.value)}
-                placeholder={editingScenarioId ? 'Scenario name' : 'New scenario — e.g. "January window plan A"'}
+                placeholder={editingScenarioId ? t('scenarios.namePlaceholderEdit') : t('scenarios.namePlaceholderNew')}
                 maxLength={100}
                 className="flex-1 px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
               />
@@ -457,10 +449,10 @@ export function ScenariosPage() {
                 disabled={!draftName.trim() || draftActions.length === 0 || saving}
               >
                 {saving ? <Spinner size={14} /> : null}
-                {saving ? 'Saving…' : editingScenarioId ? 'Save changes' : 'Save scenario'}
+                {saving ? t('common.saving') : editingScenarioId ? t('scenarios.saveChanges') : t('scenarios.saveScenario')}
               </Button>
               {editingScenarioId && (
-                <Button variant="ghost" onClick={handleNewScenario}>New</Button>
+                <Button variant="ghost" onClick={handleNewScenario}>{t('scenarios.new')}</Button>
               )}
             </div>
           </Card>
@@ -497,9 +489,9 @@ export function ScenariosPage() {
               <div className="flex items-center gap-3">
                 <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
                 <div>
-                  <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">Plan Actions</h3>
+                  <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">{t('scenarios.planActions')}</h3>
                   <p className="text-[12px] text-slate-500 mt-0.5">
-                    Stack incoming + outgoing transfers. Drag rows to reorder; the projection recomputes live.
+                    {t('scenarios.planActionsSub')}
                   </p>
                 </div>
               </div>
@@ -508,9 +500,9 @@ export function ScenariosPage() {
 
             {draftActions.length === 0 ? (
               <div className="border-2 border-dashed border-slate-200 rounded-xl p-10 text-center">
-                <p className="text-[14px] text-slate-700 font-medium">No actions yet</p>
+                <p className="text-[14px] text-slate-700 font-medium">{t('scenarios.noActions')}</p>
                 <p className="text-[12px] text-slate-500 mt-1.5">
-                  Add a buy, sell, loan, or release using the buttons above.
+                  {t('scenarios.noActionsSub')}
                 </p>
               </div>
             ) : (
@@ -555,21 +547,22 @@ export function ScenariosPage() {
 function PageHeader({
   onNew, onCompare, canCompare,
 }: { onNew: () => void; onCompare: () => void; canCompare: boolean }) {
+  const { t } = useTranslation()
   return (
     <div className="mb-6 flex items-center gap-3">
       <span className="inline-block w-1.5 h-7 rounded-full bg-violet-600" />
       <div className="flex-1">
         <h1 className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">
-          Scenarios
+          {t('nav.scenarios')}
         </h1>
         <p className="text-[13px] text-slate-500 mt-1.5">
-          Multi-action transfer plans. Stack buys, sells, loans, releases and see the net SCR impact.
+          {t('scenarios.subtitle')}
         </p>
       </div>
       <Button variant="outline" onClick={onCompare} disabled={!canCompare}>
-        Compare A vs B
+        {t('scenarios.compareAB')}
       </Button>
-      <Button onClick={onNew}>New scenario</Button>
+      <Button onClick={onNew}>{t('scenarios.newScenario')}</Button>
     </div>
   )
 }
@@ -593,6 +586,7 @@ function ScenarioListItem({
   onDelete: () => void
   onToggle: (v: boolean) => void
 }) {
+  const { t } = useTranslation()
   const { format: fmtMoney, symbol } = useWorkspaceCurrency()
   const [deleting, setDeleting] = useState(false)
   const inPlan = scenario.isIncluded
@@ -632,16 +626,16 @@ function ScenarioListItem({
           <div className="text-[13px] font-medium text-slate-900 truncate">{scenario.name}</div>
           <div className="flex items-center gap-1.5 mt-1 min-w-0">
             <span className="text-[11px] text-slate-500 whitespace-nowrap">
-              {actionCount} {actionCount === 1 ? 'action' : 'actions'}
+              {t('common.actions', { count: actionCount })}
             </span>
             {impact && (
               <>
                 <span className="text-slate-300" aria-hidden>·</span>
                 <span
                   title={
-                    `Net SCR headroom: ${signedPence(impact.headroomDeltaPence, fmtMoney)}\n` +
-                    `Squad costs: ${signedPence(-impact.costDeltaPence, fmtMoney)} room` +
-                    (impact.revenueDeltaPence !== 0 ? `\nRevenue: ${signedPence(impact.revenueDeltaPence, fmtMoney)}` : '')
+                    t('dashboard.impact.net', { value: signedPence(impact.headroomDeltaPence, fmtMoney) }) + '\n' +
+                    t('dashboard.impact.costs', { value: signedPence(-impact.costDeltaPence, fmtMoney) }) +
+                    (impact.revenueDeltaPence !== 0 ? '\n' + t('dashboard.impact.revenue', { value: signedPence(impact.revenueDeltaPence, fmtMoney) }) : '')
                   }
                   className={cn(
                     'text-[11px] font-semibold num whitespace-nowrap',
@@ -659,12 +653,8 @@ function ScenarioListItem({
             checked={inPlan}
             onChange={onToggle}
             size="sm"
-            tooltip={
-              inPlan
-                ? 'Remove from active plan'
-                : 'Add to active plan — applies this scenario to your dashboard SCR'
-            }
-            aria-label={inPlan ? 'Remove from active plan' : 'Include in active plan'}
+            tooltip={inPlan ? t('scenarios.removeFromPlan') : t('scenarios.addToPlan')}
+            aria-label={inPlan ? t('scenarios.removeFromPlan') : t('scenarios.includeInPlan')}
           />
         ) : (
           // Read-only switch for Finance Analyst — visual matches but cannot
@@ -675,7 +665,7 @@ function ScenarioListItem({
             onChange={() => undefined}
             disabled
             size="sm"
-            aria-label="Active plan (read-only)"
+            aria-label={t('scenarios.activePlanReadOnly')}
           />
         )}
         <button
@@ -686,7 +676,7 @@ function ScenarioListItem({
           }}
           disabled={deleting}
           className="text-slate-300 hover:text-red-600 p-1.5 rounded-md hover:bg-red-50 transition-all opacity-60 group-hover:opacity-100 focus-visible:opacity-100"
-          aria-label="Delete scenario"
+          aria-label={t('scenarios.deleteScenario')}
         >
           {deleting ? <Spinner size={11} /> : (
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -704,11 +694,12 @@ function ScenarioListItem({
 // Action adder dropdown
 // ---------------------------------------------------------------------------
 function ActionAdder({ onAdd }: { onAdd: (t: ScenarioActionType) => void }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   return (
     <div className="relative">
       <Button variant="outline" onClick={() => setOpen((v) => !v)}>
-        <span>Add action</span>
+        <span>{t('scenarios.addAction')}</span>
         <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
           <path d="M3 4l3 4 3-4" />
         </svg>
@@ -717,13 +708,13 @@ function ActionAdder({ onAdd }: { onAdd: (t: ScenarioActionType) => void }) {
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <div className="absolute right-0 mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-md p-1 min-w-[180px]">
-            {(['buy', 'sell', 'loan_in', 'loan_out', 'release'] as ScenarioActionType[]).map((t) => (
+            {(['buy', 'sell', 'loan_in', 'loan_out', 'release'] as ScenarioActionType[]).map((at) => (
               <button
-                key={t}
-                onClick={() => { onAdd(t); setOpen(false) }}
+                key={at}
+                onClick={() => { onAdd(at); setOpen(false) }}
                 className="w-full text-left px-3 py-2 text-[13px] text-slate-700 hover:bg-violet-50 hover:text-violet-700 rounded"
               >
-                {ACTION_LABEL[t]}
+                {t(`scenarios.actionLabel.${at}`)}
               </button>
             ))}
           </div>
@@ -745,6 +736,7 @@ function SortableActionRow({
   onUpdate: (patch: Partial<DraftAction>) => void
   onRemove: () => void
 }) {
+  const { t } = useTranslation()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: action.id })
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -766,7 +758,7 @@ function SortableActionRow({
           {...attributes}
           {...listeners}
           className="text-slate-400 hover:text-slate-700 cursor-grab active:cursor-grabbing"
-          aria-label="Drag to reorder"
+          aria-label={t('scenarios.dragReorder')}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
             <circle cx="8" cy="6" r="1.5" /><circle cx="16" cy="6" r="1.5" />
@@ -778,13 +770,13 @@ function SortableActionRow({
           'inline-block text-[11px] font-medium px-2 py-0.5 rounded-md whitespace-nowrap',
           ACTION_COLOR[action.actionType]
         )}>
-          {index + 1}. {ACTION_LABEL[action.actionType]}
+          {index + 1}. {t(`scenarios.actionLabel.${action.actionType}`)}
         </span>
         <div className="flex-1" />
         <button
           onClick={onRemove}
           className="text-slate-400 hover:text-red-600 p-1 -m-1"
-          aria-label="Remove action"
+          aria-label={t('scenarios.removeAction')}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M18 6L6 18" /><path d="M6 6l12 12" />
@@ -808,6 +800,7 @@ function ActionFields({
   roster: PlayerWithContract[]
   onUpdate: (patch: Partial<DraftAction>) => void
 }) {
+  const { t } = useTranslation()
   const usesRoster = action.actionType === 'sell' || action.actionType === 'release' || action.actionType === 'loan_out'
 
   // When a player is picked for a sell/release/loan_out, auto-fill the relief
@@ -838,10 +831,10 @@ function ActionFields({
   if (action.actionType === 'buy') {
     return (
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Transfer Fee (£)">
+        <Field label={t('scenarios.fields.transferFee')}>
           <PoundInput value={action.transferFeePounds ?? NaN} onChange={(n) => onUpdate({ transferFeePounds: n })} />
         </Field>
-        <Field label="Contract length (years)">
+        <Field label={t('scenarios.fields.contractLength')}>
           <NumericInput
             value={action.contractLengthYears ?? NaN}
             onChange={(n) => onUpdate({ contractLengthYears: n })}
@@ -849,10 +842,10 @@ function ActionFields({
             placeholder="4"
           />
         </Field>
-        <Field label="Weekly wage (£)">
+        <Field label={t('scenarios.fields.weeklyWage')}>
           <PoundInput value={action.weeklyWagePounds ?? NaN} onChange={(n) => onUpdate({ weeklyWagePounds: n })} />
         </Field>
-        <Field label="Agent fee (£)">
+        <Field label={t('scenarios.fields.agentFee')}>
           <PoundInput value={action.agentFeePounds ?? NaN} onChange={(n) => onUpdate({ agentFeePounds: n })} />
         </Field>
       </div>
@@ -864,16 +857,16 @@ function ActionFields({
       <div className="space-y-4">
         {usesRoster && <PlayerPicker roster={roster} value={action.playerId} onChange={onPickPlayer} />}
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Sale proceeds (£)">
+          <Field label={t('scenarios.fields.saleProceeds')}>
             <PoundInput value={action.saleProceedsPounds ?? NaN} onChange={(n) => onUpdate({ saleProceedsPounds: n })} />
           </Field>
-          <Field label="Book value (£)" helper="Auto-filled from contract">
+          <Field label={t('scenarios.fields.bookValue')} helper={t('scenarios.fields.bookValueHelper')}>
             <PoundInput value={action.playerBookValuePounds ?? NaN} onChange={(n) => onUpdate({ playerBookValuePounds: n })} />
           </Field>
-          <Field label="Weekly wage relief (£)" helper="Wage saved on sale">
+          <Field label={t('scenarios.fields.wageRelief')} helper={t('scenarios.fields.wageReliefHelper')}>
             <PoundInput value={action.weeklyWageReliefPounds ?? NaN} onChange={(n) => onUpdate({ weeklyWageReliefPounds: n })} />
           </Field>
-          <Field label="Annual amortisation relief (£)" helper="Remaining amortisation removed">
+          <Field label={t('scenarios.fields.amortRelief')} helper={t('scenarios.fields.amortReliefHelper')}>
             <PoundInput value={action.annualAmortisationReliefPounds ?? NaN} onChange={(n) => onUpdate({ annualAmortisationReliefPounds: n })} />
           </Field>
         </div>
@@ -884,10 +877,10 @@ function ActionFields({
   if (action.actionType === 'loan_in') {
     return (
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Loan fee paid (£)">
+        <Field label={t('scenarios.fields.loanFeePaid')}>
           <PoundInput value={action.transferFeePounds ?? NaN} onChange={(n) => onUpdate({ transferFeePounds: n })} />
         </Field>
-        <Field label="Loan length (years)">
+        <Field label={t('scenarios.fields.loanLength')}>
           <NumericInput
             value={action.loanLengthYears ?? NaN}
             onChange={(n) => onUpdate({ loanLengthYears: n })}
@@ -895,7 +888,7 @@ function ActionFields({
             placeholder="1"
           />
         </Field>
-        <Field label="Weekly wage contribution (£)">
+        <Field label={t('scenarios.fields.wageContribution')}>
           <PoundInput value={action.weeklyWagePounds ?? NaN} onChange={(n) => onUpdate({ weeklyWagePounds: n })} />
         </Field>
       </div>
@@ -907,10 +900,10 @@ function ActionFields({
       <div className="space-y-4">
         {usesRoster && <PlayerPicker roster={roster} value={action.playerId} onChange={onPickPlayer} />}
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Loan fee received (£)">
+          <Field label={t('scenarios.fields.loanFeeReceived')}>
             <PoundInput value={action.loanFeeReceivedPounds ?? NaN} onChange={(n) => onUpdate({ loanFeeReceivedPounds: n })} />
           </Field>
-          <Field label="Loan length (years)">
+          <Field label={t('scenarios.fields.loanLength')}>
             <NumericInput
               value={action.loanLengthYears ?? NaN}
               onChange={(n) => onUpdate({ loanLengthYears: n })}
@@ -918,7 +911,7 @@ function ActionFields({
               placeholder="1"
             />
           </Field>
-          <Field label="Weekly wage covered (£)" helper="Wage paid by receiving club">
+          <Field label={t('scenarios.fields.wageCovered')} helper={t('scenarios.fields.wageCoveredHelper')}>
             <PoundInput value={action.weeklyWageCoveredPounds ?? NaN} onChange={(n) => onUpdate({ weeklyWageCoveredPounds: n })} />
           </Field>
         </div>
@@ -931,10 +924,10 @@ function ActionFields({
     <div className="space-y-4">
       {usesRoster && <PlayerPicker roster={roster} value={action.playerId} onChange={onPickPlayer} />}
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Weekly wage relief (£)">
+        <Field label={t('scenarios.fields.wageRelief')}>
           <PoundInput value={action.weeklyWageReliefPounds ?? NaN} onChange={(n) => onUpdate({ weeklyWageReliefPounds: n })} />
         </Field>
-        <Field label="Annual amortisation relief (£)">
+        <Field label={t('scenarios.fields.amortRelief')}>
           <PoundInput value={action.annualAmortisationReliefPounds ?? NaN} onChange={(n) => onUpdate({ annualAmortisationReliefPounds: n })} />
         </Field>
       </div>
@@ -945,18 +938,19 @@ function ActionFields({
 function PlayerPicker({
   roster, value, onChange,
 }: { roster: PlayerWithContract[]; value: string | null; onChange: (id: string | null) => void }) {
+  const { t } = useTranslation()
   const { format: fmtMoney } = useWorkspaceCurrency()
   return (
-    <Field label="Player from roster">
+    <Field label={t('scenarios.fields.playerFromRoster')}>
       <select
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value || null)}
         className={inputBase}
       >
-        <option value="">— select a player —</option>
+        <option value="">{t('scenarios.fields.selectPlayer')}</option>
         {roster.filter((p) => p.contract).map((p) => (
           <option key={p.id} value={p.id}>
-            {p.name} ({p.position ?? '—'}) — {fmtMoney(p.contract!.annualWagePence)} / yr
+            {t('scenarios.fields.playerOption', { name: p.name, position: p.position ?? '—', wage: fmtMoney(p.contract!.annualWagePence) })}
           </option>
         ))}
       </select>
@@ -987,6 +981,7 @@ function ProjectionPanel({
   /** Number of OTHER included scenarios feeding the baseline tile. */
   otherIncludedCount: number
 }) {
+  const { t } = useTranslation()
   const { symbol } = useWorkspaceCurrency()
   const fmtMoneyNum = (pence: number) => formatPenceNumber(pence, symbol)
   const { before, after } = dryRun
@@ -1010,8 +1005,8 @@ function ProjectionPanel({
   // Baseline subtitle — what's actually contributing to the "before" number.
   const baselineSubtitle =
     otherIncludedCount === 0
-      ? 'Roster only'
-      : `Roster + ${otherIncludedCount} other ${otherIncludedCount === 1 ? 'scenario' : 'scenarios'}`
+      ? t('scenarios.projection.rosterOnly')
+      : t('scenarios.projection.rosterPlus', { count: otherIncludedCount })
 
   return (
     <div>
@@ -1019,9 +1014,9 @@ function ProjectionPanel({
         <div className="flex items-center gap-3">
           <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
           <div>
-            <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">Live Projection</h3>
+            <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">{t('scenarios.projection.title')}</h3>
             <p className="text-[12px] text-slate-500 mt-0.5">
-              What this plan does to your active baseline.
+              {t('scenarios.projection.sub')}
             </p>
           </div>
         </div>
@@ -1040,7 +1035,7 @@ function ProjectionPanel({
       <div className="grid grid-cols-2 gap-4 mb-5">
         {/* Active Baseline tile — neutral white card, always */}
         <div className="rounded-xl border border-slate-200 bg-white p-5">
-          <div className="meta-label">Active Baseline</div>
+          <div className="meta-label">{t('scenarios.projection.activeBaseline')}</div>
           <div className="mt-2">
             <AnimatedNumber
               value={currentPct}
@@ -1050,7 +1045,7 @@ function ProjectionPanel({
             />
           </div>
           <div className="text-[11px] text-slate-400 mt-2 num">
-            Costs: <AnimatedNumber value={before.baselineSquadCosts} format={fmtMoneyNum} />
+            {t('scenarios.projection.costs')} <AnimatedNumber value={before.baselineSquadCosts} format={fmtMoneyNum} />
           </div>
           <div className="text-[11px] text-slate-500 mt-1.5">{baselineSubtitle}</div>
         </div>
@@ -1066,7 +1061,7 @@ function ProjectionPanel({
             planState === 'included' && 'ring-2 ring-violet-400 ring-offset-2 ring-offset-white',
           )}
         >
-          <div className="meta-label">With this plan</div>
+          <div className="meta-label">{t('scenarios.projection.withThisPlan')}</div>
           <div className="mt-2">
             <AnimatedNumber
               value={projectedPct}
@@ -1076,28 +1071,28 @@ function ProjectionPanel({
             />
           </div>
           <div className="text-[11px] text-slate-500 mt-2 num">
-            Costs: <AnimatedNumber value={after.baselineSquadCosts} format={fmtMoneyNum} />
+            {t('scenarios.projection.costs')} <AnimatedNumber value={after.baselineSquadCosts} format={fmtMoneyNum} />
           </div>
           <div className="mt-3 flex items-center gap-2 flex-wrap">
             <StatusBadge status={status}>
-              {status === 'green' ? 'Compliant' : status === 'amber' ? 'Levy Zone' : 'Points Risk'}
+              {status === 'green' ? t('common.status.compliant') : status === 'amber' ? t('common.status.levyZone') : t('common.status.pointsRisk')}
             </StatusBadge>
             {planState === 'included' && (
               <span className="inline-flex items-center gap-1 text-[10.5px] font-medium text-violet-700">
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M20 6 9 17l-5-5" />
                 </svg>
-                Currently driving SCR
+                {t('scenarios.projection.drivingScr')}
               </span>
             )}
             {planState === 'excluded' && (
               <span className="text-[10.5px] text-slate-500">
-                Hypothetical — flip the switch to apply
+                {t('scenarios.projection.hypothetical')}
               </span>
             )}
             {planState === 'draft' && (
               <span className="text-[10.5px] text-slate-500">
-                Save the scenario to add it to your active plan
+                {t('scenarios.projection.draftHint')}
               </span>
             )}
           </div>
@@ -1126,20 +1121,21 @@ function PlanStatusChip({
   canToggle: boolean
   onToggle: (next: boolean) => void
 }) {
+  const { t } = useTranslation()
   if (state === 'included') {
     return (
       <div className="inline-flex items-center gap-2.5 rounded-full bg-violet-50 border border-violet-200 pl-3 pr-2 py-1">
         <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-violet-700">
           <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-600" />
-          In active plan
+          {t('scenarios.chip.inPlan')}
         </span>
         <Switch
           checked={true}
           onChange={onToggle}
           disabled={!canToggle}
           size="sm"
-          tooltip={canToggle ? 'Remove from active plan' : undefined}
-          aria-label="Remove from active plan"
+          tooltip={canToggle ? t('scenarios.removeFromPlan') : undefined}
+          aria-label={t('scenarios.removeFromPlan')}
         />
       </div>
     )
@@ -1149,15 +1145,15 @@ function PlanStatusChip({
       <div className="inline-flex items-center gap-2.5 rounded-full bg-slate-50 border border-slate-200 pl-3 pr-2 py-1">
         <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-slate-600">
           <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-400" />
-          Not in plan
+          {t('scenarios.chip.notInPlan')}
         </span>
         <Switch
           checked={false}
           onChange={onToggle}
           disabled={!canToggle}
           size="sm"
-          tooltip={canToggle ? 'Include in active plan — applies this plan to your dashboard SCR' : undefined}
-          aria-label="Include in active plan"
+          tooltip={canToggle ? t('scenarios.chip.includeTooltip') : undefined}
+          aria-label={t('scenarios.includeInPlan')}
         />
       </div>
     )
@@ -1166,7 +1162,7 @@ function PlanStatusChip({
   return (
     <div className="inline-flex items-center gap-2 rounded-full bg-slate-50 border border-slate-200 px-3 py-1.5">
       <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-400" />
-      <span className="text-[12px] font-medium text-slate-600">Draft — save to include</span>
+      <span className="text-[12px] font-medium text-slate-600">{t('scenarios.chip.draft')}</span>
     </div>
   )
 }
@@ -1182,6 +1178,7 @@ function CompareModal({
   clubName: string
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const { format: fmtMoney, currency } = useWorkspaceCurrency()
   const [aId, setAId] = useState<string>(scenarios[0]?.id ?? '')
   const [bId, setBId] = useState<string>(scenarios[1]?.id ?? '')
@@ -1226,22 +1223,22 @@ function CompareModal({
         className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl border border-slate-200 overflow-hidden"
       >
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="text-[16px] font-semibold text-slate-900">Compare scenarios</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1 -m-1" aria-label="Close">
+          <h2 className="text-[16px] font-semibold text-slate-900">{t('scenarios.compare.title')}</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1 -m-1" aria-label={t('common.close')}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M18 6L6 18" /><path d="M6 6l12 12" />
             </svg>
           </button>
         </div>
         <div className="p-5 grid grid-cols-2 gap-5">
-          <CompareColumn label="Scenario A" scenarios={scenarios} selectedId={aId} onChange={setAId} projection={projA} baseRatio={baseRatio} financials={financials} />
-          <CompareColumn label="Scenario B" scenarios={scenarios} selectedId={bId} onChange={setBId} projection={projB} baseRatio={baseRatio} financials={financials} />
+          <CompareColumn label={t('scenarios.compare.columnA')} scenarios={scenarios} selectedId={aId} onChange={setAId} projection={projA} baseRatio={baseRatio} financials={financials} />
+          <CompareColumn label={t('scenarios.compare.columnB')} scenarios={scenarios} selectedId={bId} onChange={setBId} projection={projB} baseRatio={baseRatio} financials={financials} />
         </div>
         {projA && projB && (
           <div className="px-5 pb-5">
             <Card className="p-5 bg-slate-50 border-slate-200">
               <div className="flex items-center justify-between mb-2">
-                <div className="meta-label">Delta — B vs A</div>
+                <div className="meta-label">{t('scenarios.compare.delta')}</div>
                 {a && b && (
                   <button
                     onClick={() => exportComparisonPDF({
@@ -1253,7 +1250,7 @@ function CompareModal({
                     })}
                     className="text-[12px] font-medium text-violet-600 hover:text-violet-700"
                   >
-                    Export comparison PDF
+                    {t('scenarios.compare.exportPdf')}
                   </button>
                 )}
               </div>
@@ -1265,9 +1262,9 @@ function CompareModal({
                   v === 0 ? 'text-slate-900' : (v > 0) === worseWhenPositive ? 'text-red-700' : 'text-green-700'
                 return (
                   <div className="grid grid-cols-3 gap-4">
-                    <Stat label="ΔSCR" value={`${dScr >= 0 ? '+' : ''}${dScr.toFixed(2)} pp`} tone={tone(true, dScr)} />
-                    <Stat label="ΔCosts" value={signedPence(dCosts, fmtMoney)} tone={tone(true, dCosts)} />
-                    <Stat label="ΔRevenue" value={signedPence(dRev, fmtMoney)} tone={tone(false, dRev)} />
+                    <Stat label={t('scenarios.compare.dScr')} value={`${dScr >= 0 ? '+' : ''}${dScr.toFixed(2)} pp`} tone={tone(true, dScr)} />
+                    <Stat label={t('scenarios.compare.dCosts')} value={signedPence(dCosts, fmtMoney)} tone={tone(true, dCosts)} />
+                    <Stat label={t('scenarios.compare.dRevenue')} value={signedPence(dRev, fmtMoney)} tone={tone(false, dRev)} />
                   </div>
                 )
               })()}
@@ -1304,6 +1301,7 @@ function CompareColumn({
   financials: ClubFinancialsResponse
 }) {
   void financials
+  const { t } = useTranslation()
   const { format: fmtMoney } = useWorkspaceCurrency()
   const delta = projection ? projection.ratio * 100 - baseRatio : 0
   const worse = delta >= 0 // a higher SCR than baseline consumes headroom
@@ -1315,34 +1313,34 @@ function CompareColumn({
           value={selectedId}
           onChange={onChange}
           options={scenarios.map((s) => ({ value: s.id, label: s.name }))}
-          placeholder="Select a scenario"
+          placeholder={t('scenarios.compare.selectScenario')}
           ariaLabel={label}
         />
       </div>
       {projection ? (
         <Card className="p-5">
           <div className="flex items-center justify-between">
-            <div className="meta-label">Projected SCR</div>
+            <div className="meta-label">{t('scenarios.compare.projectedScr')}</div>
             <StatusBadge status={projection.status} />
           </div>
           <div className={cn('num text-[30px] font-semibold leading-none mt-2', scrColorClass(projection.status))}>
             {(projection.ratio * 100).toFixed(1)}%
           </div>
           <div className="mt-2.5 flex items-center gap-1.5 text-[12px]">
-            <span className="text-slate-400">vs baseline</span>
+            <span className="text-slate-400">{t('scenarios.compare.vsBaseline')}</span>
             <span className={cn('num inline-flex items-center gap-0.5 font-medium', worse ? 'text-red-700' : 'text-green-700')}>
               <DeltaArrow up={worse} />
               {worse ? '+' : ''}{delta.toFixed(2)} pp
             </span>
           </div>
           <div className="mt-4 space-y-1.5 border-t border-slate-100 pt-3">
-            <CompareLine label="Squad costs" value={fmtMoney(projection.baselineSquadCosts)} />
-            <CompareLine label="Revenue" value={fmtMoney(projection.adjustedRevenue)} />
+            <CompareLine label={t('scenarios.compare.squadCosts')} value={fmtMoney(projection.baselineSquadCosts)} />
+            <CompareLine label={t('scenarios.compare.revenue')} value={fmtMoney(projection.adjustedRevenue)} />
           </div>
         </Card>
       ) : (
         <div className="flex items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/40 p-8">
-          <p className="text-[12.5px] text-slate-400">Select a scenario to project its SCR.</p>
+          <p className="text-[12.5px] text-slate-400">{t('scenarios.compare.selectToProject')}</p>
         </div>
       )}
     </div>

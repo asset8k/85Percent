@@ -14,6 +14,8 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation, Trans } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { Link } from 'react-router-dom'
 import { api, type ScenarioDetail, type ClubFinancialsResponse } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
@@ -53,6 +55,7 @@ type SortKey = 'squadNumber' | 'name' | 'position' | 'wage' | 'amortisation' | '
 type SortDir = 'asc' | 'desc'
 
 export function DashboardPage() {
+  const { t } = useTranslation()
   const { financials, scenarios, scenariosLoaded, clubName, leagueId, setScenarioInclusion } = useClubStore()
   const can = useCan()
   const { format: fmtMoney, symbol, currency } = useWorkspaceCurrency()
@@ -182,12 +185,12 @@ export function DashboardPage() {
       <div>
         <PageHeader />
         <Card className="p-12 text-center">
-          <p className="text-[15px] font-medium text-slate-900">Set up your club to begin</p>
+          <p className="text-[15px] font-medium text-slate-900">{t('dashboard.setup.title')}</p>
           <p className="text-[13px] text-slate-500 mt-2">
-            Enter your season revenue and allowance to compute compliance thresholds.
+            {t('dashboard.setup.body')}
           </p>
           <Link to="/financials" className="inline-block mt-5">
-            <Button>Go to financials</Button>
+            <Button>{t('dashboard.setup.cta')}</Button>
           </Link>
         </Card>
       </div>
@@ -199,12 +202,12 @@ export function DashboardPage() {
       <div>
         <PageHeader />
         <Card className="p-12 text-center">
-          <p className="text-[15px] font-medium text-slate-900">No players in your squad yet</p>
+          <p className="text-[15px] font-medium text-slate-900">{t('dashboard.noPlayers.title')}</p>
           <p className="text-[13px] text-slate-500 mt-2 max-w-md mx-auto">
-            Squad costs are derived from your active roster. Upload a CSV or add players manually to see your live SCR.
+            {t('dashboard.noPlayers.body')}
           </p>
           <Link to="/roster" className="inline-block mt-5">
-            <Button>Go to roster</Button>
+            <Button>{t('dashboard.noPlayers.cta')}</Button>
           </Link>
         </Card>
       </div>
@@ -303,9 +306,9 @@ export function DashboardPage() {
         <Card className="col-span-2 p-6">
           <div className="flex items-start justify-between mb-5">
             <div>
-              <div className="meta-label">Live Squad Cost Ratio</div>
+              <div className="meta-label">{t('dashboard.hero.liveScr')}</div>
               <p className="text-[12px] text-slate-500 mt-1">
-                Derived from {players.length} active {players.length === 1 ? 'contract' : 'contracts'}. Includes amortisation + annualised agent fees.
+                {t('dashboard.hero.derivedFrom', { count: players.length })}
               </p>
             </div>
             <div className="flex flex-col items-end gap-2">
@@ -314,7 +317,7 @@ export function DashboardPage() {
                   has pushed the projected SCR into the levy / points-risk zone —
                   matches the TopBar pill and the projected row below. */}
               <StatusBadge status={riskStatus}>
-                {riskStatus === 'green' ? 'Compliant' : riskStatus === 'amber' ? 'Levy Zone' : 'Points Risk'}
+                {riskStatus === 'green' ? t('common.status.compliant') : riskStatus === 'amber' ? t('common.status.levyZone') : t('common.status.pointsRisk')}
               </StatusBadge>
               <CopilotTriggerButton onClick={handleAskCopilot} size="sm" />
             </div>
@@ -329,16 +332,16 @@ export function DashboardPage() {
                 status === 'green' ? 'text-slate-900' : status === 'amber' ? 'text-amber-700' : 'text-red-700'
               )}
             />
-            <span className="text-[14px] text-slate-400">of revenue</span>
+            <span className="text-[14px] text-slate-400">{t('dashboard.hero.ofRevenue')}</span>
           </div>
           {activeBaseline && activeBaseline.includedCount > 0 && (
             <div className={cn('mt-5 flex items-center justify-between gap-3 rounded-xl border px-4 py-3', activePillStyle)}>
               <div className="flex items-center gap-2.5 flex-wrap">
                 <span className="meta-label text-slate-600">
-                  With {activeBaseline.includedCount} included {activeBaseline.includedCount === 1 ? 'scenario' : 'scenarios'}
+                  {t('dashboard.hero.withIncluded', { count: activeBaseline.includedCount })}
                 </span>
                 <StatusBadge status={activeBaseline.status}>
-                  {activeBaseline.status === 'green' ? 'Compliant' : activeBaseline.status === 'amber' ? 'Levy Zone' : 'Points Risk'}
+                  {activeBaseline.status === 'green' ? t('common.status.compliant') : activeBaseline.status === 'amber' ? t('common.status.levyZone') : t('common.status.pointsRisk')}
                 </StatusBadge>
               </div>
               <div className="flex items-baseline gap-2">
@@ -348,7 +351,7 @@ export function DashboardPage() {
                   suffix="%"
                   className={cn('num text-[24px] font-semibold leading-none', activeNumStyle)}
                 />
-                <span className="text-[12px] text-slate-400">of revenue</span>
+                <span className="text-[12px] text-slate-400">{t('dashboard.hero.ofRevenue')}</span>
               </div>
             </div>
           )}
@@ -359,10 +362,10 @@ export function DashboardPage() {
             than reporting the bare settings-only headroom. */}
         <Card className="p-6 flex flex-col">
           <div className="flex items-center justify-between">
-            <div className="meta-label">Headroom to Green</div>
+            <div className="meta-label">{t('dashboard.headroom.title')}</div>
             {includedCount > 0 && (
               <span className="text-[10px] font-medium uppercase tracking-wide text-violet-600 bg-violet-50 rounded px-1.5 py-0.5">
-                incl. {includedCount} {includedCount === 1 ? 'scenario' : 'scenarios'}
+                {t('dashboard.headroom.inclScenarios', { count: includedCount })}
               </span>
             )}
           </div>
@@ -375,10 +378,10 @@ export function DashboardPage() {
             )}
           />
           <div className="text-[12px] text-slate-400 mt-2 num">
-            Green threshold: {fmtMoney(riskThresholds.greenPence)}
+            {t('dashboard.headroom.greenThreshold', { value: fmtMoney(riskThresholds.greenPence) })}
           </div>
           <div className="text-[12px] text-slate-400 num">
-            Revenue: {fmtMoney(riskRevenuePence)}
+            {t('dashboard.headroom.revenue', { value: fmtMoney(riskRevenuePence) })}
           </div>
         </Card>
       </div>
@@ -434,9 +437,9 @@ export function DashboardPage() {
           <div className="flex items-center gap-3">
             <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
             <div>
-              <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">Per-Player SCR Contribution</h3>
+              <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">{t('dashboard.table.title')}</h3>
               <p className="text-[12px] text-slate-500 mt-0.5">
-                Annual cost = wage + amortisation + annualised agent fee
+                {t('dashboard.table.subtitle')}
               </p>
             </div>
           </div>
@@ -452,7 +455,7 @@ export function DashboardPage() {
                     : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
                 )}
               >
-                {f === 'all' ? 'All' : f === 'expiring' ? 'Expiring ≤ 6 mo' : f}
+                {f === 'all' ? t('dashboard.table.filterAll') : f === 'expiring' ? t('dashboard.table.filterExpiring') : t(`common.positions.${f}`)}
               </button>
             ))}
           </div>
@@ -461,16 +464,16 @@ export function DashboardPage() {
         <table className="w-full">
           <thead className="border-b border-slate-100 bg-slate-50/40">
             <tr>
-              <SortableTh field="squadNumber"  label="#"             align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
-              <SortableTh field="name"         label="Name"          align="left"  sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
-              <SortableTh field="position"     label="Position"      align="left"  sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
-              <SortableTh field="wage"         label="Annual Wage"   align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
-              <SortableTh field="amortisation" label="Annual Amortisation" align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
-              <SortableTh field="agentFee"     label="Annualised Agent Fee" align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }}
-                titleHint="For SCR purposes, agent fees are spread evenly across the contract length, regardless of when the fee is paid."
+              <SortableTh field="squadNumber"  label={t('dashboard.table.th.number')}       align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
+              <SortableTh field="name"         label={t('dashboard.table.th.name')}         align="left"  sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
+              <SortableTh field="position"     label={t('dashboard.table.th.position')}     align="left"  sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
+              <SortableTh field="wage"         label={t('dashboard.table.th.wage')}         align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
+              <SortableTh field="amortisation" label={t('dashboard.table.th.amortisation')} align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
+              <SortableTh field="agentFee"     label={t('dashboard.table.th.agentFee')}     align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }}
+                titleHint={t('dashboard.table.agentFeeHint')}
               />
-              <SortableTh field="total"        label="Total / yr"    align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
-              <SortableTh field="expiry"       label="To Expiry"     align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
+              <SortableTh field="total"        label={t('dashboard.table.th.total')}        align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
+              <SortableTh field="expiry"       label={t('dashboard.table.th.expiry')}       align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
             </tr>
           </thead>
           <tbody>
@@ -498,7 +501,7 @@ export function DashboardPage() {
           </tbody>
           <tfoot className="bg-slate-50/60 border-t border-slate-200">
             <tr>
-              <td className="px-6 py-3.5 text-[12px] meta-label" colSpan={6}>Total — {filteredBreakdown.length} {filteredBreakdown.length === 1 ? 'player' : 'players'}</td>
+              <td className="px-6 py-3.5 text-[12px] meta-label" colSpan={6}>{t('dashboard.table.totalRow', { count: filteredBreakdown.length })}</td>
               <td className="px-6 py-3.5 text-[14px] num text-right text-slate-900 font-semibold">
                 {fmtMoney(filteredBreakdown.reduce((s, r) => s + r.totalAnnualCostPence, 0))}
               </td>
@@ -518,24 +521,25 @@ export function DashboardPage() {
 function PageHeader({
   onExport, canExport,
 }: { onExport?: () => void; canExport?: boolean } = {}) {
+  const { t } = useTranslation()
   return (
     <div className="mb-6 flex items-center gap-3">
       <span className="inline-block w-1.5 h-7 rounded-full bg-violet-600" />
       <div className="flex-1">
         <h1 className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">
-          Dashboard
+          {t('nav.dashboard')}
         </h1>
         <p className="text-[13px] text-slate-500 mt-1.5">
-          Your live compliance position — derived directly from active contracts.
+          {t('dashboard.subtitle')}
         </p>
       </div>
       {onExport && (
         <Button variant="secondary" onClick={onExport} disabled={!canExport}>
-          Export PDF
+          {t('dashboard.exportPdf')}
         </Button>
       )}
       <Link to="/scenarios">
-        <Button variant="outline">Plan a scenario</Button>
+        <Button variant="outline">{t('dashboard.planScenario')}</Button>
       </Link>
     </div>
   )
@@ -555,17 +559,18 @@ function FinancialRiskCard({
   headroomPence: number
   includedCount: number
 }) {
+  const { t } = useTranslation()
   const { format: fmtMoney } = useWorkspaceCurrency()
   return (
     <Card className="p-6 mb-6">
       <div className="flex items-center gap-3 mb-4">
         <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
         <div>
-          <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">Financial Risk</h3>
+          <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">{t('dashboard.risk.title')}</h3>
           <p className="text-[12px] text-slate-500 mt-0.5">
             {includedCount > 0
-              ? `Projected EFL sanctions with your ${includedCount} included ${includedCount === 1 ? 'scenario' : 'scenarios'} applied.`
-              : 'Projected EFL sanctions at your current squad cost ratio.'}
+              ? t('dashboard.risk.subtitleIncluded', { count: includedCount })
+              : t('dashboard.risk.subtitleNone')}
           </p>
         </div>
       </div>
@@ -573,13 +578,13 @@ function FinancialRiskCard({
       {status === 'green' && (
         <div className="rounded-xl border border-slate-200 border-l-4 border-green-500 bg-green-50 p-5 flex items-start justify-between gap-4">
           <div>
-            <div className="meta-label text-green-700">No sanctions</div>
+            <div className="meta-label text-green-700">{t('dashboard.risk.noSanctions')}</div>
             <p className="text-[13px] text-slate-700 mt-2 max-w-xl">
-              Squad costs are within the Green Threshold — no levy or points deduction projected.
+              {t('dashboard.risk.noSanctionsBody')}
             </p>
           </div>
           <div className="text-right flex-shrink-0">
-            <div className="meta-label">Headroom to Green</div>
+            <div className="meta-label">{t('dashboard.headroom.title')}</div>
             <div className="num text-[24px] font-semibold text-green-700 leading-none mt-1.5">{fmtMoney(headroomPence)}</div>
           </div>
         </div>
@@ -588,9 +593,13 @@ function FinancialRiskCard({
       {status === 'amber' && (
         <div className="rounded-xl border border-slate-200 border-l-4 border-amber-500 bg-amber-50 p-5 flex items-start justify-between gap-4">
           <div>
-            <div className="meta-label text-amber-700">Estimated Financial Levy</div>
+            <div className="meta-label text-amber-700">{t('dashboard.risk.levyTitle')}</div>
             <p className="text-[13px] text-slate-700 mt-2 max-w-xl">
-              Based on <span className="num text-amber-700">{fmtMoney(overspendGreenPence)}</span> overspend above the Green Threshold. A levy applies but no points are deducted.
+              <Trans
+                i18nKey="dashboard.risk.levyBody"
+                values={{ value: fmtMoney(overspendGreenPence) }}
+                components={{ s: <span className="num text-amber-700" /> }}
+              />
             </p>
           </div>
           <div className="num text-[32px] font-semibold text-amber-700 leading-none flex-shrink-0">{fmtMoney(levyPence)}</div>
@@ -613,19 +622,20 @@ function ScenarioInclusionCard({
   canToggle: boolean
   onToggle: (id: string, next: boolean) => void
 }) {
+  const { t } = useTranslation()
   const includedCount = scenarios.filter((s) => s.isIncluded).length
   return (
     <Card className="p-6 mb-6">
       <div className="flex items-center gap-3 mb-4">
         <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
         <div className="flex-1">
-          <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">Scenario Planning</h3>
+          <h3 className="text-[15px] font-semibold text-slate-900 leading-tight">{t('dashboard.inclusion.title')}</h3>
           <p className="text-[12px] text-slate-500 mt-0.5">
-            Toggle a scenario to fold it into your live SCR — the figures above update instantly.
+            {t('dashboard.inclusion.subtitle')}
           </p>
         </div>
         <span className="text-[12px] text-slate-400 num whitespace-nowrap">
-          {includedCount} of {scenarios.length} included
+          {t('dashboard.inclusion.summary', { count: includedCount, total: scenarios.length })}
         </span>
       </div>
 
@@ -650,7 +660,7 @@ function ScenarioInclusionCard({
                     {s.name}
                   </Link>
                   <div className="text-[11px] text-slate-400 num">
-                    {s.actions.length} {s.actions.length === 1 ? 'action' : 'actions'}
+                    {t('common.actions', { count: s.actions.length })}
                   </div>
                 </div>
               </div>
@@ -660,14 +670,14 @@ function ScenarioInclusionCard({
                 {s.isIncluded ? (
                   <ScenarioImpactBadge impact={impact} />
                 ) : (
-                  <span className="text-[11px] font-medium text-slate-400">Excluded</span>
+                  <span className="text-[11px] font-medium text-slate-400">{t('dashboard.inclusion.excluded')}</span>
                 )}
                 <Switch
                   checked={s.isIncluded}
                   onChange={(next) => onToggle(s.id, next)}
                   disabled={!canToggle}
-                  tooltip={canToggle ? undefined : 'Only a CFO or Sporting Director can change the active baseline.'}
-                  aria-label={`Include ${s.name} in the live SCR`}
+                  tooltip={canToggle ? undefined : t('dashboard.inclusion.lockTooltip')}
+                  aria-label={t('dashboard.inclusion.includeAria', { name: s.name })}
                 />
               </div>
             </div>
@@ -682,13 +692,14 @@ function ScenarioInclusionCard({
 // + (green) frees room toward the Green threshold; − (red) consumes it. The
 // title surfaces the cost / revenue split behind the net figure.
 function ScenarioImpactBadge({ impact }: { impact: ReturnType<typeof scenarioMoneyImpact> }) {
+  const { t } = useTranslation()
   const { symbol } = useWorkspaceCurrency()
   const net = impact.headroomDeltaPence
   const frees = net >= 0
   const title =
-    `Net SCR headroom: ${signedCompactPence(net, symbol)}\n` +
-    `Squad costs: ${signedCompactPence(-impact.costDeltaPence, symbol)} room` +
-    (impact.revenueDeltaPence !== 0 ? `\nRevenue: ${signedCompactPence(impact.revenueDeltaPence, symbol)}` : '')
+    t('dashboard.impact.net', { value: signedCompactPence(net, symbol) }) + '\n' +
+    t('dashboard.impact.costs', { value: signedCompactPence(-impact.costDeltaPence, symbol) }) +
+    (impact.revenueDeltaPence !== 0 ? '\n' + t('dashboard.impact.revenue', { value: signedCompactPence(impact.revenueDeltaPence, symbol) }) : '')
   return (
     <span
       title={title}
@@ -731,6 +742,7 @@ function ConsequenceSection({
   pointsDeducted: number
   leagueTable: UseLeagueTableResult
 }) {
+  const { t } = useTranslation()
   const { data, loading, error, clubRowIndex } = leagueTable
   return (
     <div className="mb-6">
@@ -762,8 +774,8 @@ function ConsequenceSection({
         <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-5">
           <p className="text-[13px] text-slate-600">
             {error || !data
-              ? 'Live league standings are unavailable right now, so the projected table drop can’t be shown. The estimated sanction above still applies.'
-              : 'We couldn’t match your club to a row in the live league table, so the projected drop can’t be shown. The estimated sanction above still applies.'}
+              ? t('dashboard.consequence.standingsUnavailable')
+              : t('dashboard.consequence.clubNotMatched')}
           </p>
         </div>
       )}
@@ -774,6 +786,7 @@ function ConsequenceSection({
 // "Regulatory Breach Detected" banner — danger-styled, mirrors the result-panel
 // rail pattern used across the app (rounded-xl + left rail + tint).
 function ConsequenceAlert({ pointsDeducted }: { pointsDeducted: number }) {
+  const { t } = useTranslation()
   return (
     <div className="rounded-xl border border-red-200 border-l-4 border-l-red-600 bg-red-50 p-5 mb-4 flex items-start gap-4">
       <span className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-red-100 text-red-600 flex-shrink-0">
@@ -784,18 +797,20 @@ function ConsequenceAlert({ pointsDeducted }: { pointsDeducted: number }) {
       </span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="meta-label text-red-700">Regulatory Breach Detected</span>
-          <StatusBadge status="red">Points Risk</StatusBadge>
+          <span className="meta-label text-red-700">{t('dashboard.consequence.breach')}</span>
+          <StatusBadge status="red">{t('common.status.pointsRisk')}</StatusBadge>
         </div>
         <p className="text-[14px] text-slate-800 mt-1.5 leading-snug">
-          Estimated Sanction of{' '}
-          <span className="num font-semibold text-red-700">−{pointsDeducted} {pointsDeducted === 1 ? 'point' : 'points'}</span>.
-          Squad costs exceed the Red Threshold — a points deduction would be imposed in the same season the breach occurs.
+          <Trans
+            i18nKey="dashboard.consequence.sanctionBody"
+            count={pointsDeducted}
+            components={{ s: <span className="num font-semibold text-red-700" /> }}
+          />
         </p>
       </div>
       <div className="num text-[34px] font-semibold text-red-700 leading-none whitespace-nowrap flex-shrink-0 self-center">
         −{pointsDeducted}
-        <span className="text-[14px] font-medium text-red-500 ml-1">pts</span>
+        <span className="text-[14px] font-medium text-red-500 ml-1">{t('dashboard.consequence.pts')}</span>
       </div>
     </div>
   )
@@ -850,33 +865,37 @@ function NationalityFlag({ nationality }: { nationality: string | null }) {
 }
 
 function PositionPill({ position }: { position: string | null }) {
+  const { t } = useTranslation()
   if (!position) return <span className="text-[12px] text-slate-400">—</span>
+  // Known position codes map to localized abbreviations; unknown values pass through.
+  const label = t(`common.positions.${position}`, { defaultValue: position })
   return (
     <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 whitespace-nowrap">
-      {position}
+      {label}
     </span>
   )
 }
 
 // "49" → "4 years 1 month" — years lead, months only when non-zero, singular/plural correct.
-function formatExpiryLabel(months: number): string {
+function formatExpiryLabel(months: number, t: TFunction): string {
   const years = Math.floor(months / 12)
   const rem = months % 12
-  if (years === 0) return `${rem} ${rem === 1 ? 'month' : 'months'}`
-  const yearPart = `${years} ${years === 1 ? 'year' : 'years'}`
+  if (years === 0) return t('dashboard.expiry.months', { count: rem })
+  const yearPart = t('dashboard.expiry.years', { count: years })
   if (rem === 0) return yearPart
-  return `${yearPart} ${rem} ${rem === 1 ? 'month' : 'months'}`
+  return `${yearPart} ${t('dashboard.expiry.months', { count: rem })}`
 }
 
 function ExpiryChip({ months }: { months: number | null }) {
+  const { t } = useTranslation()
   if (months == null) return <span className="text-slate-400 text-[12px]">—</span>
-  if (months < 0) return <span className="text-red-700 num text-[12px]">expired</span>
+  if (months < 0) return <span className="text-red-700 num text-[12px]">{t('dashboard.expiry.expired')}</span>
   if (months <= 6) {
     return (
       <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-md bg-amber-100 text-amber-700 whitespace-nowrap">
-        {formatExpiryLabel(months)}
+        {formatExpiryLabel(months, t)}
       </span>
     )
   }
-  return <span className="text-slate-500 text-[12px] whitespace-nowrap">{formatExpiryLabel(months)}</span>
+  return <span className="text-slate-500 text-[12px] whitespace-nowrap">{formatExpiryLabel(months, t)}</span>
 }

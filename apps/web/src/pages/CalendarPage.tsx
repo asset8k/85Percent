@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Card } from '@/components/ui/card'
@@ -45,12 +47,14 @@ interface TimelineEvent {
   expiringPlayers?: PlayerWithContract[]
 }
 
-const KIND_META: Record<EventKind, { label: string; cls: string }> = {
-  checkpoint: { label: 'CHECKPOINT',      cls: 'bg-slate-100 text-slate-600' },
-  compliance: { label: 'COMPLIANCE TEST', cls: 'bg-violet-100 text-violet-700' },
-  window:     { label: 'TRANSFER WINDOW', cls: 'bg-blue-100 text-blue-700' },
-  deadline:   { label: 'DEADLINE',        cls: 'bg-amber-100 text-amber-700' },
-  expiry:     { label: 'CONTRACTS',       cls: 'bg-rose-100 text-rose-700' },
+// Tailwind classes per event kind; the label text is translated at render time
+// (see KindTag) via `calendar.kind.<kind>`.
+const KIND_CLS: Record<EventKind, string> = {
+  checkpoint: 'bg-slate-100 text-slate-600',
+  compliance: 'bg-violet-100 text-violet-700',
+  window:     'bg-blue-100 text-blue-700',
+  deadline:   'bg-amber-100 text-amber-700',
+  expiry:     'bg-rose-100 text-rose-700',
 }
 
 // Status-tinted styles for the Projected SCR pill, matching the app's
@@ -60,10 +64,10 @@ const STATUS_PILL: Record<ComplianceStatus, string> = {
   amber: 'bg-amber-50 text-amber-700 ring-amber-200',
   red:   'bg-red-50 text-red-700 ring-red-200',
 }
-const STATUS_LABEL: Record<ComplianceStatus, string> = {
-  green: 'Compliant',
-  amber: 'Levy Zone',
-  red:   'Points Risk',
+const STATUS_LABEL_KEY: Record<ComplianceStatus, string> = {
+  green: 'common.status.compliant',
+  amber: 'common.status.levyZone',
+  red:   'common.status.pointsRisk',
 }
 
 // Format a UTC date as "01 Jul 2026" — localized to the active interface
@@ -83,7 +87,7 @@ function utc(year: number, month0: number, day: number): { ts: number; label: st
 // from the start year. Summer/autumn dates sit in the start year; Jan→Jun
 // dates roll into the following calendar year. IDs are role-based (no year) so
 // the Pending/Completed toggle reads naturally; state is reset per season.
-function buildFixedEvents(startYear: number): TimelineEvent[] {
+function buildFixedEvents(startYear: number, t: TFunction): TimelineEvent[] {
   const end = seasonEndYear(startYear)
   const label = seasonLabel(startYear)
   const nextLabel = seasonLabel(end)
@@ -97,20 +101,21 @@ function buildFixedEvents(startYear: number): TimelineEvent[] {
   ): TimelineEvent => ({ id, ts: p.ts, dateLabel: p.label, kind, name, desc, key })
 
   return [
-    mk('summer-open',    utc(startYear, 6, 1),  'window',     'Summer Transfer Window Opens', 'Domestic transfers between EFL clubs now permitted.'),
-    mk('summer-deadline',utc(startYear, 8, 1),  'deadline',   'Summer Window Deadline', 'Final day for permanent transfers in the summer window.'),
-    mk('q1-recon',       utc(startYear, 8, 30), 'checkpoint', 'Q1 Squad Cost Reconciliation', 'Internal reconciliation of squad costs against budget. No filing required.'),
-    mk('jan-open',       utc(end, 0, 1),        'window',     'January Transfer Window Opens', 'Mid-season window — most simulation activity occurs here.'),
-    mk('jan-deadline',   utc(end, 0, 31),       'deadline',   'January Window Deadline', 'Final day for January transfers. SCR exposure locks in for the second half-season.'),
-    mk('main-scr',       utc(end, 2, 1),        'compliance', 'Main SCR Compliance Test', 'Primary regulatory checkpoint. Clubs must demonstrate squad costs are within the calculated threshold.', true),
-    mk('pre-end-review', utc(end, 3, 15),       'checkpoint', 'Pre-Season-End Position Review', 'EFL provisional review of clubs trending toward breach.'),
-    mk('accounts-cutoff',utc(end, 4, 31),       'deadline',   'Season End — Accounts Cutoff', `Fiscal close for the ${label} squad cost calculation period.`),
-    mk('accounts-confirm',utc(end, 5, 15),      'compliance', 'Accounts Confirmation Test', 'Final audited submission. Sanctions confirmed for the season just ended.', true),
-    mk('next-summer-open',utc(end, 6, 1),       'window',     `Summer Transfer Window Opens (${nextLabel})`, `Beginning of the ${nextLabel} cycle.`),
+    mk('summer-open',    utc(startYear, 6, 1),  'window',     t('calendar.events.summerOpen.name'), t('calendar.events.summerOpen.desc')),
+    mk('summer-deadline',utc(startYear, 8, 1),  'deadline',   t('calendar.events.summerDeadline.name'), t('calendar.events.summerDeadline.desc')),
+    mk('q1-recon',       utc(startYear, 8, 30), 'checkpoint', t('calendar.events.q1Recon.name'), t('calendar.events.q1Recon.desc')),
+    mk('jan-open',       utc(end, 0, 1),        'window',     t('calendar.events.janOpen.name'), t('calendar.events.janOpen.desc')),
+    mk('jan-deadline',   utc(end, 0, 31),       'deadline',   t('calendar.events.janDeadline.name'), t('calendar.events.janDeadline.desc')),
+    mk('main-scr',       utc(end, 2, 1),        'compliance', t('calendar.events.mainScr.name'), t('calendar.events.mainScr.desc'), true),
+    mk('pre-end-review', utc(end, 3, 15),       'checkpoint', t('calendar.events.preEndReview.name'), t('calendar.events.preEndReview.desc')),
+    mk('accounts-cutoff',utc(end, 4, 31),       'deadline',   t('calendar.events.accountsCutoff.name'), t('calendar.events.accountsCutoff.desc', { label })),
+    mk('accounts-confirm',utc(end, 5, 15),      'compliance', t('calendar.events.accountsConfirm.name'), t('calendar.events.accountsConfirm.desc'), true),
+    mk('next-summer-open',utc(end, 6, 1),       'window',     t('calendar.events.nextSummerOpen.name', { nextLabel }), t('calendar.events.nextSummerOpen.desc', { nextLabel })),
   ]
 }
 
 export function CalendarPage() {
+  const { t } = useTranslation()
   const startYear = useSeasonStore((s) => s.startYear)
   const { financials, scenarios } = useClubStore()
   const [roster, setRoster] = useState<PlayerWithContract[]>([])
@@ -163,7 +168,7 @@ export function CalendarPage() {
   // their exact expiry date so each date gets its own node positioned
   // chronologically — rather than lumping everyone onto the earliest date.
   const events = useMemo(() => {
-    const list = buildFixedEvents(startYear)
+    const list = buildFixedEvents(startYear, t)
     const byDate = new Map<string, PlayerWithContract[]>()
     for (const p of expiringPlayers) {
       const key = p.contract!.endDate.slice(0, 10)
@@ -178,13 +183,13 @@ export function CalendarPage() {
         ts: d.getTime(),
         dateLabel: fmtDate(d),
         kind: 'expiry',
-        name: `${group.length} Contract${group.length === 1 ? '' : 's'} Expiring`,
-        desc: `${group.length === 1 ? 'A squad member’s contract reaches' : 'Squad members’ contracts reach'} expiry on this date. Click to review who, and plan renewals or replacements.`,
+        name: t('calendar.expiry.name', { count: group.length }),
+        desc: t('calendar.expiry.desc', { count: group.length }),
         expiringPlayers: group,
       })
     }
     return list.sort((a, b) => a.ts - b.ts)
-  }, [startYear, expiringPlayers])
+  }, [startYear, expiringPlayers, t])
 
   if (loading) return <CalendarSkeleton />
 
@@ -194,10 +199,10 @@ export function CalendarPage() {
         <span className="inline-block w-1.5 h-7 rounded-full bg-violet-600" />
         <div>
           <h1 className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">
-            Compliance Calendar {seasonLabel(startYear)}
+            {t('calendar.title', { season: seasonLabel(startYear) })}
           </h1>
           <p className="text-[13px] text-slate-400 mt-1.5 italic">
-            EFL Championship — Key regulatory dates. Confirm against the official EFL Handbook when published.
+            {t('calendar.subtitle')}
           </p>
         </div>
       </div>
@@ -207,7 +212,6 @@ export function CalendarPage() {
         <div className="absolute top-2 bottom-2 w-px bg-slate-200" style={{ left: 134 }} />
         <ul className="space-y-4">
           {events.map((ev) => {
-            const meta = KIND_META[ev.kind]
             const isExpiry = ev.kind === 'expiry'
             const isCompliance = ev.kind === 'compliance'
             const togglable = ev.kind === 'checkpoint' || ev.kind === 'deadline'
@@ -237,13 +241,13 @@ export function CalendarPage() {
                     type="button"
                     onClick={() => setDrawerPlayers(ev.expiringPlayers ?? [])}
                     className="flex-1 text-left group"
-                    aria-label={`Review ${ev.name}`}
+                    aria-label={t('calendar.reviewAria', { name: ev.name })}
                   >
                     <Card className="p-5 border-l-4 border-l-rose-500 transition-shadow group-hover:shadow-md cursor-pointer">
                       <div className="flex items-center gap-2 mb-2">
-                        <KindTag meta={meta} />
+                        <KindTag kind={ev.kind} />
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wider whitespace-nowrap bg-rose-500 text-white">
-                          FROM YOUR ROSTER
+                          {t('calendar.fromRoster')}
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-3">
@@ -252,7 +256,7 @@ export function CalendarPage() {
                           <p className="text-[13px] text-slate-500 mt-1.5 leading-relaxed">{ev.desc}</p>
                         </div>
                         <span className="flex-shrink-0 inline-flex items-center gap-1 text-[12.5px] font-medium text-rose-600 group-hover:text-rose-700">
-                          Review
+                          {t('calendar.review')}
                           <svg width={13} height={13} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M5 12h14" /><path d="M13 6l6 6-6 6" />
                           </svg>
@@ -267,10 +271,10 @@ export function CalendarPage() {
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-2">
-                      <KindTag meta={meta} />
+                      <KindTag kind={ev.kind} />
                       {ev.key && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wider whitespace-nowrap bg-violet-600 text-white">
-                          KEY DATE
+                          {t('calendar.keyDate')}
                         </span>
                       )}
                     </div>
@@ -306,10 +310,11 @@ export function CalendarPage() {
   )
 }
 
-function KindTag({ meta }: { meta: { label: string; cls: string } }) {
+function KindTag({ kind }: { kind: EventKind }) {
+  const { t } = useTranslation()
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-medium tracking-wider whitespace-nowrap ${meta.cls}`}>
-      {meta.label}
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-medium tracking-wider whitespace-nowrap ${KIND_CLS[kind]}`}>
+      {t(`calendar.kind.${kind}`)}
     </span>
   )
 }
@@ -317,12 +322,13 @@ function KindTag({ meta }: { meta: { label: string; cls: string } }) {
 // Projected SCR metric pill, aligned right inside a compliance node. Pulls the
 // club's live Active Baseline and colour-codes by threshold status.
 function ProjectedSCRPill({ projected }: { projected: ReturnType<typeof computeActiveBaseline> | null }) {
+  const { t } = useTranslation()
   if (!projected) {
     return (
       <div className="flex-shrink-0 text-right">
-        <div className="meta-label text-slate-400">Projected SCR</div>
+        <div className="meta-label text-slate-400">{t('calendar.projectedScr')}</div>
         <div className="num text-[15px] font-semibold text-slate-400 mt-1">—</div>
-        <div className="text-[11px] text-slate-400 mt-0.5">Set up financials</div>
+        <div className="text-[11px] text-slate-400 mt-0.5">{t('chrome.topbar.setUpFinancials')}</div>
       </div>
     )
   }
@@ -330,12 +336,12 @@ function ProjectedSCRPill({ projected }: { projected: ReturnType<typeof computeA
   const status = projected.status
   return (
     <div className="flex-shrink-0 text-right">
-      <div className="meta-label text-slate-400 mb-1">Projected SCR</div>
+      <div className="meta-label text-slate-400 mb-1">{t('calendar.projectedScr')}</div>
       <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full ring-1 ${STATUS_PILL[status]}`}>
         <span className={`inline-block w-1.5 h-1.5 rounded-full ${status === 'green' ? 'bg-green-500' : status === 'amber' ? 'bg-amber-500' : 'bg-red-500'}`} />
         <span className="num text-[15px] font-semibold tabular-nums">{pct.toFixed(1)}%</span>
       </span>
-      <div className="text-[11px] text-slate-400 mt-1">{STATUS_LABEL[status]}</div>
+      <div className="text-[11px] text-slate-400 mt-1">{t(STATUS_LABEL_KEY[status])}</div>
     </div>
   )
 }
@@ -343,6 +349,7 @@ function ProjectedSCRPill({ projected }: { projected: ReturnType<typeof computeA
 // Pending ↔ Completed toggle. Subtle pill styled in the kit; clicking flips the
 // state (which dims the card + greens the timeline dot in the parent).
 function StatusToggle({ completed, onToggle }: { completed: boolean; onToggle: () => void }) {
+  const { t } = useTranslation()
   return (
     <button
       type="button"
@@ -361,7 +368,7 @@ function StatusToggle({ completed, onToggle }: { completed: boolean; onToggle: (
       ) : (
         <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-400" />
       )}
-      {completed ? 'Completed' : 'Pending'}
+      {completed ? t('calendar.completed') : t('calendar.pending')}
     </button>
   )
 }
@@ -392,6 +399,7 @@ function ExpiringContractsDrawer({
   seasonLabel: string
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   const { format: fmtMoney } = useWorkspaceCurrency()
   // ESC dismiss
   useEffect(() => {
@@ -408,7 +416,7 @@ function ExpiringContractsDrawer({
           key="drawer-backdrop"
           role="dialog"
           aria-modal="true"
-          aria-label="Contracts expiring this season"
+          aria-label={t('calendar.drawer.ariaLabel')}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -425,14 +433,14 @@ function ExpiringContractsDrawer({
           >
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <h2 className="text-[16px] font-semibold text-slate-900">Contracts Expiring</h2>
+                <h2 className="text-[16px] font-semibold text-slate-900">{t('calendar.drawer.title')}</h2>
                 <p className="text-[12px] text-slate-500 mt-0.5">
-                  {players.length} {players.length === 1 ? 'player' : 'players'} · {label} season
+                  {t('calendar.drawer.sub', { count: players.length, label })}
                 </p>
               </div>
               <button
                 onClick={onClose}
-                aria-label="Close"
+                aria-label={t('calendar.drawer.close')}
                 className="text-slate-400 hover:text-slate-700 p-1 -m-1 rounded transition-colors"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -443,7 +451,7 @@ function ExpiringContractsDrawer({
 
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2.5">
               {players.length === 0 ? (
-                <p className="text-[13px] text-slate-400 text-center py-10">No contracts expire this season.</p>
+                <p className="text-[13px] text-slate-400 text-center py-10">{t('calendar.drawer.empty')}</p>
               ) : (
                 players.map((p) => {
                   const pos = p.position ? POSITION_META[p.position] : null
@@ -451,7 +459,7 @@ function ExpiringContractsDrawer({
                   return (
                     <div key={p.id} className="flex items-center gap-3 rounded-xl border border-slate-200 px-3.5 py-3">
                       <span className={`flex-shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-full text-[11px] font-semibold ${pos ? pos.cls : 'bg-slate-100 text-slate-500'}`}>
-                        {pos ? pos.label : '—'}
+                        {pos && p.position ? t(`common.positions.${p.position}`) : '—'}
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
@@ -461,12 +469,12 @@ function ExpiringContractsDrawer({
                           )}
                         </div>
                         <div className="text-[12px] text-slate-500 mt-0.5">
-                          Expires <span className="num text-slate-700">{p.contract ? fmtExpiry(p.contract.endDate) : '—'}</span>
+                          {t('calendar.drawer.expires')} <span className="num text-slate-700">{p.contract ? fmtExpiry(p.contract.endDate) : '—'}</span>
                         </div>
                       </div>
                       <div className="text-right flex-shrink-0">
                         <div className="num text-[13px] font-medium text-slate-900">{fmtMoney(p.contract?.annualWagePence ?? 0)}</div>
-                        <div className="num text-[11px] text-slate-400">{fmtMoney(weekly)}/wk</div>
+                        <div className="num text-[11px] text-slate-400">{t('calendar.drawer.perWeek', { wage: fmtMoney(weekly) })}</div>
                       </div>
                     </div>
                   )
@@ -476,7 +484,7 @@ function ExpiringContractsDrawer({
 
             <div className="px-5 py-3.5 border-t border-slate-100 bg-slate-50/40">
               <p className="text-[11.5px] text-slate-400 leading-relaxed">
-                Wages shown are the current annual figures. Plan renewals from the Roster, or model replacements in Scenarios.
+                {t('calendar.drawer.footer')}
               </p>
             </div>
           </motion.div>

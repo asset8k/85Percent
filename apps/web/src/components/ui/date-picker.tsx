@@ -11,13 +11,28 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
+import { activeLocale } from '@/lib/locale'
 
-const MONTH_NAMES = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-]
-const DAY_LABELS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+// Localized full month names (e.g. "enero" … in Spanish), in the active locale.
+function monthNames(): string[] {
+  const fmt = new Intl.DateTimeFormat(activeLocale(), { month: 'long', timeZone: 'UTC' })
+  return Array.from({ length: 12 }, (_, m) => {
+    const name = fmt.format(new Date(Date.UTC(2021, m, 1)))
+    return name.charAt(0).toUpperCase() + name.slice(1)
+  })
+}
+// Localized 2-letter weekday headers, Monday-first, in the active locale.
+function dayLabels(): string[] {
+  const fmt = new Intl.DateTimeFormat(activeLocale(), { weekday: 'short', timeZone: 'UTC' })
+  // 2021-03-01 is a Monday (UTC). Build Mon→Sun.
+  return Array.from({ length: 7 }, (_, i) => {
+    const raw = fmt.format(new Date(Date.UTC(2021, 2, 1 + i)))
+    const letters = raw.replace(/[^\p{L}]/gu, '')
+    return letters.charAt(0).toUpperCase() + letters.slice(1, 2)
+  })
+}
 
 interface DatePickerProps {
   value: string                 // ISO YYYY-MM-DD or '' for unset
@@ -132,12 +147,16 @@ export function DatePicker({
   onChange,
   required,
   disabled,
-  placeholder = 'Select date',
+  placeholder,
   min,
   max,
   minYear,
   maxYear,
 }: DatePickerProps) {
+  const { t } = useTranslation()
+  const placeholderText = placeholder ?? t('datepicker.selectDate')
+  const monthNamesList = monthNames()
+  const dayLabelsList = dayLabels()
   const [open, setOpen] = useState(false)
   const [position, setPosition] = useState<'below' | 'above'>('below')
   const [focused, setFocused] = useState(false)
@@ -312,7 +331,7 @@ export function DatePicker({
           inputMode="numeric"
           autoComplete="off"
           value={text}
-          placeholder={placeholder ? `${placeholder} (DD/MM/YYYY)` : 'DD/MM/YYYY'}
+          placeholder={placeholderText ? `${placeholderText} (DD/MM/YYYY)` : 'DD/MM/YYYY'}
           disabled={disabled}
           onChange={(e) => handleInputChange(e.target.value)}
           onFocus={() => setFocused(true)}
@@ -326,7 +345,7 @@ export function DatePicker({
               setOpen(true)
             }
           }}
-          aria-label="Date (DD/MM/YYYY)"
+          aria-label={t('datepicker.dateInput')}
           className={cn(
             'flex-1 min-w-0 bg-transparent border-0 outline-none num tracking-[0.01em]',
             'text-slate-900 placeholder:text-slate-400 disabled:cursor-not-allowed'
@@ -342,7 +361,7 @@ export function DatePicker({
           }}
           aria-haspopup="dialog"
           aria-expanded={open}
-          aria-label="Open calendar"
+          aria-label={t('datepicker.openCalendar')}
           className={cn(
             'flex-shrink-0 p-1 -m-1 rounded-md text-slate-400 hover:text-violet-700 hover:bg-violet-50',
             'focus:outline-none focus:text-violet-700 focus:bg-violet-50 transition-colors',
@@ -361,7 +380,7 @@ export function DatePicker({
       {open && (
         <div
           role="dialog"
-          aria-label="Choose date"
+          aria-label={t('datepicker.chooseDate')}
           className={cn(
             'absolute z-30 left-0 bg-white border border-slate-200 rounded-xl shadow-xl p-3 w-[280px]',
             position === 'below' ? 'top-full mt-1' : 'bottom-full mb-1'
@@ -372,7 +391,7 @@ export function DatePicker({
             <button
               type="button"
               onClick={goPrev}
-              aria-label="Previous month"
+              aria-label={t('datepicker.prevMonth')}
               className="p-1.5 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -385,9 +404,9 @@ export function DatePicker({
                 value={cursor.m}
                 onChange={(e) => setCursor((c) => ({ ...c, m: Number(e.target.value) }))}
                 className="text-[13px] font-medium text-slate-800 bg-transparent border-0 focus:outline-none focus:ring-2 focus:ring-violet-500 rounded px-1 py-0.5"
-                aria-label="Month"
+                aria-label={t('datepicker.month')}
               >
-                {MONTH_NAMES.map((name, i) => (
+                {monthNamesList.map((name, i) => (
                   <option key={i} value={i}>{name}</option>
                 ))}
               </select>
@@ -395,7 +414,7 @@ export function DatePicker({
                 value={cursor.y}
                 onChange={(e) => setCursor((c) => ({ ...c, y: Number(e.target.value) }))}
                 className="text-[13px] font-medium text-slate-800 num bg-transparent border-0 focus:outline-none focus:ring-2 focus:ring-violet-500 rounded px-1 py-0.5"
-                aria-label="Year"
+                aria-label={t('datepicker.year')}
               >
                 {yearRange.map((y) => (
                   <option key={y} value={y}>{y}</option>
@@ -406,7 +425,7 @@ export function DatePicker({
             <button
               type="button"
               onClick={goNext}
-              aria-label="Next month"
+              aria-label={t('datepicker.nextMonth')}
               className="p-1.5 rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900 transition-colors"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -417,8 +436,8 @@ export function DatePicker({
 
           {/* Day-of-week labels */}
           <div className="grid grid-cols-7 gap-0.5 mb-1">
-            {DAY_LABELS.map((d) => (
-              <div key={d} className="meta-label text-center py-1.5 text-[10px]">
+            {dayLabelsList.map((d, i) => (
+              <div key={i} className="meta-label text-center py-1.5 text-[10px]">
                 {d}
               </div>
             ))}

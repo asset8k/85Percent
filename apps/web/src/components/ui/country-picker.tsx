@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { COUNTRIES, findCountry, type Country } from '@/lib/countries'
 import { Flag } from '@/components/ui/flag'
 import { cn } from '@/lib/utils'
@@ -22,9 +23,11 @@ interface CountryPickerProps {
 export function CountryPicker({
   value,
   onChange,
-  placeholder = 'Select country',
+  placeholder,
   disabled,
 }: CountryPickerProps) {
+  const { t } = useTranslation()
+  const placeholderText = placeholder ?? t('picker.selectCountry')
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
@@ -77,7 +80,7 @@ export function CountryPicker({
     // Legacy/free-text value that didn't match the canonical list — render as-is.
     <span className="truncate text-slate-900">{value}</span>
   ) : (
-    <span className="text-slate-400">{placeholder}</span>
+    <span className="text-slate-400">{placeholderText}</span>
   )
 
   return (
@@ -102,7 +105,7 @@ export function CountryPicker({
             <span
               role="button"
               tabIndex={0}
-              aria-label="Clear nationality"
+              aria-label={t('picker.clearNationality')}
               onClick={(e) => {
                 e.stopPropagation()
                 onChange(null)
@@ -144,14 +147,14 @@ export function CountryPicker({
               ref={inputRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search countries…"
+              placeholder={t('picker.searchCountries')}
               className="w-full px-2.5 py-1.5 text-[13px] rounded-md border border-slate-200 bg-slate-50 focus:outline-none focus:bg-white focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
             />
           </div>
           <ul role="listbox" className="max-h-64 overflow-y-auto py-1">
             {filtered.length === 0 ? (
               <li className="px-3 py-3 text-[13px] text-slate-500 text-center">
-                No matches
+                {t('picker.noMatches')}
               </li>
             ) : (
               filtered.map((c) => {

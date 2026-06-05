@@ -7,13 +7,14 @@
  * dense table rows (revealed on row hover so it isn't repeated everywhere).
  */
 
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { SparkIcon } from '@/components/ai/icons'
 
 export function CopilotTriggerButton({
   onClick,
-  label = 'Ask the Analyst',
+  label,
   size = 'default',
   className,
 }: {
@@ -22,23 +23,26 @@ export function CopilotTriggerButton({
   size?: 'sm' | 'default' | 'lg'
   className?: string
 }) {
+  const { t } = useTranslation()
   return (
     <Button type="button" variant="outline" size={size} onClick={onClick} className={cn('gap-1.5', className)}>
       <SparkIcon size={size === 'sm' ? 15 : 17} />
-      {label}
+      {label ?? t('ai.askAnalyst')}
     </Button>
   )
 }
 
 export function CopilotTriggerIcon({
   onClick,
-  title = 'Ask the Analyst',
+  title,
   className,
 }: {
   onClick: () => void
   title?: string
   className?: string
 }) {
+  const { t } = useTranslation()
+  const titleText = title ?? t('ai.askAnalyst')
   return (
     <button
       type="button"
@@ -46,8 +50,8 @@ export function CopilotTriggerIcon({
         e.stopPropagation()
         onClick()
       }}
-      title={title}
-      aria-label={title}
+      title={titleText}
+      aria-label={titleText}
       className={cn(
         'inline-flex h-7 w-7 items-center justify-center rounded-lg text-violet-600 transition-colors hover:bg-violet-100',
         className,

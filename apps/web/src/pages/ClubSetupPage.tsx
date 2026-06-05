@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useTranslation } from 'react-i18next'
+import { useTranslation, Trans } from 'react-i18next'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -33,34 +33,39 @@ import { Flag } from '@/components/ui/flag'
 import { EFL_CHAMPIONSHIP_CONFIG } from '@headroom/shared'
 import { calculatePromotedClubRevenueUplift, PROMOTED_CLUB_DEFAULT_UPLIFT_FACTOR } from '@headroom/engine'
 import { cn, formatUsd } from '@/lib/utils'
+import { activeLocale } from '@/lib/locale'
 import { useCan } from '@/lib/role'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import { SUPPORTED_LANGUAGES, LANGUAGE_LABELS, LANGUAGE_FLAGS, setLanguage, type Language } from '@/lib/i18n'
+import type { TFunction } from 'i18next'
 import type { ComplianceStatus, Currency } from '@headroom/shared'
 import type { InviteRow, TeamMember, AuditEntry, Permissions } from '@/lib/api'
 
-const SetupSchema = z
-  .object({
-    footballRelatedRevenuePounds: z
-      .number({ invalid_type_error: 'Revenue must be a number' })
-      .int()
-      .positive('Revenue must be positive')
-      .max(2_000_000_000, 'Revenue cannot exceed £2B'),
-    currentAllowanceRatio: z.number({ invalid_type_error: 'Allowance must be a number' }).min(0).max(1),
-    ownerEquityUsedCurrentSeasonPounds: z.number({ invalid_type_error: 'Must be a number' }).int().min(0).max(15_000_000, 'EFL limit is £15M per season').optional(),
-    squadCostsMode: z.enum(['derived', 'manual']),
-    manualSquadCostsPounds: z
-      .number({ invalid_type_error: 'Squad costs must be a number' })
-      .int()
-      .min(0)
-      .max(2_000_000_000, 'Squad costs cannot exceed £2B')
-      .optional(),
-  })
-  .refine(
-    (d) => d.squadCostsMode !== 'manual' || (d.manualSquadCostsPounds != null && d.manualSquadCostsPounds >= 0),
-    { message: 'Enter a manual value or switch back to derived', path: ['manualSquadCostsPounds'] },
-  )
-type SetupData = z.infer<typeof SetupSchema>
+// Validation messages are built from a translate function so they localize.
+function makeSetupSchema(t: TFunction) {
+  return z
+    .object({
+      footballRelatedRevenuePounds: z
+        .number({ invalid_type_error: t('settings.validation.revenueNumber') })
+        .int()
+        .positive(t('settings.validation.revenuePositive'))
+        .max(2_000_000_000, t('settings.validation.revenueMax')),
+      currentAllowanceRatio: z.number({ invalid_type_error: t('settings.validation.allowanceNumber') }).min(0).max(1),
+      ownerEquityUsedCurrentSeasonPounds: z.number({ invalid_type_error: t('settings.validation.mustBeNumber') }).int().min(0).max(15_000_000, t('settings.validation.eflLimit')).optional(),
+      squadCostsMode: z.enum(['derived', 'manual']),
+      manualSquadCostsPounds: z
+        .number({ invalid_type_error: t('settings.validation.squadNumber') })
+        .int()
+        .min(0)
+        .max(2_000_000_000, t('settings.validation.squadMax'))
+        .optional(),
+    })
+    .refine(
+      (d) => d.squadCostsMode !== 'manual' || (d.manualSquadCostsPounds != null && d.manualSquadCostsPounds >= 0),
+      { message: t('settings.validation.manualOrDerived'), path: ['manualSquadCostsPounds'] },
+    )
+}
+type SetupData = z.infer<ReturnType<typeof makeSetupSchema>>
 
 export function ClubSetupPage() {
   return <SettingsShell />
@@ -74,6 +79,7 @@ export function ClubSetupPage() {
 // ---------------------------------------------------------------------------
 
 export function FinancialTab() {
+  const { t } = useTranslation()
   const { financials, setFinancials, leagueId } = useClubStore()
   // Roster has financial records once any contract exists — used to gate the
   // currency-change warning (changing currency never converts those records).
@@ -92,7 +98,7 @@ export function FinancialTab() {
   const [upliftFactor, setUpliftFactor] = useState(PROMOTED_CLUB_DEFAULT_UPLIFT_FACTOR)
 
   const form = useForm<SetupData>({
-    resolver: zodResolver(SetupSchema),
+    resolver: zodResolver(useMemo(() => makeSetupSchema(t), [t])),
     defaultValues: {
       footballRelatedRevenuePounds: financials
         ? Math.round(financials.footballRelatedRevenue / 100)
@@ -164,11 +170,11 @@ export function FinancialTab() {
       const updated = await api.club.getFinancials(activeSeasonKey)
       setFinancials(updated)
       setSaved(true)
-      toast.success('Settings saved', 'Thresholds updated across the app.')
+      toast.success(t('settings.fin.savedToastTitle'), t('settings.fin.savedToastBody'))
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Failed to save club financials'
+      const msg = e instanceof Error ? e.message : t('settings.fin.failSave')
       setError(msg)
-      toast.error('Save failed', msg)
+      toast.error(t('settings.fin.saveFailed'), msg)
     }
   }
 
@@ -195,14 +201,14 @@ export function FinancialTab() {
           <div>
             <div className="flex items-center gap-3 mb-1">
               <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
-              <h2 className="text-[15px] font-semibold text-slate-900">League</h2>
+              <h2 className="text-[15px] font-semibold text-slate-900">{t('settings.fin.leagueTitle')}</h2>
             </div>
             <p className="text-[13px] text-slate-500 pl-4 max-w-xl">
-              Set by your club — switch clubs from the workspace to change it. Premier League applies the three SSR solvency tests; the Championship applies the owner-equity top-up allowance.
+              {t('settings.fin.leagueBody')}
             </p>
           </div>
           <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-violet-50 text-violet-700 text-[13px] font-semibold ring-1 ring-violet-200/60 whitespace-nowrap">
-            {leagueId === 'premier-league' ? 'Premier League' : 'EFL Championship'}
+            {leagueId === 'premier-league' ? t('chrome.leaguePremier') : t('chrome.leagueChampionship')}
           </span>
         </div>
 
@@ -218,9 +224,9 @@ export function FinancialTab() {
                   </svg>
                 </span>
                 <div>
-                  <div className="text-[13px] font-semibold text-slate-900">Just promoted from the Championship?</div>
+                  <div className="text-[13px] font-semibold text-slate-900">{t('settings.fin.promotedTitle')}</div>
                   <p className="text-[12px] text-slate-500 mt-0.5 max-w-md">
-                    Estimate Year-1 PL revenue from your last Championship season. Editable assumption.
+                    {t('settings.fin.promotedBody')}
                   </p>
                 </div>
               </div>
@@ -228,7 +234,7 @@ export function FinancialTab() {
                 onClick={() => setShowUplift((v) => !v)}
                 className="text-[12px] font-medium text-violet-600 hover:text-violet-700 flex-shrink-0 whitespace-nowrap"
               >
-                {showUplift ? 'Hide estimator' : 'Use uplift estimator'}
+                {showUplift ? t('settings.fin.hideEstimator') : t('settings.fin.useEstimator')}
               </button>
             </div>
 
@@ -245,7 +251,7 @@ export function FinancialTab() {
                   <div className="mt-4 rounded-xl border border-violet-200/60 bg-gradient-to-br from-violet-50/60 via-white to-violet-50/30 p-5">
                     <div className="grid items-end gap-3" style={{ gridTemplateColumns: '1fr auto 1fr auto 1.2fr' }}>
                       <label className="block">
-                        <span className="meta-label block mb-1.5">Championship revenue</span>
+                        <span className="meta-label block mb-1.5">{t('settings.fin.championshipRevenue')}</span>
                         <div className="relative">
                           <span className="num absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 select-none pointer-events-none">{symbol}</span>
                           <NumericInput
@@ -259,7 +265,7 @@ export function FinancialTab() {
                       <div className="self-end pb-3 text-slate-300 text-[20px] font-light leading-none select-none">×</div>
 
                       <label className="block">
-                        <span className="meta-label block mb-1.5">Uplift factor</span>
+                        <span className="meta-label block mb-1.5">{t('settings.fin.upliftFactor')}</span>
                         <div className="relative">
                           <input
                             type="number"
@@ -282,7 +288,7 @@ export function FinancialTab() {
                       </div>
 
                       <div className="rounded-lg bg-white border border-violet-200/70 px-4 py-2.5 shadow-sm">
-                        <div className="meta-label">Estimated PL revenue</div>
+                        <div className="meta-label">{t('settings.fin.estimatedPlRevenue')}</div>
                         <div className="num text-[20px] font-semibold text-slate-900 leading-none mt-1.5 tabular-nums">
                           {upliftPence > 0 ? (
                             <AnimatedNumber value={upliftPence} format={fmtMoney} duration={0.45} />
@@ -299,7 +305,7 @@ export function FinancialTab() {
                           <path d="M7 17L17 7" />
                           <path d="M8 7h9v9" />
                         </svg>
-                        {upliftFactor.toFixed(1)}× revenue jump
+                        {t('settings.fin.revenueJump', { factor: upliftFactor.toFixed(1) })}
                       </span>
                       <Button
                         type="button"
@@ -307,7 +313,7 @@ export function FinancialTab() {
                         disabled={upliftPence <= 0}
                         size="sm"
                       >
-                        Apply to revenue
+                        {t('settings.fin.applyToRevenue')}
                       </Button>
                     </div>
                   </div>
@@ -328,17 +334,17 @@ export function FinancialTab() {
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-3">
               <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
-              <h2 className="text-[15px] font-semibold text-slate-900">Season Financials</h2>
+              <h2 className="text-[15px] font-semibold text-slate-900">{t('settings.fin.seasonFinancials')}</h2>
             </div>
             <span className="meta-label">{seasonLabel(seasonStartYear)}</span>
           </div>
-          <p className="text-[13px] text-slate-500 mb-6 pl-4">These figures define the Green and Red Thresholds used in every simulation.</p>
+          <p className="text-[13px] text-slate-500 mb-6 pl-4">{t('settings.fin.seasonFinancialsSub')}</p>
 
           <form onSubmit={form.handleSubmit(onSubmit)}>
             <div className="grid grid-cols-2 gap-5">
               <FieldWrapper
-                label={`Football-Related Revenue (${symbol})`}
-                helper="Broadcast, matchday, commercial — excludes player trading."
+                label={t('settings.fin.footballRevenue', { symbol })}
+                helper={t('settings.fin.footballRevenueHelper')}
                 error={errs.footballRelatedRevenuePounds?.message}
               >
                 <div className="relative">
@@ -361,11 +367,11 @@ export function FinancialTab() {
               </FieldWrapper>
 
               <FieldWrapper
-                label="Squad Costs"
+                label={t('settings.fin.squadCosts')}
                 helper={
                   watchMode === 'manual'
-                    ? 'Manual override — your roster sum is ignored everywhere SCR is computed.'
-                    : 'Derived live from your active roster. Switch to manual to enter a value directly.'
+                    ? t('settings.fin.squadCostsManualHelper')
+                    : t('settings.fin.squadCostsDerivedHelper')
                 }
                 error={errs.manualSquadCostsPounds?.message}
               >
@@ -410,8 +416,8 @@ export function FinancialTab() {
               </FieldWrapper>
 
               <FieldWrapper
-                label="Current Allowance"
-                helper="Starts at 30% for all clubs. Reduces if you breached 85% last season."
+                label={t('settings.fin.currentAllowance')}
+                helper={t('settings.fin.currentAllowanceHelper')}
                 error={errs.currentAllowanceRatio?.message}
               >
                 <Controller
@@ -432,8 +438,8 @@ export function FinancialTab() {
               {/* Owner equity top-up — Championship only. PL clubs do not have this allowance. */}
               {leagueId !== 'premier-league' && (
                 <FieldWrapper
-                  label={`Owner Equity Top-Up (${symbol})`}
-                  helper="Counts as revenue under EFL SCR rules — increases your Green Threshold. Max £15M/season."
+                  label={t('settings.fin.ownerEquity', { symbol })}
+                  helper={t('settings.fin.ownerEquityHelper')}
                   error={errs.ownerEquityUsedCurrentSeasonPounds?.message}
                 >
                   <div className="relative">
@@ -460,15 +466,15 @@ export function FinancialTab() {
             <div className="mt-7 pt-6 border-t border-slate-100 flex items-center justify-between">
               <div className="text-[12px] text-slate-400">
                 {saved ? (
-                  <span className="text-green-700">Settings saved.</span>
+                  <span className="text-green-700">{t('settings.fin.savedShort')}</span>
                 ) : (
-                  'Changes preview live in the panel on the right.'
+                  t('settings.fin.previewHint')
                 )}
                 {error && <span className="text-red-600 ml-2">{error}</span>}
               </div>
               <Button type="submit" disabled={form.formState.isSubmitting}>
                 {form.formState.isSubmitting && <Spinner size={14} />}
-                {form.formState.isSubmitting ? 'Saving…' : 'Save Settings'}
+                {form.formState.isSubmitting ? t('common.saving') : t('settings.fin.saveSettings')}
               </Button>
             </div>
           </form>
@@ -482,13 +488,13 @@ export function FinancialTab() {
         <Card className="p-6 self-start relative overflow-hidden">
           <div className="absolute top-0 left-0 right-0 h-1 bg-violet-600" />
           <h3 className="text-[13px] font-semibold tracking-wider text-violet-700 uppercase mt-1" style={{ letterSpacing: '0.08em' }}>
-            Calculated Thresholds
+            {t('settings.fin.calculatedThresholds')}
           </h3>
-          <p className="text-[12px] text-slate-500 mt-1.5">Updates as you type. Save to apply across the app.</p>
+          <p className="text-[12px] text-slate-500 mt-1.5">{t('settings.fin.calculatedThresholdsSub')}</p>
 
           <div className="mt-6 space-y-5">
             <div>
-              <div className="meta-label">Green Threshold ({greenPct}%)</div>
+              <div className="meta-label">{t('settings.fin.greenThreshold', { pct: greenPct })}</div>
               <div className="mt-1.5">
                 {greenThreshold !== null ? (
                   <AnimatedNumber
@@ -500,10 +506,10 @@ export function FinancialTab() {
                   <span className="num text-[28px] font-semibold text-green-700 leading-none">—</span>
                 )}
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">Maximum squad costs — no levy</div>
+              <div className="text-[11px] text-slate-400 mt-1">{t('settings.fin.greenThresholdSub')}</div>
             </div>
             <div>
-              <div className="meta-label">Red Threshold ({redPctVal}%)</div>
+              <div className="meta-label">{t('settings.fin.redThreshold', { pct: redPctVal })}</div>
               <div className="mt-1.5">
                 {redThreshold !== null ? (
                   <AnimatedNumber
@@ -515,12 +521,12 @@ export function FinancialTab() {
                   <span className="num text-[28px] font-semibold text-red-600 leading-none">—</span>
                 )}
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">Points deduction above this line</div>
+              <div className="text-[11px] text-slate-400 mt-1">{t('settings.fin.redThresholdSub')}</div>
             </div>
 
             {currentPct !== null && (
               <div className="pt-5 border-t border-slate-100">
-                <div className="meta-label mb-2">Current SCR Position</div>
+                <div className="meta-label mb-2">{t('settings.fin.currentScrPosition')}</div>
                 <div className="flex items-baseline gap-3">
                   <AnimatedNumber
                     value={currentPct}
@@ -532,7 +538,7 @@ export function FinancialTab() {
                 </div>
                 {headroom !== null && (
                   <div className="mt-3 flex items-center justify-between text-[12px]">
-                    <span className="text-slate-500">Headroom to Green</span>
+                    <span className="text-slate-500">{t('settings.fin.headroomToGreen')}</span>
                     <AnimatedNumber
                       value={headroom}
                       format={(n) => (n < 0 ? '−' + fmtMoney(Math.abs(n)) : '+' + fmtMoney(n))}
@@ -556,13 +562,14 @@ export function FinancialTab() {
 // so we warn the user when a roster already has financial records.
 // ---------------------------------------------------------------------------
 
-const CURRENCY_OPTIONS: { value: Currency; symbol: string; label: string }[] = [
-  { value: 'GBP', symbol: '£', label: 'GBP — British Pound' },
-  { value: 'EUR', symbol: '€', label: 'EUR — Euro' },
-  { value: 'USD', symbol: '$', label: 'USD — US Dollar' },
+const CURRENCY_OPTIONS: { value: Currency; symbol: string; labelKey: string }[] = [
+  { value: 'GBP', symbol: '£', labelKey: 'settings.currency.gbp' },
+  { value: 'EUR', symbol: '€', labelKey: 'settings.currency.eur' },
+  { value: 'USD', symbol: '$', labelKey: 'settings.currency.usd' },
 ]
 
 function BaseCurrencyCard({ hasFinancialRecords }: { hasFinancialRecords: boolean }) {
+  const { t } = useTranslation()
   const can = useCan()
   const isCfo = can.isWorkspaceAdmin
   const baseCurrency = useClubStore((s) => s.baseCurrency)
@@ -587,10 +594,10 @@ function BaseCurrencyCard({ hasFinancialRecords }: { hasFinancialRecords: boolea
     try {
       const res = await api.club.setCurrency(selected)
       setBaseCurrency(res.baseCurrency)
-      toast.success('Currency updated', `Figures now display in ${res.baseCurrency}.`)
+      toast.success(t('settings.currency.updatedTitle'), t('settings.currency.updatedBody', { currency: res.baseCurrency }))
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Failed to update currency'
-      toast.error('Update failed', msg)
+      const msg = e instanceof Error ? e.message : t('settings.currency.failUpdate')
+      toast.error(t('settings.currency.updateFailed'), msg)
       setSelected(baseCurrency)
     } finally {
       setSaving(false)
@@ -603,11 +610,10 @@ function BaseCurrencyCard({ hasFinancialRecords }: { hasFinancialRecords: boolea
         <div>
           <div className="flex items-center gap-3 mb-1">
             <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
-            <h2 className="text-[15px] font-semibold text-slate-900">Base Workspace Currency</h2>
+            <h2 className="text-[15px] font-semibold text-slate-900">{t('settings.currency.title')}</h2>
           </div>
           <p className="text-[13px] text-slate-500 pl-4 max-w-xl">
-            The currency every financial figure is entered and displayed in across the workspace.
-            Defaulted from your league; the engine runs purely on the numbers you enter — no conversion.
+            {t('settings.currency.body')}
           </p>
         </div>
 
@@ -616,18 +622,18 @@ function BaseCurrencyCard({ hasFinancialRecords }: { hasFinancialRecords: boolea
             value={selected}
             onChange={(v) => setSelected(v)}
             disabled={!isCfo || saving}
-            ariaLabel="Base workspace currency"
+            ariaLabel={t('settings.currency.aria')}
             className="w-[240px]"
             options={CURRENCY_OPTIONS.map((o) => ({
               value: o.value,
-              label: o.label,
+              label: t(o.labelKey),
               leading: <span className="num w-4 text-center text-slate-500 flex-shrink-0">{o.symbol}</span>,
             }))}
           />
           {isCfo && (
             <Button type="button" onClick={save} disabled={!dirty || saving}>
               {saving && <Spinner size={14} />}
-              {saving ? 'Saving…' : 'Save'}
+              {saving ? t('common.saving') : t('common.save')}
             </Button>
           )}
         </div>
@@ -652,9 +658,7 @@ function BaseCurrencyCard({ hasFinancialRecords }: { hasFinancialRecords: boolea
             <path d="M12 17h.01" />
           </svg>
           <p className="text-[13px] text-amber-800 leading-relaxed">
-            <span className="font-semibold">Warning:</span> Changing the base currency does not convert
-            existing financial records. Existing contract values will remain the same but will be treated
-            as the new currency.
+            <Trans i18nKey="settings.currency.warning" components={{ b: <span className="font-semibold" /> }} />
           </p>
         </div>
       )}
@@ -673,6 +677,7 @@ function BaseCurrencyCard({ hasFinancialRecords }: { hasFinancialRecords: boolea
 type SettingsTab = 'profile' | 'team' | 'activity' | 'danger'
 
 function SettingsShell() {
+  const { t } = useTranslation()
   const can = useCan()
   const isCfo = can.isWorkspaceAdmin
 
@@ -696,16 +701,16 @@ function SettingsShell() {
       <div className="mb-6 flex items-center gap-3">
         <span className="inline-block w-1.5 h-7 rounded-full bg-violet-600" />
         <div>
-          <h1 className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">Settings</h1>
-          <p className="text-[13px] text-slate-400 mt-1.5">Your profile, security, and workspace configuration</p>
+          <h1 className="text-[24px] font-bold text-slate-900 tracking-tight leading-none">{t('settings.shell.title')}</h1>
+          <p className="text-[13px] text-slate-400 mt-1.5">{t('settings.shell.subtitle')}</p>
         </div>
       </div>
 
       <div className="flex items-center gap-6 border-b border-slate-200 mb-5">
-        <TabButton active={tab === 'profile'} onClick={() => setTab('profile')}>Profile &amp; Security</TabButton>
-        {isCfo && <TabButton active={tab === 'team'} onClick={() => setTab('team')}>Team &amp; Access</TabButton>}
-        {isCfo && <TabButton active={tab === 'activity'} onClick={() => setTab('activity')}>Activity Log</TabButton>}
-        {isCfo && <TabButton active={tab === 'danger'} onClick={() => setTab('danger')}>Delete Workspace</TabButton>}
+        <TabButton active={tab === 'profile'} onClick={() => setTab('profile')}>{t('settings.shell.tabProfile')}</TabButton>
+        {isCfo && <TabButton active={tab === 'team'} onClick={() => setTab('team')}>{t('settings.shell.tabTeam')}</TabButton>}
+        {isCfo && <TabButton active={tab === 'activity'} onClick={() => setTab('activity')}>{t('settings.shell.tabActivity')}</TabButton>}
+        {isCfo && <TabButton active={tab === 'danger'} onClick={() => setTab('danger')}>{t('settings.shell.tabDanger')}</TabButton>}
       </div>
 
       {tab === 'profile'   && <ProfileSecurityTab />}
@@ -718,12 +723,12 @@ function SettingsShell() {
 
 // Shared password policy check — mirrors the backend PasswordSchema. Returns
 // the first unmet requirement, or null when the password is strong enough.
-function passwordIssue(pw: string): string | null {
-  if (pw.length < 8) return 'Must be at least 8 characters'
-  if (!/[A-Z]/.test(pw)) return 'Must contain an uppercase letter'
-  if (!/[a-z]/.test(pw)) return 'Must contain a lowercase letter'
-  if (!/[0-9]/.test(pw)) return 'Must contain a number'
-  if (!/[^A-Za-z0-9]/.test(pw)) return 'Must contain a special character'
+function passwordIssue(pw: string, t: TFunction): string | null {
+  if (pw.length < 8) return t('auth.reset.issue.min8')
+  if (!/[A-Z]/.test(pw)) return t('auth.reset.issue.upper')
+  if (!/[a-z]/.test(pw)) return t('auth.reset.issue.lower')
+  if (!/[0-9]/.test(pw)) return t('auth.reset.issue.number')
+  if (!/[^A-Za-z0-9]/.test(pw)) return t('auth.reset.issue.special')
   return null
 }
 
@@ -773,6 +778,7 @@ function InterfaceLanguageCard() {
 }
 
 function ProfileSecurityTab() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
 
@@ -821,15 +827,15 @@ function ProfileSecurityTab() {
     e.preventDefault()
     setProfileErr('')
     const fullName = `${firstName.trim()} ${lastName.trim()}`.trim()
-    if (!fullName) { setProfileErr('Name cannot be empty'); return }
+    if (!fullName) { setProfileErr(t('settings.profile.nameEmpty')); return }
     setSavingProfile(true)
     try {
       await api.me.update({ fullName, email: email.trim() })
-      toast.success('Profile updated', 'Your details have been saved.')
+      toast.success(t('settings.profile.updatedTitle'), t('settings.profile.updatedBody'))
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to update profile'
+      const msg = err instanceof Error ? err.message : t('settings.profile.failUpdate')
       setProfileErr(msg)
-      toast.error('Update failed', msg)
+      toast.error(t('settings.profile.updateFailed'), msg)
     } finally {
       setSavingProfile(false)
     }
@@ -838,9 +844,9 @@ function ProfileSecurityTab() {
   const changePassword = async (e: React.FormEvent) => {
     e.preventDefault()
     setPwErr('')
-    const issue = passwordIssue(newPw)
-    if (issue) { setPwErr(`New password: ${issue.toLowerCase()}`); return }
-    if (newPw !== confirmPw) { setPwErr("New passwords don't match"); return }
+    const issue = passwordIssue(newPw, t)
+    if (issue) { setPwErr(t('settings.profile.newPasswordIssue', { issue: issue.toLowerCase() })); return }
+    if (newPw !== confirmPw) { setPwErr(t('settings.profile.passwordsNoMatch')); return }
     setSavingPw(true)
     try {
       await api.auth.changePassword(currentPw, newPw)
@@ -858,14 +864,14 @@ function ProfileSecurityTab() {
       if (reauthErr) {
         // Couldn't silently re-auth (e.g. transient network) — send them to a
         // clean sign-in rather than leaving a stale token behind.
-        toast.success('Password changed', 'Please sign in again with your new password.')
+        toast.success(t('settings.profile.changedTitle'), t('settings.profile.changedReauth'))
         await useAuthStore.getState().signOut()
         navigate('/login')
         return
       }
-      toast.success('Password changed', 'Your new password is now active.')
+      toast.success(t('settings.profile.changedTitle'), t('settings.profile.changedActive'))
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to change password'
+      const msg = err instanceof Error ? err.message : t('settings.profile.failChangePw')
       setPwErr(msg)
     } finally {
       setSavingPw(false)
@@ -880,7 +886,7 @@ function ProfileSecurityTab() {
       setSetupData({ qrDataUrl: d.qrDataUrl, secret: d.secret })
       setTotpCode('')
     } catch (err) {
-      setTotpErr(err instanceof Error ? err.message : 'Failed to start setup')
+      setTotpErr(err instanceof Error ? err.message : t('settings.profile.totpFailStart'))
     } finally {
       setTotpBusy(false)
     }
@@ -895,9 +901,9 @@ function ProfileSecurityTab() {
       setTotpEnabled(true)
       setSetupData(null)
       setTotpCode('')
-      toast.success('Two-factor enabled', "You'll be asked for a code at sign-in.")
+      toast.success(t('settings.profile.totpEnabledTitle'), t('settings.profile.totpEnabledBody'))
     } catch (err) {
-      setTotpErr(err instanceof Error ? err.message : 'Invalid code')
+      setTotpErr(err instanceof Error ? err.message : t('settings.profile.totpInvalidCode'))
     } finally {
       setTotpBusy(false)
     }
@@ -912,9 +918,9 @@ function ProfileSecurityTab() {
       setTotpEnabled(false)
       setDisarming(false)
       setDisableCode('')
-      toast.success('Two-factor disabled', 'Sign-in now uses your password only.')
+      toast.success(t('settings.profile.totpDisabledTitle'), t('settings.profile.totpDisabledBody'))
     } catch (err) {
-      setTotpErr(err instanceof Error ? err.message : 'Invalid code')
+      setTotpErr(err instanceof Error ? err.message : t('settings.profile.totpInvalidCode'))
     } finally {
       setTotpBusy(false)
     }
@@ -927,13 +933,13 @@ function ProfileSecurityTab() {
       {/* Active season */}
       <Card className="p-6">
         <SectionHeader
-          title="Active Season"
-          subtitle="The fiscal season that drives your financial config, calendar dates, and SCR projections across the app."
+          title={t('settings.profile.activeSeason')}
+          subtitle={t('settings.profile.activeSeasonSub')}
         />
         <div className="flex items-center justify-between gap-4">
           <div>
-            <div className="text-[14px] text-slate-900 font-medium">Planning season</div>
-            <div className="text-[12.5px] text-slate-500 mt-0.5">Runs 1 Jul → 30 Jun. Step forward to plan future windows.</div>
+            <div className="text-[14px] text-slate-900 font-medium">{t('settings.profile.planningSeason')}</div>
+            <div className="text-[12.5px] text-slate-500 mt-0.5">{t('settings.profile.planningSeasonSub')}</div>
           </div>
           <SeasonSelector />
         </div>
@@ -941,19 +947,19 @@ function ProfileSecurityTab() {
 
       {/* Profile */}
       <Card className="p-6">
-        <SectionHeader title="Profile" subtitle="Your name and the email you sign in with." />
+        <SectionHeader title={t('settings.profile.title')} subtitle={t('settings.profile.sub')} />
         <form onSubmit={saveProfile}>
           <div className="grid grid-cols-2 gap-5">
             <label className="block">
-              <span className="meta-label block mb-2">First Name</span>
+              <span className="meta-label block mb-2">{t('settings.profile.firstName')}</span>
               <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} placeholder="Jane" />
             </label>
             <label className="block">
-              <span className="meta-label block mb-2">Last Name</span>
+              <span className="meta-label block mb-2">{t('settings.profile.lastName')}</span>
               <Input value={lastName} onChange={(e) => setLastName(e.target.value)} placeholder="Doe" />
             </label>
             <label className="block col-span-2">
-              <span className="meta-label block mb-2">Email</span>
+              <span className="meta-label block mb-2">{t('settings.profile.email')}</span>
               <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@club.com" />
             </label>
           </div>
@@ -961,7 +967,7 @@ function ProfileSecurityTab() {
             <span className="text-[12px] text-red-600">{profileErr}</span>
             <Button type="submit" disabled={savingProfile}>
               {savingProfile && <Spinner size={14} />}
-              {savingProfile ? 'Saving…' : 'Save profile'}
+              {savingProfile ? t('common.saving') : t('settings.profile.saveProfile')}
             </Button>
           </div>
         </form>
@@ -973,12 +979,12 @@ function ProfileSecurityTab() {
       {/* AI usage — prepaid Compliance Analyst credit balance */}
       <Card className="p-6">
         <SectionHeader
-          title="AI Usage"
-          subtitle="Your Compliance Analyst runs on prepaid credit, billed per query at cost plus a small margin."
+          title={t('settings.profile.aiTitle')}
+          subtitle={t('settings.profile.aiSub')}
         />
         <div className="flex items-end justify-between gap-4 flex-wrap">
           <div>
-            <div className="meta-label">Current balance</div>
+            <div className="meta-label">{t('settings.profile.currentBalance')}</div>
             {aiBalanceUsd === null ? (
               <div className="mt-2 h-8 w-28 rounded-md bg-slate-100 animate-pulse" />
             ) : (
@@ -992,30 +998,30 @@ function ProfileSecurityTab() {
               </div>
             )}
             <p className="text-[12px] text-slate-400 mt-2">
-              To top up your balance, please contact Headroom support.
+              {t('settings.profile.topUpHint')}
             </p>
           </div>
           {aiBalanceUsd !== null && aiBalanceUsd <= 0.01 && (
-            <StatusBadge status="red">Depleted</StatusBadge>
+            <StatusBadge status="red">{t('settings.profile.depleted')}</StatusBadge>
           )}
         </div>
       </Card>
 
       {/* Change password */}
       <Card className="p-6">
-        <SectionHeader title="Password" subtitle="Min 8 chars · uppercase · lowercase · number · special character." />
+        <SectionHeader title={t('settings.profile.passwordTitle')} subtitle={t('settings.profile.passwordSub')} />
         <form onSubmit={changePassword}>
           <div className="grid grid-cols-2 gap-5">
             <label className="block col-span-2">
-              <span className="meta-label block mb-2">Current Password</span>
+              <span className="meta-label block mb-2">{t('settings.profile.currentPassword')}</span>
               <Input type="password" value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} placeholder="••••••••" autoComplete="current-password" />
             </label>
             <label className="block">
-              <span className="meta-label block mb-2">New Password</span>
+              <span className="meta-label block mb-2">{t('settings.profile.newPasswordLabel')}</span>
               <Input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="••••••••" autoComplete="new-password" />
             </label>
             <label className="block">
-              <span className="meta-label block mb-2">Confirm New Password</span>
+              <span className="meta-label block mb-2">{t('settings.profile.confirmNewPassword')}</span>
               <Input type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} placeholder="••••••••" autoComplete="new-password" />
             </label>
           </div>
@@ -1023,7 +1029,7 @@ function ProfileSecurityTab() {
             <span className="text-[12px] text-red-600">{pwErr}</span>
             <Button type="submit" disabled={savingPw || !currentPw || !newPw || !confirmPw}>
               {savingPw && <Spinner size={14} />}
-              {savingPw ? 'Updating…' : 'Change password'}
+              {savingPw ? t('settings.profile.updating') : t('settings.profile.changePassword')}
             </Button>
           </div>
         </form>
@@ -1032,8 +1038,8 @@ function ProfileSecurityTab() {
       {/* Two-factor authentication */}
       <Card className="p-6">
         <SectionHeader
-          title="Two-Factor Authentication"
-          subtitle="Add an authenticator app (Google Authenticator, Microsoft Authenticator, 1Password) for a one-time code at sign-in."
+          title={t('settings.profile.twoFactorTitle')}
+          subtitle={t('settings.profile.twoFactorSub')}
         />
 
         <div className="flex items-center justify-between gap-4">
@@ -1045,19 +1051,19 @@ function ProfileSecurityTab() {
               )}
             >
               <span className={cn('w-1.5 h-1.5 rounded-full', totpEnabled ? 'bg-green-600' : 'bg-slate-400')} />
-              {totpEnabled ? 'Enabled' : 'Not enabled'}
+              {totpEnabled ? t('settings.profile.enabled') : t('settings.profile.notEnabled')}
             </span>
           </div>
 
           {!totpEnabled && !setupData && (
             <Button type="button" onClick={startTotpSetup} disabled={totpBusy}>
               {totpBusy && <Spinner size={14} />}
-              Set up authenticator
+              {t('settings.profile.setupAuthenticator')}
             </Button>
           )}
           {totpEnabled && !disarming && (
             <Button type="button" variant="secondary" onClick={() => { setDisarming(true); setTotpErr('') }}>
-              Turn off
+              {t('settings.profile.turnOff')}
             </Button>
           )}
         </div>
@@ -1067,15 +1073,15 @@ function ProfileSecurityTab() {
           <div className="mt-5 pt-5 border-t border-slate-100">
             <div className="flex flex-col sm:flex-row gap-6">
               <div className="flex-shrink-0">
-                <img src={setupData.qrDataUrl} alt="Authenticator QR code" width={176} height={176} className="rounded-lg border border-slate-200" />
+                <img src={setupData.qrDataUrl} alt={t('settings.profile.qrAlt')} width={176} height={176} className="rounded-lg border border-slate-200" />
               </div>
               <div className="flex-1">
-                <p className="text-[13px] text-slate-700 font-medium mb-1">1. Scan the QR code</p>
+                <p className="text-[13px] text-slate-700 font-medium mb-1">{t('settings.profile.step1')}</p>
                 <p className="text-[12px] text-slate-500 mb-3">
-                  Or enter this key manually:&nbsp;
+                  {t('settings.profile.enterKeyManually')}&nbsp;
                   <code className="num text-[12px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-700 break-all">{setupData.secret}</code>
                 </p>
-                <p className="text-[13px] text-slate-700 font-medium mb-2">2. Enter the 6-digit code</p>
+                <p className="text-[13px] text-slate-700 font-medium mb-2">{t('settings.profile.step2')}</p>
                 <form onSubmit={verifyTotp} className="flex items-center gap-2">
                   <Input
                     value={totpCode}
@@ -1086,10 +1092,10 @@ function ProfileSecurityTab() {
                   />
                   <Button type="submit" disabled={totpBusy || totpCode.length !== 6}>
                     {totpBusy && <Spinner size={14} />}
-                    Verify &amp; enable
+                    {t('settings.profile.verifyEnable')}
                   </Button>
                   <Button type="button" variant="ghost" onClick={() => { setSetupData(null); setTotpErr('') }}>
-                    Cancel
+                    {t('common.cancel')}
                   </Button>
                 </form>
                 {totpErr && <p className="text-[12px] text-red-600 mt-2">{totpErr}</p>}
@@ -1101,7 +1107,7 @@ function ProfileSecurityTab() {
         {/* Disable: confirm with a current code */}
         {totpEnabled && disarming && (
           <div className="mt-5 pt-5 border-t border-slate-100">
-            <p className="text-[13px] text-slate-700 mb-2">Enter a current code from your authenticator app to turn off 2FA.</p>
+            <p className="text-[13px] text-slate-700 mb-2">{t('settings.profile.disablePrompt')}</p>
             <form onSubmit={disableTotp} className="flex items-center gap-2">
               <Input
                 value={disableCode}
@@ -1112,10 +1118,10 @@ function ProfileSecurityTab() {
               />
               <Button type="submit" variant="destructive" disabled={totpBusy || disableCode.length !== 6}>
                 {totpBusy && <Spinner size={14} />}
-                Turn off 2FA
+                {t('settings.profile.turnOff2fa')}
               </Button>
               <Button type="button" variant="ghost" onClick={() => { setDisarming(false); setDisableCode(''); setTotpErr('') }}>
-                Cancel
+                {t('common.cancel')}
               </Button>
             </form>
             {totpErr && <p className="text-[12px] text-red-600 mt-2">{totpErr}</p>}
@@ -1132,6 +1138,7 @@ function ProfileSecurityTab() {
 // ---------------------------------------------------------------------------
 
 function DangerZoneTab() {
+  const { t } = useTranslation()
   const { clubName } = useClubStore()
   const { signOut } = useAuthStore()
   const navigate = useNavigate()
@@ -1151,11 +1158,11 @@ function DangerZoneTab() {
     setError('')
     try {
       await api.club.deleteOrganization(confirmName.trim())
-      toast.success('Organization deleted', 'Your workspace and all its data have been removed.')
+      toast.success(t('settings.danger.deletedTitle'), t('settings.danger.deletedBody'))
       await signOut()
       navigate('/login')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete organization')
+      setError(err instanceof Error ? err.message : t('settings.danger.failDelete'))
       setDeleting(false)
     }
   }
@@ -1165,18 +1172,24 @@ function DangerZoneTab() {
       <Card className="p-6 border-red-200">
         <div className="flex items-center gap-3 mb-1">
           <span className="inline-block w-1 h-5 rounded-full bg-red-600" />
-          <h2 className="text-[15px] font-semibold text-red-700">Delete Organization</h2>
+          <h2 className="text-[15px] font-semibold text-red-700">{t('settings.danger.title')}</h2>
         </div>
         <p className="text-[13px] text-slate-600 mt-1 pl-4 max-w-xl">
-          Permanently delete <span className="font-semibold text-slate-900">{clubName ?? 'this organization'}</span> and
-          everything in it — every user account, the full squad, all contracts, scenarios, financials, and activity history.
-          This cannot be undone.
+          <Trans
+            i18nKey="settings.danger.body"
+            values={{ name: clubName ?? t('settings.danger.thisOrg') }}
+            components={{ b: <span className="font-semibold text-slate-900" /> }}
+          />
         </p>
 
         <div className="mt-5 pl-4 border-l-2 border-red-100">
           <label className="block max-w-md">
             <span className="meta-label block mb-2">
-              Type <span className="text-slate-900 font-semibold">{clubName ?? 'the organization name'}</span> to confirm
+              <Trans
+                i18nKey="settings.danger.typeToConfirm"
+                values={{ name: clubName ?? t('settings.danger.theOrgName') }}
+                components={{ b: <span className="text-slate-900 font-semibold" /> }}
+              />
             </span>
             <Input
               value={confirmName}
@@ -1189,7 +1202,7 @@ function DangerZoneTab() {
           <div className="mt-4">
             <Button type="button" variant="destructive" disabled={!armed || deleting} onClick={handleDelete}>
               {deleting && <Spinner size={14} />}
-              {deleting ? 'Deleting…' : 'Delete this organization'}
+              {deleting ? t('settings.danger.deleting') : t('settings.danger.deleteBtn')}
             </Button>
           </div>
         </div>
@@ -1243,11 +1256,12 @@ function PermTag({ tone, children }: { tone: 'violet' | 'slate' | 'muted'; child
 // Compact summary of a member/invite's access, rendered as UI Kit tags. A
 // workspace admin collapses to a single [Admin] tag (it implies everything).
 function PermissionTags({ perms }: { perms: Permissions }) {
-  if (perms.isWorkspaceAdmin) return <PermTag tone="violet">Admin</PermTag>
+  const { t } = useTranslation()
+  if (perms.isWorkspaceAdmin) return <PermTag tone="violet">{t('settings.perms.admin')}</PermTag>
   const tags: React.ReactNode[] = []
-  if (perms.canEditRoster) tags.push(<PermTag key="r" tone="slate">Edit Roster</PermTag>)
-  if (perms.canEditScenarios) tags.push(<PermTag key="s" tone="slate">Edit Scenarios</PermTag>)
-  if (tags.length === 0) return <PermTag tone="muted">Read-Only</PermTag>
+  if (perms.canEditRoster) tags.push(<PermTag key="r" tone="slate">{t('settings.perms.editRoster')}</PermTag>)
+  if (perms.canEditScenarios) tags.push(<PermTag key="s" tone="slate">{t('settings.perms.editScenarios')}</PermTag>)
+  if (tags.length === 0) return <PermTag tone="muted">{t('settings.perms.readOnly')}</PermTag>
   return <span className="inline-flex flex-wrap gap-1.5">{tags}</span>
 }
 
@@ -1263,10 +1277,11 @@ function PermissionToggles({
   onChange: (next: Permissions) => void
   disabled?: boolean
 }) {
+  const { t } = useTranslation()
   const rows: { key: keyof Permissions; label: string; hint: string }[] = [
-    { key: 'canEditRoster',    label: 'Edit Roster',    hint: 'Add, edit and delete players and contracts.' },
-    { key: 'canEditScenarios', label: 'Edit Scenarios', hint: 'Create and modify simulation scenarios.' },
-    { key: 'isWorkspaceAdmin', label: 'Workspace Admin (Full Access)', hint: 'Settings, members, base currency — implies all access.' },
+    { key: 'canEditRoster',    label: t('settings.perms.editRoster'),    hint: t('settings.perms.editRosterHint') },
+    { key: 'canEditScenarios', label: t('settings.perms.editScenarios'), hint: t('settings.perms.editScenariosHint') },
+    { key: 'isWorkspaceAdmin', label: t('settings.perms.adminLabel'), hint: t('settings.perms.adminHint') },
   ]
   return (
     <div className="rounded-lg border border-slate-200 divide-y divide-slate-100">
@@ -1297,6 +1312,7 @@ function PermissionToggles({
 }
 
 function TeamTab() {
+  const { t } = useTranslation()
   const [members, setMembers] = useState<TeamMember[]>([])
   const [invites, setInvites] = useState<InviteRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -1330,7 +1346,7 @@ function TeamTab() {
       setMembers(m.members)
       setInvites(i.invites)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load team')
+      setError(e instanceof Error ? e.message : t('settings.team.failLoad'))
     } finally {
       setLoading(false)
     }
@@ -1342,7 +1358,7 @@ function TeamTab() {
   const handleManageSaved = (id: string, next: { title: string | null } & Permissions) => {
     setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, ...next } : m)))
     setManaging(null)
-    toast.success('Access updated', 'The change applies immediately.')
+    toast.success(t('settings.team.accessUpdated'), t('settings.team.accessUpdatedBody'))
   }
 
   const handleRevokeMember = async (id: string) => {
@@ -1352,9 +1368,9 @@ function TeamTab() {
       await api.team.revoke(id)
       setConfirmRevokeMemberId(null)
       await refresh()
-      toast.success('Access revoked', 'The member can no longer reach this workspace.')
+      toast.success(t('settings.team.accessRevoked'), t('settings.team.accessRevokedBody'))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to revoke access')
+      setError(err instanceof Error ? err.message : t('settings.team.failRevokeAccess'))
     } finally {
       setRevokingMemberId(null)
     }
@@ -1377,7 +1393,7 @@ function TeamTab() {
       setInvitePerms({ ...NO_GRANTS })
       await refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send invite')
+      setError(err instanceof Error ? err.message : t('settings.team.failSendInvite'))
     } finally {
       setCreating(false)
     }
@@ -1390,7 +1406,7 @@ function TeamTab() {
       setConfirmRevokeId(null)
       await refresh()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to revoke invite')
+      setError(err instanceof Error ? err.message : t('settings.team.failRevokeInvite'))
     } finally {
       setRevokingId(null)
     }
@@ -1417,46 +1433,46 @@ function TeamTab() {
       <Card className="p-6">
         <div className="flex items-center gap-3 mb-1">
           <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
-          <h2 className="text-[15px] font-semibold text-slate-900">Invite a team member</h2>
+          <h2 className="text-[15px] font-semibold text-slate-900">{t('settings.team.inviteTitle')}</h2>
         </div>
         <p className="text-[13px] text-slate-500 mb-5 pl-4">
-          Invitees complete the same 8-digit OTP signup as the CFO. The invite link expires in 7 days.
+          {t('settings.team.inviteSub')}
         </p>
 
         <form onSubmit={handleInvite} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
-              <span className="meta-label block mb-1.5">Email</span>
+              <span className="meta-label block mb-1.5">{t('settings.team.email')}</span>
               <input
                 type="email"
                 required
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
-                placeholder="colleague@yourclub.com"
+                placeholder={t('settings.team.emailPlaceholder')}
                 className="w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
               />
             </label>
             <label className="block">
-              <span className="meta-label block mb-1.5">Job Title (Optional)</span>
+              <span className="meta-label block mb-1.5">{t('settings.team.jobTitle')}</span>
               <input
                 type="text"
                 value={inviteTitle}
                 onChange={(e) => setInviteTitle(e.target.value)}
-                placeholder="e.g. Head of Finance"
+                placeholder={t('settings.team.jobTitlePlaceholder')}
                 className="w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
               />
             </label>
           </div>
 
           <div>
-            <span className="meta-label block mb-1.5">Permissions</span>
+            <span className="meta-label block mb-1.5">{t('settings.team.permissions')}</span>
             <PermissionToggles value={invitePerms} onChange={setInvitePerms} />
           </div>
 
           <div className="flex justify-end">
             <Button type="submit" disabled={creating || !inviteEmail.trim()}>
               {creating && <Spinner size={14} />}
-              {creating ? 'Sending…' : 'Send invite'}
+              {creating ? t('settings.team.sending') : t('settings.team.sendInvite')}
             </Button>
           </div>
         </form>
@@ -1469,9 +1485,9 @@ function TeamTab() {
 
         {justCreated && (
           <div className="mt-4 border border-violet-100 bg-violet-50/60 rounded-lg p-4">
-            <div className="meta-label text-violet-700 mb-2">Invite created for {justCreated.email}</div>
+            <div className="meta-label text-violet-700 mb-2">{t('settings.team.inviteCreated', { email: justCreated.email })}</div>
             <p className="text-[12px] text-slate-600 mb-3">
-              Share this link directly with them. You are responsible for verifying the recipient's identity.
+              {t('settings.team.shareLink')}
             </p>
             <div className="flex items-center gap-2">
               <input
@@ -1481,7 +1497,7 @@ function TeamTab() {
                 onFocus={(e) => e.currentTarget.select()}
               />
               <Button variant="outline" type="button" onClick={() => copyLink(justCreated.token)}>
-                {copied ? 'Copied' : 'Copy link'}
+                {copied ? t('settings.team.copied') : t('settings.team.copyLink')}
               </Button>
             </div>
           </div>
@@ -1492,15 +1508,15 @@ function TeamTab() {
       <Card className="overflow-hidden">
         <div className="px-6 py-5 border-b border-slate-100 flex items-center gap-3">
           <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
-          <h2 className="text-[15px] font-semibold text-slate-900">Active users ({members.length})</h2>
+          <h2 className="text-[15px] font-semibold text-slate-900">{t('settings.team.activeUsers', { count: members.length })}</h2>
         </div>
         <table className="w-full">
           <thead className="bg-slate-50/40 border-b border-slate-100">
             <tr>
-              <Th>Name</Th>
-              <Th>Email</Th>
-              <Th>Permissions</Th>
-              <Th>Joined</Th>
+              <Th>{t('settings.team.thName')}</Th>
+              <Th>{t('settings.team.thEmail')}</Th>
+              <Th>{t('settings.team.thPermissions')}</Th>
+              <Th>{t('settings.team.thJoined')}</Th>
               <Th align="right">{''}</Th>
             </tr>
           </thead>
@@ -1514,23 +1530,23 @@ function TeamTab() {
                   <td className="px-6 py-3.5 text-[14px] text-slate-900 font-medium">
                     {m.fullName}
                     {m.title && <span className="block text-[12px] text-slate-400 font-normal">{m.title}</span>}
-                    {isSelf && <span className="ml-2 text-[11px] text-slate-400 font-normal">(you)</span>}
+                    {isSelf && <span className="ml-2 text-[11px] text-slate-400 font-normal">{t('settings.team.you')}</span>}
                   </td>
                   <td className="px-6 py-3.5 text-[13px] text-slate-500 num">{m.email}</td>
                   <td className="px-6 py-3.5">
                     <PermissionTags perms={m} />
                   </td>
                   <td className="px-6 py-3.5 text-[12px] text-slate-500 num">
-                    {new Date(m.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    {new Date(m.createdAt).toLocaleDateString(activeLocale(), { day: '2-digit', month: 'short', year: 'numeric' })}
                   </td>
                   <td className="px-6 py-3.5 text-right">
                     {isSelf ? (
                       <span className="text-[12px] text-slate-300">—</span>
                     ) : confirming ? (
                       <span className="inline-flex items-center gap-2 justify-end">
-                        <span className="text-[11px] text-slate-600 whitespace-nowrap">Revoke access?</span>
+                        <span className="text-[11px] text-slate-600 whitespace-nowrap">{t('settings.team.revokeAccessPrompt')}</span>
                         <SettingsIconButton
-                          label={revoking ? 'Revoking…' : 'Confirm revoke'}
+                          label={revoking ? t('settings.team.revoking') : t('settings.team.confirmRevoke')}
                           tone="danger"
                           disabled={revoking}
                           onClick={() => handleRevokeMember(m.id)}
@@ -1538,7 +1554,7 @@ function TeamTab() {
                           {revoking ? <Spinner size={14} /> : <CheckIcon />}
                         </SettingsIconButton>
                         <SettingsIconButton
-                          label="Cancel"
+                          label={t('common.cancel')}
                           tone="neutral"
                           disabled={revoking}
                           onClick={() => setConfirmRevokeMemberId(null)}
@@ -1549,14 +1565,14 @@ function TeamTab() {
                     ) : (
                       <span className="inline-flex items-center gap-1.5 justify-end">
                         <SettingsIconButton
-                          label="Manage access"
+                          label={t('settings.team.manageAccess')}
                           tone="violet"
                           onClick={() => setManaging(m)}
                         >
                           <SlidersIcon />
                         </SettingsIconButton>
                         <SettingsIconButton
-                          label="Revoke access"
+                          label={t('settings.team.revokeAccess')}
                           tone="danger"
                           onClick={() => setConfirmRevokeMemberId(m.id)}
                         >
@@ -1587,14 +1603,14 @@ function TeamTab() {
         <Card className="overflow-hidden">
           <div className="px-6 py-5 border-b border-slate-100 flex items-center gap-3">
             <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
-            <h2 className="text-[15px] font-semibold text-slate-900">Pending invitations</h2>
+            <h2 className="text-[15px] font-semibold text-slate-900">{t('settings.team.pendingInvites')}</h2>
           </div>
           <table className="w-full">
             <thead className="bg-slate-50/40 border-b border-slate-100">
               <tr>
-                <Th>Email</Th>
-                <Th>Permissions</Th>
-                <Th>Expires</Th>
+                <Th>{t('settings.team.thEmail')}</Th>
+                <Th>{t('settings.team.thPermissions')}</Th>
+                <Th>{t('settings.team.thExpires')}</Th>
                 <Th align="right">{''}</Th>
               </tr>
             </thead>
@@ -1609,7 +1625,7 @@ function TeamTab() {
                     <PermissionTags perms={inv} />
                   </td>
                   <td className="px-6 py-3.5 text-[12px] text-slate-500 num">
-                    {new Date(inv.expiresAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    {new Date(inv.expiresAt).toLocaleDateString(activeLocale(), { day: '2-digit', month: 'short', year: 'numeric' })}
                   </td>
                   <td className="px-6 py-3.5 text-right">
                     <InviteRowActions
@@ -1678,6 +1694,7 @@ function InviteRowActions({
   onConfirmRevoke: (id: string) => void
   onCancelRevoke: () => void
 }) {
+  const { t } = useTranslation()
   const confirming = confirmRevokeId === invite.id
   const revoking = revokingId === invite.id
   const justCopied = copiedInviteId === invite.id
@@ -1685,9 +1702,9 @@ function InviteRowActions({
   if (confirming) {
     return (
       <span className="inline-flex items-center gap-2 justify-end">
-        <span className="text-[11px] text-slate-600 whitespace-nowrap">Revoke {invite.email}?</span>
+        <span className="text-[11px] text-slate-600 whitespace-nowrap">{t('settings.team.revokeInvitePrompt', { email: invite.email })}</span>
         <SettingsIconButton
-          label={revoking ? 'Revoking…' : 'Confirm revoke'}
+          label={revoking ? t('settings.team.revoking') : t('settings.team.confirmRevoke')}
           tone="danger"
           disabled={revoking}
           onClick={() => onConfirmRevoke(invite.id)}
@@ -1695,7 +1712,7 @@ function InviteRowActions({
           {revoking ? <Spinner size={14} /> : <CheckIcon />}
         </SettingsIconButton>
         <SettingsIconButton
-          label="Cancel"
+          label={t('common.cancel')}
           tone="neutral"
           disabled={revoking}
           onClick={onCancelRevoke}
@@ -1710,7 +1727,7 @@ function InviteRowActions({
     <span className="inline-flex items-center gap-1.5 justify-end">
       {invite.token && (
         <SettingsIconButton
-          label={justCopied ? 'Copied' : 'Copy invite link'}
+          label={justCopied ? t('settings.team.copied') : t('settings.team.copyInviteLink')}
           tone={justCopied ? 'success' : 'violet'}
           onClick={() => onCopy(invite.token!, invite.id)}
         >
@@ -1718,7 +1735,7 @@ function InviteRowActions({
         </SettingsIconButton>
       )}
       <SettingsIconButton
-        label="Revoke invite"
+        label={t('settings.team.revokeInvite')}
         tone="danger"
         onClick={() => onRequestRevoke(invite.id)}
       >
@@ -1837,6 +1854,7 @@ function ManageAccessModal({
   onClose: () => void
   onSaved: (id: string, next: { title: string | null } & Permissions) => void
 }) {
+  const { t } = useTranslation()
   const [title, setTitle] = useState(member.title ?? '')
   const [perms, setPerms] = useState<Permissions>({
     canEditRoster: member.canEditRoster,
@@ -1859,7 +1877,7 @@ function ManageAccessModal({
         isWorkspaceAdmin: res.isWorkspaceAdmin,
       })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update access')
+      setError(err instanceof Error ? err.message : t('settings.team.failUpdateAccess'))
       setSaving(false)
     }
   }
@@ -1884,26 +1902,26 @@ function ManageAccessModal({
       >
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
           <div>
-            <h2 className="text-[16px] font-semibold text-slate-900">Manage access</h2>
+            <h2 className="text-[16px] font-semibold text-slate-900">{t('settings.team.manageTitle')}</h2>
             <p className="text-[12px] text-slate-500 mt-0.5">{member.fullName} · <span className="num">{member.email}</span></p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1 -m-1" aria-label="Close">
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1 -m-1" aria-label={t('roster.form.close')}>
             <CloseIcon />
           </button>
         </div>
         <div className="p-5 space-y-4">
           <label className="block">
-            <span className="meta-label block mb-1.5">Job Title (Optional)</span>
+            <span className="meta-label block mb-1.5">{t('settings.team.jobTitle')}</span>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Head of Finance"
+              placeholder={t('settings.team.jobTitlePlaceholder')}
               className="w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500"
             />
           </label>
           <div>
-            <span className="meta-label block mb-1.5">Permissions</span>
+            <span className="meta-label block mb-1.5">{t('settings.team.permissions')}</span>
             <PermissionToggles value={perms} onChange={setPerms} disabled={saving} />
           </div>
           {error && (
@@ -1913,10 +1931,10 @@ function ManageAccessModal({
           )}
         </div>
         <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-2">
-          <Button variant="outline" type="button" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button variant="outline" type="button" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
           <Button type="button" onClick={handleSave} disabled={saving}>
             {saving && <Spinner size={14} />}
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? t('common.saving') : t('common.save')}
           </Button>
         </div>
       </motion.div>
@@ -1925,6 +1943,7 @@ function ManageAccessModal({
 }
 
 function ActivityTab() {
+  const { t } = useTranslation()
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -1963,35 +1982,35 @@ function ActivityTab() {
           <div className="flex items-center gap-3">
             <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
             <div>
-              <h2 className="text-[15px] font-semibold text-slate-900">Activity Log</h2>
+              <h2 className="text-[15px] font-semibold text-slate-900">{t('settings.activity.title')}</h2>
               <p className="text-[12px] text-slate-500 mt-0.5">
-                Every mutation is captured here. Append-only — entries cannot be deleted.
+                {t('settings.activity.sub')}
               </p>
             </div>
           </div>
-          <span className="text-[12px] text-slate-400 num">{total} entries</span>
+          <span className="text-[12px] text-slate-400 num">{t('settings.activity.entries', { count: total })}</span>
         </div>
 
         {entries.length === 0 ? (
           <div className="p-12 text-center">
-            <p className="text-[14px] text-slate-500">No activity recorded yet.</p>
+            <p className="text-[14px] text-slate-500">{t('settings.activity.empty')}</p>
           </div>
         ) : (
           <table className="w-full">
             <thead className="bg-slate-50/40 border-b border-slate-100">
               <tr>
-                <Th>When</Th>
-                <Th>User</Th>
-                <Th>Action</Th>
-                <Th>Resource</Th>
-                <Th>Record ID</Th>
+                <Th>{t('settings.activity.thWhen')}</Th>
+                <Th>{t('settings.activity.thUser')}</Th>
+                <Th>{t('settings.activity.thAction')}</Th>
+                <Th>{t('settings.activity.thResource')}</Th>
+                <Th>{t('settings.activity.thRecordId')}</Th>
               </tr>
             </thead>
             <tbody>
               {entries.map((entry) => (
                 <tr key={entry.id} className="border-b border-slate-100 last:border-0 hover:bg-violet-50/40">
                   <td className="px-6 py-3 text-[12px] text-slate-500 num whitespace-nowrap">
-                    {new Date(entry.createdAt).toLocaleString('en-GB', {
+                    {new Date(entry.createdAt).toLocaleString(activeLocale(), {
                       day: '2-digit', month: 'short', year: 'numeric',
                       hour: '2-digit', minute: '2-digit',
                     })}
@@ -2001,11 +2020,11 @@ function ActivityTab() {
                   </td>
                   <td className="px-6 py-3">
                     <span className={cn('inline-block text-[11px] font-medium px-2 py-0.5 rounded-md uppercase tracking-wider', ACTION_COLOR[entry.action] ?? 'bg-slate-100 text-slate-700')}>
-                      {entry.action}
+                      {t(`settings.activity.action.${entry.action}`, { defaultValue: entry.action })}
                     </span>
                   </td>
                   <td className="px-6 py-3 text-[13px] text-slate-700">
-                    {TABLE_LABEL[entry.tableName] ?? entry.tableName}
+                    {t(`settings.activity.table.${entry.tableName}`, { defaultValue: TABLE_LABEL[entry.tableName] ?? entry.tableName })}
                   </td>
                   <td className="px-6 py-3 text-[11px] text-slate-400 num truncate max-w-[180px]">
                     {entry.recordId.slice(0, 8)}…
@@ -2024,15 +2043,15 @@ function ActivityTab() {
               disabled={page === 1}
               className="text-violet-600 hover:text-violet-700 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
             >
-              ← Previous
+              ← {t('settings.activity.previous')}
             </button>
-            <span className="text-slate-500 num">Page {page} of {totalPages}</span>
+            <span className="text-slate-500 num">{t('settings.activity.pageOf', { page, total: totalPages })}</span>
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
               className="text-violet-600 hover:text-violet-700 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
             >
-              Next →
+              {t('settings.activity.next')} →
             </button>
           </div>
         )}
@@ -2122,13 +2141,14 @@ function SquadCostsModeToggle({
   value: 'derived' | 'manual'
   onChange: (v: 'derived' | 'manual') => void
 }) {
+  const { t } = useTranslation()
   return (
     <div className="inline-flex bg-slate-100 rounded-lg p-1 w-full">
       <SegmentButton active={value === 'derived'} onClick={() => onChange('derived')}>
-        Derived from roster
+        {t('settings.squadMode.derived')}
       </SegmentButton>
       <SegmentButton active={value === 'manual'} onClick={() => onChange('manual')}>
-        Manual input
+        {t('settings.squadMode.manual')}
       </SegmentButton>
     </div>
   )

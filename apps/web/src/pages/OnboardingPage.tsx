@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation, Trans } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion'
 import { api, type OnboardingClub } from '@/lib/api'
@@ -81,6 +82,7 @@ const LEAGUES: LeagueMeta[] = [
 ]
 
 export function OnboardingPage() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const can = useCan()
   const { clubId, setClub } = useClubStore()
@@ -117,7 +119,7 @@ export function OnboardingPage() {
       const { clubs } = await api.onboarding.clubs(id)
       setClubs(clubs)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load clubs')
+      setError(e instanceof Error ? e.message : t('onboarding.toast.failedLoad'))
       setClubs([])
     } finally {
       setLoadingClubs(false)
@@ -140,14 +142,14 @@ export function OnboardingPage() {
       const res = await api.onboarding.complete(selectedId, replacing)
       if (clubId) setClub(clubId, res.club.name, res.club.leagueId, res.club.logoUrl, res.club.baseCurrency)
       toast.success(
-        replacing ? 'Club changed' : 'Squad pre-filled',
-        `${res.playersCreated} players imported for ${res.club.name}. Add their wages to finish.`,
+        replacing ? t('onboarding.toast.changed') : t('onboarding.toast.prefilled'),
+        t('onboarding.toast.body', { count: res.playersCreated, club: res.club.name }),
       )
       navigate('/roster')
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Failed to complete onboarding'
+      const msg = e instanceof Error ? e.message : t('onboarding.toast.failedComplete')
       setError(msg)
-      toast.error('Onboarding failed', msg)
+      toast.error(t('onboarding.toast.failedTitle'), msg)
       setSubmitting(false)
     }
     // On success we navigate away, so leave `submitting` true to keep the
@@ -158,13 +160,12 @@ export function OnboardingPage() {
     return (
       <div className="max-w-xl mx-auto">
         <Card className="p-10 text-center">
-          <p className="text-[15px] font-medium text-slate-900">Onboarding is CFO-only</p>
+          <p className="text-[15px] font-medium text-slate-900">{t('onboarding.cfoOnly.title')}</p>
           <p className="text-[13px] text-slate-500 mt-2">
-            Ask a CFO on your team to select your club, or build the roster manually on the
-            Roster page.
+            {t('onboarding.cfoOnly.body')}
           </p>
           <Button variant="secondary" className="mt-5" onClick={() => navigate('/roster')}>
-            Go to Roster
+            {t('onboarding.cfoOnly.cta')}
           </Button>
         </Card>
       </div>
@@ -185,28 +186,29 @@ export function OnboardingPage() {
       {/* Welcome header */}
       <div className="text-center mb-7">
         <h1 className="text-[26px] font-bold text-slate-900 tracking-tight">
-          {replacing ? 'Change your club' : 'Set up your club'}
+          {replacing ? t('onboarding.titleChange') : t('onboarding.titleSetup')}
         </h1>
         <p className="text-[13.5px] text-slate-500 mt-2 max-w-md mx-auto leading-relaxed">
-          Pick your club and we’ll instantly pre-fill the squad — players, positions, shirt numbers
-          and contracts. You just add the wages.
+          {t('onboarding.subtitle')}
         </p>
       </div>
 
       {/* Stepper */}
       <div className="flex items-center justify-center gap-2.5 mb-7">
-        <StepDot n={1} label="League" active={step === 1} done={step > 1} onClick={() => setStep(1)} />
+        <StepDot n={1} label={t('onboarding.stepLeague')} active={step === 1} done={step > 1} onClick={() => setStep(1)} />
         <span className={cn('h-px w-10 transition-colors', step > 1 ? 'bg-violet-300' : 'bg-slate-200')} />
-        <StepDot n={2} label="Club" active={step === 2} done={false} />
+        <StepDot n={2} label={t('onboarding.stepClub')} active={step === 2} done={false} />
       </div>
 
       {replacing && (
         <div className="mb-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
           <WarnIcon />
           <p className="text-[12.5px] text-amber-900 leading-relaxed">
-            Changing your club <span className="font-medium">wipes your current {existingCount}-player squad</span>{' '}
-            (players, contracts and head coach) and replaces it with the club you pick. Your financial
-            settings are kept.
+            <Trans
+              i18nKey="onboarding.warning"
+              count={existingCount}
+              components={{ b: <span className="font-medium" /> }}
+            />
           </p>
         </div>
       )}
@@ -250,20 +252,20 @@ export function OnboardingPage() {
                 onClick={() => setStep(1)}
                 className="inline-flex items-center gap-1 text-[13px] font-medium text-slate-500 hover:text-slate-900 transition-colors"
               >
-                <BackIcon /> Back
+                <BackIcon /> {t('onboarding.back')}
               </button>
               <div className="relative flex-1 max-w-xs">
                 <SearchIcon />
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search clubs…"
+                  placeholder={t('onboarding.searchPlaceholder')}
                   className="w-full h-9 pl-9 pr-3 text-sm rounded-lg border border-slate-200 bg-white shadow-sm placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:border-transparent"
                 />
               </div>
               {!loadingClubs && clubs.length > 0 && (
                 <span className="text-[12px] text-slate-400 num">
-                  {filtered.length} {filtered.length === 1 ? 'club' : 'clubs'}
+                  {t('onboarding.clubCount', { count: filtered.length })}
                 </span>
               )}
             </div>
@@ -272,19 +274,18 @@ export function OnboardingPage() {
               <ClubGridSkeleton />
             ) : clubs.length === 0 ? (
               <Card className="p-10 text-center">
-                <p className="text-[15px] font-medium text-slate-900">No clubs cached yet</p>
+                <p className="text-[15px] font-medium text-slate-900">{t('onboarding.noCached.title')}</p>
                 <p className="text-[13px] text-slate-500 mt-2 max-w-sm mx-auto">
-                  The roster library for this league hasn’t been synced. Run the monthly template
-                  sync, or build your squad manually on the Roster page.
+                  {t('onboarding.noCached.body')}
                 </p>
                 <Button variant="secondary" className="mt-5" onClick={() => navigate('/roster')}>
-                  Build manually
+                  {t('onboarding.noCached.cta')}
                 </Button>
               </Card>
             ) : filtered.length === 0 ? (
               <Card className="p-10 text-center">
-                <p className="text-[14px] font-medium text-slate-900">No clubs match “{search.trim()}”</p>
-                <p className="text-[13px] text-slate-500 mt-1.5">Try a different spelling.</p>
+                <p className="text-[14px] font-medium text-slate-900">{t('onboarding.noMatch', { query: search.trim() })}</p>
+                <p className="text-[13px] text-slate-500 mt-1.5">{t('onboarding.noMatchHint')}</p>
               </Card>
             ) : (
               <LayoutGroup>
@@ -317,13 +318,13 @@ export function OnboardingPage() {
                       <p className="text-[14px] font-semibold text-slate-900 truncate">{selected.name}</p>
                       <p className="text-[12px] text-slate-500">
                         {replacing
-                          ? `Replaces your ${existingCount}-player squad · wages start at £0`
-                          : 'Pre-fills the full squad · wages start at £0'}
+                          ? t('onboarding.confirmReplacing', { count: existingCount })
+                          : t('onboarding.confirmPrefill')}
                       </p>
                     </div>
                   </div>
                   <Button size="lg" onClick={complete} disabled={submitting} className="flex-shrink-0">
-                    {replacing ? 'Replace squad' : 'Pre-fill squad'}
+                    {replacing ? t('onboarding.replaceSquad') : t('onboarding.prefillSquad')}
                     <ArrowIcon />
                   </Button>
                 </motion.div>
@@ -339,6 +340,8 @@ export function OnboardingPage() {
 // ---------------------------------------------------------------------------
 
 function LeagueCard({ league, selected, onChoose }: { league: LeagueMeta; selected: boolean; onChoose?: () => void }) {
+  const { t } = useTranslation()
+  const tagline = t(`onboarding.leagueTagline.${league.id}`)
   // Roadmap teaser — non-interactive, desaturated, badged "Coming Soon". Renders
   // as a plain div (no button semantics) so it can't be clicked or focused, and
   // the whole card is dimmed with the UI Kit opacity utility.
@@ -358,16 +361,16 @@ function LeagueCard({ league, selected, onChoose }: { league: LeagueMeta; select
             className="h-14 w-auto object-contain"
           />
           <span className="rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium px-2.5 py-1 num">
-            {league.count} clubs
+            {t('onboarding.leagueClubs', { count: league.count })}
           </span>
         </div>
 
         <p className="mt-4 text-[17px] font-bold text-slate-900">{league.name}</p>
-        <p className="mt-1 text-[12.5px] text-slate-500">{league.tagline}</p>
+        <p className="mt-1 text-[12.5px] text-slate-500">{tagline}</p>
 
         <span className="mt-5 inline-flex items-center gap-1.5 rounded-full bg-slate-100 text-slate-500 text-[11px] font-semibold px-2.5 py-1">
           <LockIcon />
-          Coming Soon
+          {t('onboarding.comingSoon')}
         </span>
       </div>
     )
@@ -393,15 +396,15 @@ function LeagueCard({ league, selected, onChoose }: { league: LeagueMeta; select
           className="h-14 w-auto object-contain"
         />
         <span className="rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium px-2.5 py-1 num">
-          {league.count} clubs
+          {t('onboarding.leagueClubs', { count: league.count })}
         </span>
       </div>
 
       <p className="mt-4 text-[17px] font-bold text-slate-900">{league.name}</p>
-      <p className="mt-1 text-[12.5px] text-slate-500">{league.tagline}</p>
+      <p className="mt-1 text-[12.5px] text-slate-500">{tagline}</p>
 
       <span className="mt-5 inline-flex items-center gap-1.5 text-[13px] font-semibold text-violet-600 transition-all group-hover:gap-2.5">
-        Choose this league
+        {t('onboarding.chooseLeague')}
         <ArrowIcon />
       </span>
     </button>
@@ -460,7 +463,8 @@ function ClubGridSkeleton() {
 // then the route changes to /roster. A short staged checklist makes the import
 // feel tangible even though it's a single request.
 function ImportingState({ club, replacing }: { club: OnboardingClub; replacing: boolean }) {
-  const steps = ['Importing players & positions', 'Building contracts & book values', 'Finishing up your squad']
+  const { t } = useTranslation()
+  const steps = [t('onboarding.importing.step1'), t('onboarding.importing.step2'), t('onboarding.importing.step3')]
   return (
     <Card className="p-12 text-center">
       <div className="relative inline-flex items-center justify-center">
@@ -471,9 +475,9 @@ function ImportingState({ club, replacing }: { club: OnboardingClub; replacing: 
       </div>
 
       <p className="mt-6 text-[17px] font-bold text-slate-900">
-        {replacing ? 'Replacing your squad…' : `Pre-filling ${club.name}`}
+        {replacing ? t('onboarding.importing.replacing') : t('onboarding.importing.prefilling', { club: club.name })}
       </p>
-      <p className="mt-1.5 text-[13px] text-slate-500">This only takes a moment.</p>
+      <p className="mt-1.5 text-[13px] text-slate-500">{t('onboarding.importing.moment')}</p>
 
       <div className="mt-7 mx-auto max-w-xs space-y-2.5 text-left">
         {steps.map((s, i) => (

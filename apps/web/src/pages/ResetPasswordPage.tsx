@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -7,16 +9,17 @@ import { Spinner } from '@/components/ui/spinner'
 const INPUT = 'w-full px-3 py-2.5 text-sm text-slate-900 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent'
 
 // Mirrors the backend PasswordSchema — returns the first unmet rule, or null.
-function passwordIssue(pw: string): string | null {
-  if (pw.length < 8) return 'Must be at least 8 characters'
-  if (!/[A-Z]/.test(pw)) return 'Must contain an uppercase letter'
-  if (!/[a-z]/.test(pw)) return 'Must contain a lowercase letter'
-  if (!/[0-9]/.test(pw)) return 'Must contain a number'
-  if (!/[^A-Za-z0-9]/.test(pw)) return 'Must contain a special character'
+function passwordIssue(pw: string, t: TFunction): string | null {
+  if (pw.length < 8) return t('auth.reset.issue.min8')
+  if (!/[A-Z]/.test(pw)) return t('auth.reset.issue.upper')
+  if (!/[a-z]/.test(pw)) return t('auth.reset.issue.lower')
+  if (!/[0-9]/.test(pw)) return t('auth.reset.issue.number')
+  if (!/[^A-Za-z0-9]/.test(pw)) return t('auth.reset.issue.special')
   return null
 }
 
 export function ResetPasswordPage() {
+  const { t } = useTranslation()
   const [search] = useSearchParams()
   const navigate = useNavigate()
   const token = search.get('token') ?? ''
@@ -30,15 +33,15 @@ export function ResetPasswordPage() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    const issue = passwordIssue(password)
+    const issue = passwordIssue(password, t)
     if (issue) { setError(issue); return }
-    if (password !== confirm) { setError("Passwords don't match"); return }
+    if (password !== confirm) { setError(t('validation.passwordMatch')); return }
     setLoading(true)
     try {
       await api.auth.resetPassword(token, password)
       setDone(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to reset password')
+      setError(err instanceof Error ? err.message : t('auth.reset.failed'))
     } finally {
       setLoading(false)
     }
@@ -66,25 +69,25 @@ export function ResetPasswordPage() {
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-7">
           {!token ? (
             <div className="flex flex-col gap-4">
-              <p className="text-sm font-medium text-slate-900">Invalid reset link</p>
+              <p className="text-sm font-medium text-slate-900">{t('auth.reset.invalidLinkTitle')}</p>
               <p className="text-[13px] text-slate-500">
-                This link is missing its token. Request a new password reset from the sign-in screen.
+                {t('auth.reset.invalidLinkBody')}
               </p>
-              <Link to="/login" className="text-[13px] text-violet-600 hover:text-violet-700 font-medium">← Back to sign in</Link>
+              <Link to="/login" className="text-[13px] text-violet-600 hover:text-violet-700 font-medium">← {t('auth.backToSignIn')}</Link>
             </div>
           ) : done ? (
             <div className="flex flex-col gap-5">
               <div>
-                <p className="text-sm font-medium text-slate-900 mb-1">Password updated</p>
-                <p className="text-[13px] text-slate-500">You can now sign in with your new password.</p>
+                <p className="text-sm font-medium text-slate-900 mb-1">{t('auth.reset.updatedTitle')}</p>
+                <p className="text-[13px] text-slate-500">{t('auth.reset.updatedBody')}</p>
               </div>
-              <Button className="w-full" onClick={() => navigate('/login')}>Go to sign in</Button>
+              <Button className="w-full" onClick={() => navigate('/login')}>{t('auth.reset.goToSignIn')}</Button>
             </div>
           ) : (
             <form onSubmit={submit} className="flex flex-col gap-4">
               <div>
-                <p className="text-sm font-medium text-slate-900 mb-1">Choose a new password</p>
-                <p className="text-[13px] text-slate-500">Min 8 chars · uppercase · lowercase · number · special character.</p>
+                <p className="text-sm font-medium text-slate-900 mb-1">{t('auth.reset.chooseTitle')}</p>
+                <p className="text-[13px] text-slate-500">{t('auth.reset.chooseSubtitle')}</p>
               </div>
 
               {error && (
@@ -94,19 +97,19 @@ export function ResetPasswordPage() {
               )}
 
               <label className="block">
-                <span className="meta-label block mb-2">New Password</span>
+                <span className="meta-label block mb-2">{t('auth.reset.newPassword')}</span>
                 <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" autoComplete="new-password" className={INPUT} />
               </label>
               <label className="block">
-                <span className="meta-label block mb-2">Confirm New Password</span>
+                <span className="meta-label block mb-2">{t('auth.reset.confirmNewPassword')}</span>
                 <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="••••••••" autoComplete="new-password" className={INPUT} />
               </label>
 
               <Button type="submit" className="w-full mt-1" disabled={loading || !password || !confirm}>
                 {loading && <Spinner size={14} />}
-                {loading ? 'Updating…' : 'Reset password'}
+                {loading ? t('auth.reset.updating') : t('auth.reset.submit')}
               </Button>
-              <Link to="/login" className="text-[13px] text-slate-500 hover:text-slate-700 text-center">← Back to sign in</Link>
+              <Link to="/login" className="text-[13px] text-slate-500 hover:text-slate-700 text-center">← {t('auth.backToSignIn')}</Link>
             </form>
           )}
         </div>
