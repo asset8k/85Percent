@@ -3180,3 +3180,14 @@ build step, no second port). Run: `pnpm --filter @headroom/admin dev`.
 - **Verified**: 4-locale parity check (1015 each), `tsc --noEmit` clean,
   `vite build` OK, engine tests 119/119. The Spanish/French/Italian apps are
   fully translated; English remains the source & fallback.
+
+### Shipped — i18n committed & pushed
+- Committed all four locale files (1015 keys each, full parity) + every page/
+  component wired with `t()`/`<Trans>` + UI primitives, as **`b37aff2`**
+  ("i18n: full app translations for Spanish, French & Italian"), pushed
+  `a83cd6c..b37aff2 main -> main`.
+- 29 files staged by explicit path (`apps/web/src` + `BUILD_LOG.md`); no `.env`
+  staged. Pre-push checks green: tsc clean, vite build OK, engine tests 119/119,
+  4-locale parity (en/es/fr/it = 1015 keys, 0 missing / 0 extra).
+- Net result: the entire app ships in English (source/fallback), Spanish,
+  French and Italian, switchable from Settings → Interface Language.
