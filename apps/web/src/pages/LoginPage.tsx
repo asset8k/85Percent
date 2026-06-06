@@ -101,7 +101,7 @@ export function LoginPage() {
 
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <Wordmark size={28} />
+          <Wordmark size={42} markScale={1.25} gap={8} />
           <p className="mt-3 text-sm text-slate-500 text-center">{t('auth.tagline')}</p>
         </div>
 

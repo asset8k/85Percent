@@ -3319,3 +3319,86 @@ valid JS identifier — and (b) corrupt domain copy. So the rebrand was scoped
 
 **Verified:** typecheck (7/7), build (5/5, web vite OK), engine 119/119, API
 scripts 61/61 (incl. prompt brand assertion), locales valid + parity (1015 each).
+
+---
+
+## 2026-06-06 — Brand logo: real "85" mark integrated (favicon + Wordmark)
+
+Replaced the interim typography logo with the finalized design-team mark from
+`design/Logo/85Percent Logo.html` (rendered by `design/Logo/mark85.js`): a
+monoline, hexagonally-constructed "85" with a vertical, symmetric violet
+gradient — outer tips dissolve to white, materialising inward to the brand
+core `#6D28D9`, then fading back to white at the bottom anchors. One free end
+(the 5's bottom-left stub) fades into the surface via its own gradient.
+
+- **New `Mark85` component** (`apps/web/src/components/ui/Mark85.tsx`) — a faithful
+  React/SVG port of the source geometry + "gradient" palette. `size` = mark
+  height (px); stroke is optically scaled exactly as the source
+  (`max(2.4, 7·h/300 + 1.6)`); gradient ids are per-instance via `useId` to avoid
+  DOM collisions; `fadeTo` matches the surface behind the mark.
+- **`Wordmark` rebuilt as logo Option 2** — `Mark85` + "Percent" in **Space
+  Grotesk 400** (`#1E293B`, tracking −0.015em), word size & gap derived from the
+  mark height to hold the design proportions. Rendered as a **clickable but inert
+  control** (`<button>`, hover/focus affordance, no navigation yet — wire `onClick`
+  or a router link when the marketing landing exists). Used in Sidebar (size 28,
+  top-left) and LoginPage (size 42), the two placements the user specified.
+- **Favicon** (`apps/web/public/favicon.svg`) = logo Option 1 (standalone mark)
+  on a white rounded tile, geometry baked + stroke thickened for legibility at
+  16–32px.
+- **Space Grotesk** added to the Google Fonts `<link>` in `index.html` (alongside
+  Inter + JetBrains Mono).
+- The financial "headroom" term, `@headroom/*` scope and storage keys remain
+  untouched (see prior entry).
+
+**Verified:** web typecheck clean; web build OK (vite, 2761 modules); favicon
+rasterised at 16/32/64/128 (reads as the violet "85"); wordmark lockup rendered
+in Chrome at sidebar/login sizes on white + slate-50 (Space Grotesk loads, tips
+dissolve cleanly, mark leads "Percent" per the design).
+
+**Favicon follow-up (same day):** at 16–32px the large mark's white-fading tips
+made the "85" nearly invisible. Reworked the favicon (`apps/web/public/favicon.svg`)
+to a favicon-specific build — gradient kept in visible violets (`#8B5CF6`→`#6D28D9`
+→`#5B21B6`, no white fade), thicker stroke, and the mark enlarged in the tile —
+so it reads boldly. Verified at 16/32/48 in simulated light + dark browser tabs.
+
+**Favicon = Option 1 mark at the in-app bold weight (next day):** per user, the
+favicon now uses logo Option 1 ("The mark") geometry + the symmetric
+white→violet→white gradient from `design/Logo/85Percent Logo.html`, but with the
+stroke set to match the on-screen Wordmark "85" (Mark85 `strokeScale=8` at the
+login lockup → 22.6 mark-space units) instead of the native thin 6.967. So the
+favicon's boldness is identical to the in-app 85Percent logo. Centered on a white
+rounded tile; verified at 16/32/64/128 in light + dark tabs — reads well and
+matches the logo. (Interim states this session: bolder favicon-specific build →
+faithful thin Option 1 → this, the bold Option 1.)
+
+**Wordmark "85" weight (same day):** the in-app lockup's mark read too thin at
+sidebar/login sizes. Added a stroke-weight knob to `Mark85`; "Percent" unchanged.
+Final: replaced the `strokeScale` multiplier with an **absolute `strokeWidth`**
+(mark-space units, the 440×420 viewBox) so the same value gives proportionally
+identical boldness at any size, and set `strokeWidth={16.95}` in `Wordmark`
+(= base 2.825 × 6, matching the LinkedIn export). Both registration and sidebar
+"85" now carry that exact weight. (Favicon is a separate static asset, currently
+at 22.6/8×.)
+
+**Wordmark zoom (same day):** decoupled mark vs word scale. Added a `markScale`
+prop to `Wordmark` — the word ("Percent") and gap derive from the base `size`,
+while `markScale` scales only the "85" mark. Final: the two placements differ.
+both placements share the "85" 1.25× / "Percent" 1× ratio.
+- **Sidebar** `size={31.5} markScale={1.25} gap={6}` (25% smaller than login).
+- **LoginPage** `size={42} markScale={1.25} gap={8}`.
+(`size` carries the word scale, `markScale` the extra mark scale; `gap` absolute.)
+Both fit their placements (sidebar in the 240px/64px header).
+
+**Equal gap (same day):** added an optional absolute `gap` prop to `Wordmark`
+(defaults to proportional `markHeight×0.18`); pinned to `gap={8}` so the
+mark↔"Percent" spacing is identical across pages.
+
+(History: scales went whole-block 1.5×→1.25×, then decoupled to sidebar 1.5×/1.25×
+& login 1.25×/1×, then unified to 1.25×/1× on both.)
+
+**Logo folder cleanup (pre-push):** pruned `design/Logo/` to the essentials —
+kept `85Percent Logo.html` (canonical lockups), `mark85.js` (mark source of truth,
+referenced by the HTML + app code comments), and `exports/` (LinkedIn logo + cover
+PNGs). Removed outdated marks & iteration artifacts (`85 Mark.html`,
+`85 Mark build.html`, `85Percent Brand Identity.html`, `design-canvas.jsx`,
+`logo-marks.jsx`, `screenshots/`, `uploads/`, `.DS_Store`).

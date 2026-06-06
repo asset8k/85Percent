@@ -170,7 +170,7 @@ export function Sidebar() {
     <aside className="w-[240px] flex-shrink-0 h-screen border-r border-slate-200 bg-white flex flex-col sticky top-0">
       {/* Logo */}
       <div className="h-16 flex items-center px-5 border-b border-slate-100">
-        <Wordmark size={20} />
+        <Wordmark size={31.5} markScale={1.25} gap={6} />
       </div>
 
       {/* Navigation */}
