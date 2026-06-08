@@ -39,6 +39,15 @@ interface ClubState {
    * proceed with whatever scenarios we have rather than blocking forever).
    */
   scenariosLoaded: boolean
+  /**
+   * Whether financials for the current club/season have finished their first
+   * load. Distinct from `financials === null`, which is ALSO the "no row
+   * configured yet" state — without this flag the Dashboard can't tell "still
+   * loading" from "genuinely unconfigured", and briefly flashes its setup
+   * empty-state before the financials land. Set true once the fetch settles
+   * (a value OR null), via setFinancials.
+   */
+  financialsLoaded: boolean
 
   // logoUrl is optional — omit it to leave the current crest untouched (e.g. on
   // a league switch that shouldn't clear the logo). baseCurrency is likewise
@@ -71,6 +80,7 @@ export const useClubStore = create<ClubState>()((set) => ({
   financials: null,
   scenarios: [],
   scenariosLoaded: false,
+  financialsLoaded: false,
 
   setClub: (id, name, leagueId, logoUrl, baseCurrency) =>
     set((state) => ({
@@ -87,7 +97,15 @@ export const useClubStore = create<ClubState>()((set) => ({
   // RosterPage on every visit); without this guard each set churns the object
   // reference, re-firing the TopBar SCR effect and flashing its loading pill.
   setFinancials: (f) =>
-    set((state) => (sameJSON(state.financials, f) ? {} : { financials: f })),
+    set((state) =>
+      sameJSON(state.financials, f)
+        ? // Value unchanged — still record that the first load has settled so the
+          // Dashboard can leave its loading state (and not flash the setup card).
+          state.financialsLoaded
+          ? {}
+          : { financialsLoaded: true }
+        : { financials: f, financialsLoaded: true },
+    ),
   setScenarios: (scenarios) =>
     set((state) =>
       sameJSON(state.scenarios, scenarios)

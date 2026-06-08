@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { createPortal } from 'react-dom'
 import { Link, Outlet, useLocation } from 'react-router-dom'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { Sidebar } from './Sidebar'
 import { NotificationBell } from './NotificationBell'
 import { useClubStore } from '@/stores/club'
@@ -45,6 +45,7 @@ export function AppLayout() {
   const { clubName, financials, scenarios, scenariosLoaded, setScenarios, setScenariosLoaded } = useClubStore()
   const seasonStartYear = useSeasonStore((s) => s.startYear)
   const location = useLocation()
+  const reduceMotion = useReducedMotion()
 
   // Current user identity for the top-right account chip.
   const me = useMe()
@@ -167,20 +168,22 @@ export function AppLayout() {
 
         <main className="flex-1 px-8 py-8">
           <div className="max-w-[1280px] mx-auto">
-            {/* Route transition: fade + tiny lift. Keyed on the first path
-                segment so navigating between sub-routes within the same page
-                doesn't trigger a full remount animation. */}
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.div
-                key={firstSegment}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-              >
-                <Outlet />
-              </motion.div>
-            </AnimatePresence>
+            {/* Route transition: a single, calm fade + gentle rise on the new
+                page. Keyed on the first path segment so it plays on tab switches
+                (not sub-route changes within a page). We deliberately avoid an
+                exit animation + `mode="wait"` — those add a gap and an up/down
+                jolt; remounting the keyed element lets the incoming page ease in
+                on its own. The smooth, evenly-paced curve (no fast-start expo)
+                keeps a pre-loaded tab from snapping into place. Honours the OS
+                "reduce motion" setting by dropping the movement. */}
+            <motion.div
+              key={firstSegment}
+              initial={{ opacity: 0, y: reduceMotion ? 0 : 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45, ease: [0.25, 0.1, 0.25, 1] }}
+            >
+              <Outlet />
+            </motion.div>
           </div>
         </main>
 

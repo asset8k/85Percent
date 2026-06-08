@@ -9,9 +9,9 @@
  * present on a 200.
  */
 
-import { useEffect, useState } from 'react'
-import { api, type LeagueTableResponse, type LeagueTableRow } from '@/lib/api'
+import { type LeagueTableResponse, type LeagueTableRow } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
+import { useLeagueTableQuery } from '@/lib/queries'
 
 // Normalise a team name for fuzzy matching between our club record and the
 // sports-API naming ("Arsenal" vs "Arsenal FC" vs "AFC Bournemouth"). Strips
@@ -53,24 +53,20 @@ export interface UseLeagueTableResult {
 
 export function useLeagueTable(): UseLeagueTableResult {
   const clubName = useClubStore((s) => s.clubName)
-  const [data, setData] = useState<LeagueTableResponse | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [nonce, setNonce] = useState(0)
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-    api.leagueTable
-      .get()
-      .then((res) => { if (!cancelled) setData(res) })
-      .catch((e: Error) => { if (!cancelled) setError(e.message) })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [nonce])
-
+  // Backed by the shared QueryClient cache (above the router): the standings
+  // survive tab switches, so revisiting the Dashboard or League Table is instant.
+  // `loading` is the genuine first-load only (isPending) — a stale background
+  // refresh keeps the existing table on screen.
+  const query = useLeagueTableQuery()
+  const data = query.data ?? null
+  const error = query.error instanceof Error ? query.error.message : null
   const clubRowIndex = data ? findClubRow(data.standings, clubName) : -1
 
-  return { data, loading, error, clubRowIndex, reload: () => setNonce((n) => n + 1) }
+  return {
+    data,
+    loading: query.isPending,
+    error,
+    clubRowIndex,
+    reload: () => { void query.refetch() },
+  }
 }

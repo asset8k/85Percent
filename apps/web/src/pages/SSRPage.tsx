@@ -12,7 +12,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation, Trans } from 'react-i18next'
 import { Link } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import {
+  useSsrWorkingCapitalQuery,
+  useSsrLiquidityQuery,
+  useSsrEquityQuery,
+  queryKeys,
+} from '@/lib/queries'
 import { useClubStore } from '@/stores/club'
 import { useSeasonStore, seasonKey } from '@/stores/season'
 import { activeLocale, formatNumber } from '@/lib/locale'
@@ -157,8 +164,12 @@ function WorkingCapitalTab() {
   const seasonStartYear = useSeasonStore((s) => s.startYear)
   const SEASON = seasonKey(seasonStartYear)
   const MONTHS_OF_SEASON = useMemo(() => monthsOfSeason(seasonStartYear), [seasonStartYear, i18n.language])
-  const [data, setData] = useState<WorkingCapitalResponse | null>(null)
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  // Season-keyed + cached above the router: returning to this tab (or flipping
+  // back to a season already loaded) is instant — no re-fetch, no skeleton.
+  const query = useSsrWorkingCapitalQuery(SEASON)
+  const data = query.data ?? null
+  const loadError = query.isError ? t('ssr.wc.failLoad') : ''
   const [error, setError] = useState('')
 
   // Local edit buffer: yearMonth -> { cashflowPounds, fundsPounds, dirty, saving }
@@ -169,31 +180,21 @@ function WorkingCapitalTab() {
     saving: boolean
   }>>({})
 
-  const refresh = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const result = await api.ssr.getWorkingCapital(SEASON)
-      setData(result)
-      // Hydrate edit buffer from server state
-      const next: typeof edits = {}
-      for (const r of result.rows) {
-        next[r.yearMonth] = {
-          cashflowPounds: Math.round(r.adjustedCashflowPence / 100),
-          fundsPounds:    Math.round(r.qualifyingFundsPence / 100),
-          dirty: false,
-          saving: false,
-        }
+  // Seed the edit buffer from server state whenever the cached data arrives or
+  // refreshes (initial load, season switch, post-save refetch).
+  useEffect(() => {
+    if (!query.data) return
+    const next: Record<string, { cashflowPounds: number; fundsPounds: number; dirty: boolean; saving: boolean }> = {}
+    for (const r of query.data.rows) {
+      next[r.yearMonth] = {
+        cashflowPounds: Math.round(r.adjustedCashflowPence / 100),
+        fundsPounds:    Math.round(r.qualifyingFundsPence / 100),
+        dirty: false,
+        saving: false,
       }
-      setEdits(next)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t('ssr.wc.failLoad'))
-    } finally {
-      setLoading(false)
     }
-  }
-
-  useEffect(() => { refresh() }, [seasonStartYear]) // eslint-disable-line react-hooks/exhaustive-deps
+    setEdits(next)
+  }, [query.data])
 
   const setField = (ym: string, key: 'cashflowPounds' | 'fundsPounds', value: number) => {
     setEdits((prev) => {
@@ -214,14 +215,14 @@ function WorkingCapitalTab() {
         adjustedCashflowPence: Math.round(row.cashflowPounds * 100),
         qualifyingFundsPence:  Math.round(row.fundsPounds * 100),
       })
-      await refresh()
+      await queryClient.invalidateQueries({ queryKey: queryKeys.ssrWorkingCapital(SEASON) })
     } catch (e) {
       setError(e instanceof Error ? e.message : t('ssr.wc.failSave'))
       setEdits((p) => ({ ...p, [ym]: { ...row, saving: false } }))
     }
   }
 
-  if (loading) return <FormPageSkeleton />
+  if (query.isPending) return <FormPageSkeleton />
 
   const evaluation = data?.evaluation ?? null
   const rowsByMonth = new Map<string, number>()
@@ -237,7 +238,7 @@ function WorkingCapitalTab() {
 
   return (
     <div className="space-y-5">
-      {error && <ErrorCard message={error} />}
+      {(error || loadError) && <ErrorCard message={error || loadError} />}
 
       <TestResultBanner
         status={status}
@@ -374,32 +375,25 @@ function LiquidityTab() {
   const { format: fmtMoney, symbol } = useWorkspaceCurrency()
   const seasonStartYear = useSeasonStore((s) => s.startYear)
   const SEASON = seasonKey(seasonStartYear)
-  const [data, setData] = useState<LiquidityResponse | null>(null)
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  // Season-keyed, cached above the router — instant on tab revisit.
+  const query = useSsrLiquidityQuery(SEASON)
+  const data = query.data ?? null
+  const loadError = query.isError ? t('ssr.liquidity.failLoad') : ''
   const [error, setError] = useState('')
   const [assets, setAssets] = useState(NaN)
   const [liabilities, setLiabilities] = useState(NaN)
   const [marketValue, setMarketValue] = useState(NaN)
   const [saving, setSaving] = useState(false)
 
-  const load = async () => {
-    setLoading(true)
-    try {
-      const result = await api.ssr.getLiquidity(SEASON)
-      setData(result)
-      if (result.row) {
-        setAssets(Math.round(result.row.liquidAssetsPence / 100))
-        setLiabilities(Math.round(result.row.liquidLiabilitiesPence / 100))
-        setMarketValue(Math.round(result.row.squadMarketValuePence / 100))
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t('ssr.liquidity.failLoad'))
-    } finally {
-      setLoading(false)
+  // Seed the form from server state when the cached data arrives/refreshes.
+  useEffect(() => {
+    if (query.data?.row) {
+      setAssets(Math.round(query.data.row.liquidAssetsPence / 100))
+      setLiabilities(Math.round(query.data.row.liquidLiabilitiesPence / 100))
+      setMarketValue(Math.round(query.data.row.squadMarketValuePence / 100))
     }
-  }
-
-  useEffect(() => { load() }, [seasonStartYear]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query.data])
 
   const save = async () => {
     if (![assets, liabilities, marketValue].every(Number.isFinite)) return
@@ -412,7 +406,7 @@ function LiquidityTab() {
         liquidLiabilitiesPence: Math.round(liabilities * 100),
         squadMarketValuePence:  Math.round(marketValue * 100),
       })
-      await load()
+      await queryClient.invalidateQueries({ queryKey: queryKeys.ssrLiquidity(SEASON) })
     } catch (e) {
       setError(e instanceof Error ? e.message : t('ssr.liquidity.failSave'))
     } finally {
@@ -432,7 +426,7 @@ function LiquidityTab() {
     return { effective, net, headroom, passing: headroom >= 0 }
   }, [assets, liabilities, marketValue])
 
-  if (loading) return <FormPageSkeleton />
+  if (query.isPending) return <FormPageSkeleton />
 
   const evalServer = data?.evaluation ?? null
   const passing = evalServer?.passing ?? preview?.passing ?? null
@@ -440,7 +434,7 @@ function LiquidityTab() {
 
   return (
     <div className="space-y-5">
-      {error && <ErrorCard message={error} />}
+      {(error || loadError) && <ErrorCard message={error || loadError} />}
 
       <TestResultBanner
         status={status}
@@ -525,30 +519,23 @@ function EquityTab() {
   const { t } = useTranslation()
   const seasonStartYear = useSeasonStore((s) => s.startYear)
   const SEASON = seasonKey(seasonStartYear)
-  const [data, setData] = useState<EquityResponse | null>(null)
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  // Season-keyed, cached above the router — instant on tab revisit.
+  const query = useSsrEquityQuery(SEASON)
+  const data = query.data ?? null
+  const loadError = query.isError ? t('ssr.equity.failLoad') : ''
   const [error, setError] = useState('')
   const [liabilities, setLiabilities] = useState(NaN)
   const [adjustedAssets, setAdjustedAssets] = useState(NaN)
   const [saving, setSaving] = useState(false)
 
-  const load = async () => {
-    setLoading(true)
-    try {
-      const result = await api.ssr.getEquity(SEASON)
-      setData(result)
-      if (result.row) {
-        setLiabilities(Math.round(result.row.totalLiabilitiesPence / 100))
-        setAdjustedAssets(Math.round(result.row.adjustedAssetsPence / 100))
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t('ssr.equity.failLoad'))
-    } finally {
-      setLoading(false)
+  // Seed the form from server state when the cached data arrives/refreshes.
+  useEffect(() => {
+    if (query.data?.row) {
+      setLiabilities(Math.round(query.data.row.totalLiabilitiesPence / 100))
+      setAdjustedAssets(Math.round(query.data.row.adjustedAssetsPence / 100))
     }
-  }
-
-  useEffect(() => { load() }, [seasonStartYear]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query.data])
 
   const save = async () => {
     if (!Number.isFinite(liabilities) || !Number.isFinite(adjustedAssets)) return
@@ -560,7 +547,7 @@ function EquityTab() {
         totalLiabilitiesPence: Math.round(liabilities * 100),
         adjustedAssetsPence:   Math.round(adjustedAssets * 100),
       })
-      await load()
+      await queryClient.invalidateQueries({ queryKey: queryKeys.ssrEquity(SEASON) })
     } catch (e) {
       setError(e instanceof Error ? e.message : t('ssr.equity.failSave'))
     } finally {
@@ -576,7 +563,7 @@ function EquityTab() {
     return { ratio, passing: ratio <= threshold, marginPp: (threshold - ratio) * 100 }
   }, [liabilities, adjustedAssets, threshold])
 
-  if (loading) return <FormPageSkeleton />
+  if (query.isPending) return <FormPageSkeleton />
 
   const evalServer = data?.evaluation ?? null
   const passing = evalServer?.passing ?? preview?.passing ?? null
@@ -584,7 +571,7 @@ function EquityTab() {
 
   return (
     <div className="space-y-5">
-      {error && <ErrorCard message={error} />}
+      {(error || loadError) && <ErrorCard message={error || loadError} />}
 
       <TestResultBanner
         status={status}

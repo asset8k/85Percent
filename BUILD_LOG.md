@@ -3437,3 +3437,76 @@ shared.
 **Not changed (note):** admin panel still tops up a *specific* user — to refill
 a workspace, top up its owner (guest balances are now never read). `tsc --noEmit`
 clean.
+
+---
+
+## Frontend caching — instant tab switching (no re-shimmer)
+
+**Problem:** tabs are React Router routes, so each navigation unmounted the page
+and its `useEffect` re-ran a fresh Supabase fetch behind a 3–4s skeleton — every
+single switch, even when the data was unchanged.
+
+**Fix:** TanStack Query (`@tanstack/react-query` v5). The QueryClient cache lives
+ABOVE the router (main.tsx `QueryClientProvider`), so server data survives the
+page unmount/remount. Skeletons now gate on `isPending` (genuine first load, no
+cache) — a stale-while-revalidate background refresh is `isFetching` and keeps
+the existing data on screen.
+
+- `src/lib/queryClient.ts` — client defaults: staleTime 5m (revisits within 5m
+  don't refetch at all → truly instant), gcTime 30m, refetchOnWindowFocus off,
+  retry 1.
+- `src/lib/queries.ts` — query-key factory + per-fetch hooks (roster, archived,
+  manager, financials(season), scenario details, league table, SSR
+  wc/liquidity/equity). Error-tolerant fetches (manager, financials) resolve to
+  null, mirroring the old `.catch(() => null)`.
+- Pages refactored: Dashboard, Roster, Scenarios, SSR (3 tabs), Calendar; and
+  `useLeagueTable` now wraps the query internally (same return shape → Dashboard
+  + LeagueTable unchanged at call sites). Each: local `useState(loading)`+effect
+  fetch → query hook; skeleton on `isPending`.
+- Mutations invalidate the matching query key so a revisit reflects server state:
+  Roster (`refresh()` now invalidates roster/archived/manager/financials);
+  Scenarios (create/delete/toggle-include); SSR saves (per-season key). The
+  zustand club store still receives financials/scenarios via sync effects so the
+  TopBar SCR pill keeps working.
+
+**Not converted:** ClubSetup (Settings) sub-sections still fetch on mount — a
+low-traffic settings tab, outside the daily-workflow shimmer; optional follow-up.
+
+**Verified:** `tsc --noEmit` clean, `pnpm build` succeeds, app boots headless
+with the provider (login renders, no runtime errors). Authenticated tab
+click-through left to manual QA (needs API + login).
+
+---
+
+## State-update fix — cache no longer clobbers optimistic store writes
+
+**Bug:** after the caching refactor, toggling a scenario's include switch (or
+editing financials in Settings) could revert on tab switch — the page showed
+stale state. Cause: I added effects that **re-seeded the zustand store from the
+TanStack Query cache on every change/remount**. On revisit the cache is served
+before any refetch, so a stale cached copy overwrote the just-made optimistic
+update.
+
+**Principle applied:** data that is mutated optimistically and shared across tabs
+lives in the **zustand store as the single source of truth** (it already persists
+across tab switches). Query is used only to *seed* the store on first load — never
+to re-clobber it afterwards.
+
+- **ScenariosPage** — seed the store from `scenarioDetails` query only when
+  `!scenariosLoaded` (first load); skeleton now gates on the store's
+  `scenariosLoaded` (instant revisits, independent of query GC); removed the
+  post-mutation `invalidateQueries` on create/delete/toggle. Optimistic
+  `setScenarioInclusion` + server persistence are authoritative; the server does
+  round-trip `is_included`, and AppLayout's financials-triggered reload keeps it
+  fresh.
+- **RosterPage** — dropped the financials query + its sync effect (same clobber
+  class: a Settings financials edit could be reverted from stale cache). Roster
+  /archived/manager stay query-owned (read directly, no store). After a roster
+  mutation, financials are refreshed once imperatively into the store
+  (`setFinancials(await api.club.getFinancials(season))`).
+- Removed the now-dead `useFinancialsQuery` hook + `financials` query key.
+
+**Audited & OK (no clobber):** Dashboard (players from shared roster query;
+scenarios/financials from store; own toggle is store-optimistic, no refetch),
+SSR tabs (per-season editable forms, reseed-after-save matches prior behaviour),
+League Table & Calendar (read-only). `tsc` clean, `pnpm build` succeeds.

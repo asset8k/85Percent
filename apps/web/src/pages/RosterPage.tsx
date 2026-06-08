@@ -19,7 +19,14 @@ import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AlertTriangle } from 'lucide-react'
 import * as XLSX from 'xlsx'
+import { useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import {
+  useRosterQuery,
+  useArchivedRosterQuery,
+  useManagerQuery,
+  queryKeys,
+} from '@/lib/queries'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
@@ -98,10 +105,24 @@ export function RosterPage() {
     })
   }
   const [tab, setTab] = useState<'squad' | 'archived'>('squad')
-  const [active, setActive] = useState<PlayerWithContract[]>([])
-  const [archived, setArchived] = useState<PlayerWithContract[]>([])
-  const [manager, setManager] = useState<ManagerWithContract | null>(null)
-  const [loading, setLoading] = useState(true)
+
+  // Server data is cached in the QueryClient (above the router), so switching to
+  // another tab and back serves it instantly — no re-fetch, no skeleton — until
+  // it goes stale (5m), at which point it refreshes silently in the background.
+  const queryClient = useQueryClient()
+  const seasonStartYear = useSeasonStore((s) => s.startYear)
+  const season = seasonKey(seasonStartYear)
+  const rosterQuery = useRosterQuery()
+  const archivedQuery = useArchivedRosterQuery()
+  const managerQuery = useManagerQuery()
+  const active = rosterQuery.data ?? []
+  const archived = archivedQuery.data ?? []
+  const manager = managerQuery.data ?? null
+  const loadError =
+    rosterQuery.isError || archivedQuery.isError || managerQuery.isError
+      ? t('roster.failLoad')
+      : ''
+  // Mutation errors (restore / delete) — distinct from the load error above.
   const [error, setError] = useState('')
 
   // Modal state
@@ -120,36 +141,28 @@ export function RosterPage() {
   // Filters (Squad tab)
   const [filter, setFilter] = useState<'all' | 'expiring' | PlayerPosition>('all')
 
-  // Roster mutations (add / edit contract / archive / CSV commit) change the
-  // server-derived `currentSquadCosts` in financials. The top-bar SCR pill,
-  // Setup page squad-cost line and any scenario projections all read that
-  // value from the store, so we re-fetch financials alongside the roster on
-  // every refresh. Season fallback matches the bootstrap in ProtectedRoute.
+  // Re-fetch after a mutation by invalidating the cached queries: they refetch in
+  // the background while the current rows stay on screen (no skeleton). Awaiting
+  // lets callers sequence UI afterwards (close modal, clear the pending row).
+  //
+  // Financials are NOT a query here — they live in the club store (owned by
+  // ProtectedRoute + the Settings editor), and a persistent query+sync effect
+  // would clobber a just-saved edit with a stale cached copy on tab revisit.
+  // A roster change does shift the server-derived squad costs, so we refresh the
+  // store copy once, imperatively, instead.
   const refresh = async () => {
-    setLoading(true)
     setError('')
-    const season = seasonKey(useSeasonStore.getState().startYear)
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.roster }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.rosterArchived }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.manager }),
+    ])
     try {
-      const [a, b, m, f] = await Promise.all([
-        api.roster.list(),
-        api.roster.listArchived(),
-        api.roster.getManager().catch(() => ({ manager: null })),
-        api.club.getFinancials(season).catch(() => null),
-      ])
-      setActive(a.players)
-      setArchived(b.players)
-      setManager(m.manager)
-      setFinancials(f)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t('roster.failLoad'))
-    } finally {
-      setLoading(false)
+      setFinancials(await api.club.getFinancials(season))
+    } catch {
+      /* keep the existing store financials on a transient failure */
     }
   }
-
-  useEffect(() => {
-    refresh()
-  }, [])
 
   const handleRestore = async (id: string) => {
     setPendingActionId(id)
@@ -194,7 +207,8 @@ export function RosterPage() {
     [active],
   )
 
-  if (loading) return <RosterSkeleton />
+  if (rosterQuery.isPending || archivedQuery.isPending || managerQuery.isPending)
+    return <RosterSkeleton />
 
   return (
     <div>
@@ -246,9 +260,9 @@ export function RosterPage() {
         </TabButton>
       </div>
 
-      {error && (
+      {(error || loadError) && (
         <Card className="p-4 mb-4 border-red-200 bg-red-50">
-          <p className="text-[13px] text-red-700">{error}</p>
+          <p className="text-[13px] text-red-700">{error || loadError}</p>
         </Card>
       )}
 

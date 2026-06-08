@@ -13,11 +13,12 @@
  *   (with included scenarios) for clarity.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation, Trans } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { Link } from 'react-router-dom'
 import { api, type ScenarioDetail, type ClubFinancialsResponse } from '@/lib/api'
+import { useRosterQuery } from '@/lib/queries'
 import { useClubStore } from '@/stores/club'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -57,15 +58,17 @@ type SortDir = 'asc' | 'desc'
 
 export function DashboardPage() {
   const { t } = useTranslation()
-  const { financials, scenarios, scenariosLoaded, clubName, leagueId, setScenarioInclusion } = useClubStore()
+  const { financials, financialsLoaded, scenarios, scenariosLoaded, clubName, leagueId, setScenarioInclusion } = useClubStore()
   const can = useCan()
   const { format: fmtMoney, symbol, currency } = useWorkspaceCurrency()
   // Hook must run unconditionally, before any early return below (loading /
   // no-financials), or the hook count changes when the loader clears → crash.
   const openCopilot = useCopilot((s) => s.open)
-  const [players, setPlayers] = useState<PlayerWithContract[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  // Squad is cached in the QueryClient (above the router), so returning to this
+  // tab serves it instantly — no re-fetch, no skeleton — until it goes stale.
+  const rosterQuery = useRosterQuery()
+  const players = rosterQuery.data ?? []
+  const error = rosterQuery.error instanceof Error ? rosterQuery.error.message : ''
   const [sortKey, setSortKey] = useState<SortKey>('total')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [filter, setFilter] = useState<'all' | 'expiring' | 'GK' | 'DEF' | 'MID' | 'FWD'>('all')
@@ -74,17 +77,6 @@ export function DashboardPage() {
   // visualiser). Fetched unconditionally so the hook order is stable across the
   // page's early returns; the result is only consumed when a breach is detected.
   const leagueTable = useLeagueTable()
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    setError('')
-    api.roster.list()
-      .then((data) => { if (!cancelled) setPlayers(data.players) })
-      .catch((e: Error) => { if (!cancelled) setError(e.message) })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [])
 
   // Per-player breakdown via the engine — same math the API uses to derive the total.
   const { totalSquadCostsPence, breakdownByPlayer } = useMemo(() => {
@@ -168,7 +160,11 @@ export function DashboardPage() {
   // the hero SCR overlay, gauge and financial-risk card all fold in scenarios,
   // so revealing before they load would show numbers that then jump. (Only gate
   // on scenarios when financials exist, since that's the only case we fetch them.)
-  if (loading || (financials != null && !scenariosLoaded)) return <DashboardSkeleton />
+  // Hold the skeleton until financials are actually known (loaded), so we never
+  // flash the "set up your club" empty-state while they're still in flight. Once
+  // loaded: null ⇒ genuine empty-state; present ⇒ wait for scenarios to fold in.
+  if (rosterQuery.isPending || !financialsLoaded || (financials != null && !scenariosLoaded))
+    return <DashboardSkeleton />
 
   if (error) {
     return (

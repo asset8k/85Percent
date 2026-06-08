@@ -16,6 +16,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '@/lib/api'
+import { useRosterQuery, useScenarioDetailsQuery } from '@/lib/queries'
 import { useClubStore } from '@/stores/club'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -155,9 +156,12 @@ export function ScenariosPage() {
   const can = useCan()
   const { format: fmtMoney } = useWorkspaceCurrency()
   const openCopilot = useCopilot((s) => s.open)
-  const { financials, scenarios, setScenarios, upsertScenario, removeScenario, setScenarioInclusion } = useClubStore()
-  const [players, setPlayers] = useState<PlayerWithContract[]>([])
-  const [loading, setLoading] = useState(true)
+  const { financials, scenarios, scenariosLoaded, setScenarios, upsertScenario, removeScenario, setScenarioInclusion } = useClubStore()
+  // Cached above the router — revisiting this tab serves the roster instantly
+  // (no re-fetch, no skeleton); scenarios live in the persisted club store.
+  const rosterQuery = useRosterQuery()
+  const scenarioQuery = useScenarioDetailsQuery()
+  const players = rosterQuery.data ?? []
   const [error, setError] = useState('')
 
   // Builder state
@@ -167,30 +171,20 @@ export function ScenariosPage() {
   const [saving, setSaving] = useState(false)
   const [compareOpen, setCompareOpen] = useState(false)
 
-  // Load roster + scenarios on mount. AppLayout also loads scenarios but its
-  // useEffect may not have fired yet — be defensive.
+  // Seed the club store from the cached scenario details on the FIRST load only
+  // (when nothing has populated it yet). After that the STORE is the source of
+  // truth: optimistic include-toggles, create/delete, and AppLayout's own
+  // refresh keep it current — and it already persists across tab switches via
+  // zustand. Re-seeding from the query cache on every change would clobber those
+  // (e.g. a just-toggled switch reverted by a stale cached copy on tab revisit).
   useEffect(() => {
-    let cancelled = false
-    async function load() {
-      try {
-        const [roster, list] = await Promise.all([
-          api.roster.list(),
-          api.scenarios.list(1, 100),
-        ])
-        const details = await Promise.all(list.scenarios.map((s) => api.scenarios.get(s.id)))
-        if (!cancelled) {
-          setPlayers(roster.players)
-          setScenarios(details)
-        }
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : t('scenarios.failLoad'))
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
+    if (scenarioQuery.data && !useClubStore.getState().scenariosLoaded) {
+      setScenarios(scenarioQuery.data)
     }
-    load()
-    return () => { cancelled = true }
-  }, [setScenarios])
+  }, [scenarioQuery.data, setScenarios])
+
+  // Surface a transport failure from either fetch.
+  const loadError = rosterQuery.isError || scenarioQuery.isError ? t('scenarios.failLoad') : ''
 
   // Derive baseline squad costs from the live roster (same math as Dashboard).
   const baselineSquadCostsPence = useMemo(() => {
@@ -349,7 +343,7 @@ export function ScenariosPage() {
   }
 
   const handleToggleInclude = async (id: string, next: boolean) => {
-    setScenarioInclusion(id, next) // optimistic
+    setScenarioInclusion(id, next) // optimistic — store is the source of truth
     try {
       await api.scenarios.update(id, { isIncluded: next })
     } catch {
@@ -362,7 +356,12 @@ export function ScenariosPage() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
-  if (loading) return <ScenariosSkeleton />
+  // Skeleton only until the store holds scenarios (first load) — gating on the
+  // persisted store (not the query) keeps tab revisits instant and never
+  // re-shows the skeleton over data we already have. An outright fetch error
+  // breaks the wait so the error card can show.
+  if (rosterQuery.isPending || (!scenariosLoaded && !scenarioQuery.isError))
+    return <ScenariosSkeleton />
 
   if (!liveFinancials) {
     return (
@@ -429,9 +428,9 @@ export function ScenariosPage() {
 
         {/* Builder */}
         <div className="flex flex-col gap-5">
-          {error && (
+          {(error || loadError) && (
             <Card className="p-4 border-red-200 bg-red-50">
-              <p className="text-[13px] text-red-700">{error}</p>
+              <p className="text-[13px] text-red-700">{error || loadError}</p>
             </Card>
           )}
 

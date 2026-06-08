@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Card } from '@/components/ui/card'
 import { CalendarSkeleton } from '@/components/ui/page-skeletons'
-import { api } from '@/lib/api'
+import { useRosterQuery } from '@/lib/queries'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import { formatDate } from '@/lib/locale'
 import { useScrollLock } from '@/lib/useScrollLock'
@@ -119,8 +119,9 @@ export function CalendarPage() {
   const { t } = useTranslation()
   const startYear = useSeasonStore((s) => s.startYear)
   const { financials, scenarios } = useClubStore()
-  const [roster, setRoster] = useState<PlayerWithContract[]>([])
-  const [loading, setLoading] = useState(true)
+  // Cached above the router — instant when returning to this tab (no skeleton).
+  const rosterQuery = useRosterQuery()
+  const roster = rosterQuery.data ?? []
   const [drawerPlayers, setDrawerPlayers] = useState<PlayerWithContract[] | null>(null)
 
   // Locally-tracked completed checkpoint/deadline nodes (DB wiring comes later).
@@ -134,17 +135,6 @@ export function CalendarPage() {
       else next.add(id)
       return next
     })
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    api.roster
-      .list()
-      .then((r) => { if (!cancelled) setRoster(r.players) })
-      .catch(() => { if (!cancelled) setRoster([]) })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [])
 
   // Live Projected SCR from global state — the same Active Baseline the TopBar
   // pill uses (Settings financials + included scenarios).
@@ -192,7 +182,7 @@ export function CalendarPage() {
     return list.sort((a, b) => a.ts - b.ts)
   }, [startYear, expiringPlayers, t])
 
-  if (loading) return <CalendarSkeleton />
+  if (rosterQuery.isPending) return <CalendarSkeleton />
 
   return (
     <div>
