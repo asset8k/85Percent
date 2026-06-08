@@ -1531,8 +1531,8 @@ function TeamTab() {
                 <tr key={m.id} className="border-b border-slate-100 last:border-0">
                   <td className="px-6 py-3.5 text-[14px] text-slate-900 font-medium">
                     {m.fullName}
+                    {isSelf && <span className="ml-1.5 text-[11px] text-slate-400 font-normal">{t('settings.team.you')}</span>}
                     {m.title && <span className="block text-[12px] text-slate-400 font-normal">{m.title}</span>}
-                    {isSelf && <span className="ml-2 text-[11px] text-slate-400 font-normal">{t('settings.team.you')}</span>}
                   </td>
                   <td className="px-6 py-3.5 text-[13px] text-slate-500 num">{m.email}</td>
                   <td className="px-6 py-3.5">
