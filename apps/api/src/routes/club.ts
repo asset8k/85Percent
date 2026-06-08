@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { requirePermission } from '../middleware/permissions.js'
 import { writeAuditLog } from '../lib/audit.js'
+import { getClubOwnerId } from '../lib/clubOwner.js'
 import { LEAGUE_CONFIGS, getDefaultCurrencyForLeague } from '@headroom/shared'
 import { calculateSquadCosts, type ContractInput, type ManagerCostInput } from '@headroom/engine'
 
@@ -103,6 +104,22 @@ export async function clubRoutes(app: FastifyInstance) {
         .maybeSingle()
       if (error) throw error
       if (!data) return reply.status(404).send({ error: 'User record not found' })
+
+      // AI credits are a shared per-workspace pool: every member sees (and spends
+      // from) the club OWNER's balance, not their own. Resolve the owner and read
+      // its balance — for the owner this is just their own row. Falls back to the
+      // caller's balance if the owner can't be resolved.
+      let aiBalanceUsd = data.ai_balance_usd != null ? Number(data.ai_balance_usd) : 0
+      const ownerId = await getClubOwnerId(request.clubId)
+      if (ownerId && ownerId !== request.userId) {
+        const { data: ownerRow } = await supabase
+          .from('users')
+          .select('ai_balance_usd')
+          .eq('id', ownerId)
+          .maybeSingle()
+        if (ownerRow?.ai_balance_usd != null) aiBalanceUsd = Number(ownerRow.ai_balance_usd)
+      }
+
       return reply.send({
         id: data.id,
         title: (data.title as string | null) ?? null,
@@ -112,8 +129,8 @@ export async function clubRoutes(app: FastifyInstance) {
         fullName: data.full_name,
         email: data.email,
         isTotpEnabled: !!data.is_totp_enabled,
-        // USD AI-credit balance (NUMERIC comes back as a string from PostgREST).
-        aiBalanceUsd: data.ai_balance_usd != null ? Number(data.ai_balance_usd) : 0,
+        // USD AI-credit balance — the shared workspace pool (owner's row).
+        aiBalanceUsd,
       })
     } catch (err) {
       request.log.error({ err }, 'GET /me failed')

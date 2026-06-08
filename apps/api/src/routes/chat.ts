@@ -20,6 +20,7 @@ import type { FastifyInstance } from 'fastify'
 import { planCompaction, type ChatTurn } from '@headroom/shared'
 import { authMiddleware } from '../middleware/auth.js'
 import { supabase } from '../lib/supabase.js'
+import { getClubOwnerId } from '../lib/clubOwner.js'
 import { embedText } from '../lib/embeddings.js'
 import {
   llm,
@@ -215,14 +216,27 @@ export async function chatRoutes(app: FastifyInstance) {
         return reply.status(400).send({ error: 'No messages provided' })
       }
 
+      // ── Shared balance owner ───────────────────────────────────────────
+      // AI credits are a per-workspace pool, not per user: a guest member draws
+      // on (and debits) the club OWNER's balance, never their own. Resolve the
+      // owner once here and reuse it for the pre-check below and the debit in
+      // onFinish. Falls back to the acting user if the owner can't be resolved.
+      let balanceOwnerId = request.userId
+      try {
+        balanceOwnerId = (await getClubOwnerId(request.clubId)) ?? request.userId
+      } catch (err) {
+        request.log.error({ err }, 'chat: club owner lookup failed')
+        return reply.status(503).send({ error: 'Could not verify AI balance' })
+      }
+
       // ── AI credit pre-check ────────────────────────────────────────────
-      // Refuse before spending a single token if the caller's balance is
+      // Refuse before spending a single token if the workspace balance is
       // depleted. 402 Payment Required is the signal the frontend keys off to
       // lock the composer until an admin tops the balance back up.
       const { data: balanceRow, error: balanceErr } = await supabase
         .from('users')
         .select('ai_balance_usd')
-        .eq('id', request.userId)
+        .eq('id', balanceOwnerId)
         .maybeSingle()
       if (balanceErr) {
         request.log.error({ err: balanceErr }, 'chat: balance lookup failed')
@@ -260,10 +274,13 @@ export async function chatRoutes(app: FastifyInstance) {
       const { userId, clubId } = request
 
       // Once the stream completes: (1) persist the turn to history and (2) debit
-      // the user's AI balance for the tokens it consumed. Both are best-effort —
-      // failures here are logged but never break the already-delivered response.
+      // the workspace AI balance for the tokens it consumed. Both are best-effort
+      // — failures here are logged but never break the already-delivered response.
+      // History is per-user (the acting user's id), but the debit hits the shared
+      // owner balance resolved above.
       const onFinish = async ({ text, usage }: ChatFinishResult) => {
-        // (1) Persist the completed turn.
+        // (1) Persist the completed turn — strictly under the acting user's id so
+        // a guest's chat history stays private to the guest (never the owner's).
         if (sessionId && lastUser) {
           const { data: existing } = await supabase
             .from('chat_sessions')
@@ -299,7 +316,7 @@ export async function chatRoutes(app: FastifyInstance) {
         const tokens = (usage.promptTokens ?? 0) + (usage.completionTokens ?? 0)
         if (cost > 0 || tokens > 0) {
           const { error: debitErr } = await supabase.rpc('deduct_ai_balance', {
-            p_user_id: userId,
+            p_user_id: balanceOwnerId,
             p_cost: cost,
             p_tokens: tokens,
           })

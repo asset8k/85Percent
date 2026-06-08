@@ -3402,3 +3402,38 @@ referenced by the HTML + app code comments), and `exports/` (LinkedIn logo + cov
 PNGs). Removed outdated marks & iteration artifacts (`85 Mark.html`,
 `85 Mark build.html`, `85Percent Brand Identity.html`, `design-canvas.jsx`,
 `logo-marks.jsx`, `screenshots/`, `uploads/`, `.DS_Store`).
+
+---
+
+## Shared AI balance for workspace members (guest = owner's pool)
+
+**Problem:** AI credits were per-user (`users.ai_balance_usd`). Every club
+member — including invited "guests" — had their own balance, so a guest spent
+their own credit instead of the club's. The intent is one shared pool per
+workspace, owned by the founder.
+
+**Fix (API only — no schema/RLS/SQL change needed):** the server uses the
+service-role Supabase client (bypasses RLS) and `deduct_ai_balance(p_user_id…)`
+already takes the target user as a param, so routing balance reads/writes to the
+owner was a pure code change.
+
+- **New** `apps/api/src/lib/clubOwner.ts` → `getClubOwnerId(clubId)`: the
+  owner is the earliest-created `is_workspace_admin` in the club (the founder
+  from authMiddleware), falling back to the earliest member. Single source of
+  truth — the only place to change if a real `clubs.owner_id` is added later.
+- **`routes/chat.ts`** — resolve `balanceOwnerId` once after auth; the 402
+  pre-check reads the owner's balance; the `onFinish` debit hits the owner
+  (`p_user_id: balanceOwnerId`). History persistence still uses the acting
+  user's id.
+- **`routes/club.ts` `/me`** — `aiBalanceUsd` now returns the owner's balance
+  (shared pool) so the chat credit chip + Settings both show it. For the owner
+  this is just their own row.
+
+**Chat isolation preserved:** `chat_sessions` / `chat_messages` inserts remain
+keyed to `request.userId`, and reads filter by `user_id` — a guest's history
+stays private; the owner never sees it and vice-versa. Only the balance is
+shared.
+
+**Not changed (note):** admin panel still tops up a *specific* user — to refill
+a workspace, top up its owner (guest balances are now never read). `tsc --noEmit`
+clean.
