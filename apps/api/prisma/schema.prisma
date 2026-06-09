@@ -454,3 +454,23 @@ model AuditLog {
 
   @@map("audit_logs")
 }
+
+// Landing-page lead capture (apps/landing-page "Request Access / Demo" form).
+// Standalone — no relations to core app tables. Written by the public site with
+// the Supabase anon key (INSERT-only under RLS); read/triaged by API/admin via
+// the service-role key. See migration 20260609000001_demo_requests_lead_capture
+// for the RLS + GRANT lockdown.
+model DemoRequest {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now()) @map("created_at")
+  fullName  String?  @map("full_name")
+  workEmail String   @map("work_email")
+  club      String?
+  role      String? // job title (CFO, Sporting Director, …)
+  message   String?
+  source    String? // which CTA/section drove the submit
+  status    String   @default("new") // triage state (service-role only)
+
+  @@index([createdAt])
+  @@map("demo_requests")
+}
