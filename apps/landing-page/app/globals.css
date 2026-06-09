@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* surfaces */
+    --background: 0 0% 100%; /* white */
+    --surface-1: 210 40% 98%; /* slate-50 alt sections */
+    --foreground: 222 47% 6%; /* near-black slate */
+    --muted-foreground: 215 16% 47%;
+    --border: 215 25% 88%;
+
+    /* brand — identical to apps/web */
+    --primary: 263 70% 50%; /* violet-600 — CTAs, focus, accents */
+    --primary-foreground: 0 0% 100%;
+    --ring: 263 70% 50%;
+
+    /* violet-tip scale (from the Mark85 gradient stops) */
+    --v-core: 263 71% 50%; /* #6D28D9 */
+    --v-mid: 258 90% 66%; /* #8B5CF6 */
+    --v-soft: 268 76% 74%; /* #B98AF0 */
+    --v-wash: 270 79% 92%; /* #EADBFB */
+
+    /* the charcoal hero band */
+    --charcoal: 230 33% 8%; /* #0B1020 — matches mark dark fadeBg */
+    --charcoal-foreground: 0 0% 100%;
+
+    --radius: 0.75rem; /* matches app */
+  }
+}
+
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  html,
+  body {
+    font-family: var(--font-inter), Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+  }
+  /* Honour reduced-motion at the platform level too (the JS gate is in §7). */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+}
+
+@layer utilities {
+  /* Monospace for financial figures — mirrors the product app's `.num`. */
+  .num {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+  }
+  /* Uppercase tracked eyebrow label. */
+  .meta-label {
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+  }
+  /* Balanced multi-line headlines (Hero, section titles). */
+  .text-balance {
+    text-wrap: balance;
+  }
+}

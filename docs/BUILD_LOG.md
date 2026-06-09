@@ -3582,3 +3582,94 @@ already-zoned/epoch values — and the activity log now renders it with
 
 Verified: `pnpm --filter @85percent/web exec tsc --noEmit` clean + `pnpm --filter
 @85percent/web build` succeeds.
+
+---
+
+## Session — Marketing Landing Page (`apps/landing-page`) (2026-06-09)
+
+Built the public marketing site end-to-end from `apps/landing-page/landing-page-spec.md`.
+Stack decisions (user-confirmed): **Next.js 14 App Router** (the rest of the repo
+stays Vite) and a new shared **`packages/brand`** for the logo. Runs independently
+on **http://localhost:3100** (`pnpm --filter @85percent/landing-page dev`); web is 5173.
+
+**1. `packages/brand` (`@85percent/brand`).** Extracted `Mark85` + `Wordmark` out of
+`apps/web/src/components/ui/` into a dist-built package (same `tsc`→`dist` pattern as
+shared/engine), both with a `'use client'` directive (preserved through `tsc`). Added
+`tokens.ts` (violet ramp, gradient stops, stroke width). `apps/web` keeps one-line
+re-export **shims** at the old paths so every existing import compiles unchanged.
+`Wordmark` gained additive `wordColor`/`fadeTo` props (for the charcoal hero) — web
+call sites use defaults, unaffected. Both `apps/web` and `apps/landing-page` consume it.
+
+**2. Scaffold.** Next 14 + TS + Tailwind 3.4 (HSL-var tokens mirroring the app, plus
+`violet-tip`/`hero-glow` gradients, `charcoal` band, `expo` easing), Inter + Space
+Grotesk via `next/font`, `transpilePackages: ['@85percent/brand']`. Picked up by Turbo
+via the existing `apps/*` glob. Dev port 3100.
+
+**3. Motion system** (`components/motion/`). `variants.ts` (fadeUp/fadeIn/staggerParent,
+`EASE_EXPO [0.16,1,0.3,1]`), `Reveal` (scroll fade-up, delay baked into the variant),
+`Stagger` + `Stagger.Item`. Reduced-motion gated centrally by `<MotionConfig
+reducedMotion="user">` in `app/providers.tsx`.
+
+**4. Sections.** `Navbar` (transparent→frosted-white on scroll; `forceSolid` for legal
+pages; mobile sheet), `Hero` + `HeroVisual` (signature SVG SCR gauge — green/amber/red
+zones, violet-tip progress arc drawing to a coherent **81% under the 85% limit**, needle,
+limit tick, wages/amortisation/headroom row; scroll parallax), `ProblemSolution` (#the-rule,
+two beats + the 85% stat-formula card), `CapabilitiesCarousel` (#capabilities) — hand-rolled
+framer-motion: one shared motion value for drag + `animate()`, focal-card-with-peeking-neighbours
+depth falloff, 6s autoplay paused on hover/focus/drag/tab-hidden/reduced-motion, velocity
+snap, full ARIA carousel + keyboard, dot + arrow controls. `Footer` (lockup, tagline,
+legal links, contact). `RequestAccessButton` (3 variants, each owns a `DemoRequestDialog`).
+
+**5. Lead capture (Supabase, anon INSERT-only).** `lib/demoRequest.ts` (shared zod schema +
+`toRow`, honeypot accepted-not-rejected so it never 422s), `lib/supabase.ts` (lazy anon
+client, anon key only), `app/api/demo-request/route.ts` (zod validate → honeypot silent-drop
+→ per-IP rate-limit → anon insert), `DemoRequestDialog` (a11y modal: focus trap, Esc/backdrop
+close, success/error states). Env in gitignored `.env.local` (`NEXT_PUBLIC_SUPABASE_URL`,
+`SUPABASE_ANON_KEY`); `.env.example` committed.
+  - **Migration applied to live DB** (`20260609000001_demo_requests_lead_capture`, via Supabase
+    Management API). **RLS smoke test passed:** RLS on, 1 INSERT-only policy, anon granted
+    INSERT only; anon insert → 201, anon SELECT → 401 permission denied. Route e2e: valid → 200,
+    bad email → 422, honeypot → 200 no-write. All test rows deleted; `demo_requests` back to 0.
+
+**6. SEO / a11y.** Per-route `metadata` + canonical, JSON-LD (Organization + SoftwareApplication),
+`robots.ts`, `sitemap.ts`, dynamic `opengraph-image.tsx` (charcoal + violet lockup + headline).
+Legal stubs `/terms` `/privacy` `/ssr-disclaimer` (shared `LegalPage`, placeholder copy marked
+counsel-owned). Reduced-motion, focus-visible rings, landmarks, `lang` set.
+
+Verified: `next build` clean (9 routes, home 163 kB First Load), `apps/landing-page` tsc clean,
+`apps/web` tsc + `vite build` still green (brand shim non-breaking). Every section visually
+checked via headless-Chrome/CDP screenshots (scaffold, hero gauge, problem/solution, carousel
+advance, demo dialog, OG image, legal page).
+
+**Still open (spec §10):** real WhatsApp number (placeholder in `content/site.ts`), counsel legal
+copy, optional commissioned hero render. Not yet committed.
+
+### Landing follow-up round (2026-06-09) — copy, interactive logo, full feature set, live animations
+
+1. **Copy/links.** Email → `contact@85percent.pro`; footer "WhatsApp Business" → "WhatsApp";
+   copyright → "© 2026 85Percent. All rights reserved." Hero slogan priority swapped: **"Win the
+   transfer window. Within the rules."** is now the prominent sub-headline; "Maximize your squad.
+   Protect your points." is the CTA microcopy.
+2. **Interactive logo.** `Mark85` gained a `tone` prop ('violet' default / 'white' white-cored for
+   dark bands) and `Wordmark` gained `tone` + `interactive` (renders an inert `<span>` so it can
+   sit inside the navbar `<a>` — fixes the nested-interactive). Navbar logo is **bigger (38px)** and
+   **cross-fades white-on-charcoal ↔ violet-on-white** with the scroll/`forceSolid` state. Brand
+   rebuilt; `apps/web` tsc still clean (additive props, defaults unchanged).
+3. **Full platform section** (`PlatformFeatures`, `#platform`). 12-card grid of the complete feature
+   set drawn from this log — every PL club (La Liga/Serie A next), pre-filled-or-upload squads (Prem
+   & Championship), SSR tests, drag-drop scenario builder, compliance calendar, notifications,
+   RAG-grounded AI analyst, PDF/Excel exports, 2FA + tamper-evident audit log, granular team
+   permissions/invites, multi-currency/season, share. The 3 carousel pillars stay the focus; this is
+   the depth. Nav reordered The Rule → Capabilities → Platform to match scroll order.
+4. **Live value animations.** Extracted the hero gauge into a reusable, value-driven `ScrGauge`
+   (single motion value → draws in on mount AND re-sweeps on value change; read-out/needle turn red
+   past the limit). New **interactive `ScenarioDemo`** dark band ("Model the window. Watch the line.")
+   — toggle real transfer moves (sign £60M striker +5.5pts, sell CB −4.1pts, …) and the SCR gauge
+   sweeps live, headroom recomputes, status flips Compliant↔Breach with a red panel glow. New
+   `CountUp` (on-view 0→value) applied to the 85% stat. HeroVisual refactored onto `ScrGauge`.
+5. **Favicon.** Copied the web app's violet-tile white-"85" mark to `app/icon.svg` (Next emits the
+   `<link rel="icon">`; serves 200 image/svg+xml).
+
+Verified: `next build` clean (9 routes, home 168 kB First Load), landing + web tsc clean, brand
+rebuilt. CDP-drove the interactive demo (breach 87% → toggle sale → compliant 82%) and the logo
+cross-fade (white over hero / violet when scrolled); no console exceptions.
