@@ -3544,3 +3544,41 @@ overloaded, not brand; the repo dir name; `localStorage`/persist keys
 (`headroom-auth`, etc. — would log users out without a migration shim); `docs/*.md`
 historical logs. Verified: `pnpm -r typecheck` clean (5/5), 119/119 engine tests
 pass, 0 `@headroom` left in code.
+
+## 2026-06-09 — Caching follow-ups: login flash, settings tab caching, live identity, local-time activity log
+
+Four fixes to the TanStack Query caching work.
+
+**1. Dashboard "no club" flash on login.** Sign-out reset `financials` to null but
+left `financialsLoaded: true` and never cleared the query cache, so the next
+login rendered the Dashboard's setup empty-state against a stale "already loaded"
+flag for ~3s. Fix (`ProtectedRoute.tsx`): on `SIGNED_OUT` also reset
+`financialsLoaded: false` + `queryClient.clear()` (also closes a cross-user
+roster-cache leak); plus a guard that forces `financialsLoaded: false` during the
+post-login bootstrap window (clubId not yet known), so the skeleton always holds.
+
+**2. Settings tabs re-loaded on every entrance (no caching).** Profile, Team and
+Activity each fetched on mount with local `loading` state. Converted to shared
+TanStack Query hooks (`useMeQuery`, `useTeamMembersQuery`, `useInvitesQuery`,
+`useAuditLogQuery` in `queries.ts`); skeleton only on `isPending`, re-entry is
+instant. Mutations invalidate the matching key; member-access edits patch the
+cache optimistically with the server's returned values (no clobber); audit log
+uses `keepPreviousData` so paging never flashes a skeleton.
+
+**3. TopBar/Sidebar name + role chip stayed stale after a profile edit.** `useMe`
+kept its OWN `/me` cache (localStorage, fetched once per session), separate from
+the settings `['me']` query — so a name save updated Settings but not the chrome.
+Unified `useMe` onto the shared `['me']` query (`role.ts`), keeping the
+localStorage copy only as a reload paint-hint. Now a profile save invalidates
+`['me']` and the name/role update live everywhere, no reload. Editing your own
+access in the Team dialog also invalidates `['me']`.
+
+**4. Activity log showed UTC, not local time.** Audit `created_at` is Postgres
+`TIMESTAMP(3)` (no zone); Supabase returns it zone-less, so `new Date()` parsed
+the UTC value as local and showed UTC digits. Added `parseServerDate()`
+(`locale.ts`) — labels an unlabeled server timestamp as UTC, passes through
+already-zoned/epoch values — and the activity log now renders it with
+`toLocaleString` in the browser's zone.
+
+Verified: `pnpm --filter @85percent/web exec tsc --noEmit` clean + `pnpm --filter
+@85percent/web build` succeeds.

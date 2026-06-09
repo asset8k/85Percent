@@ -29,6 +29,29 @@ export function activeLocale(): string {
 }
 
 /**
+ * Parse a server timestamp into the correct instant.
+ *
+ * Several columns are Postgres `TIMESTAMP(3)` (timestamp WITHOUT time zone),
+ * which Supabase returns as a zone-less ISO-like string, e.g.
+ * `"2026-06-09T14:30:00.123"`. The server stores these in UTC, but `new Date()`
+ * parses a zone-less date-time as the viewer's LOCAL time — silently shifting
+ * the instant by the browser's offset (so a UTC value renders as UTC wall-clock,
+ * not the user's local time). This normalises such strings to UTC by appending
+ * "Z"; strings that already carry a zone (`Z` or `±HH:MM`) and epoch numbers /
+ * `Date`s pass through untouched.
+ *
+ * Use this (instead of `new Date(...)`) before formatting a server timestamp in
+ * the user's LOCAL zone — i.e. format the result WITHOUT a `timeZone` option so
+ * Intl uses the browser's setting.
+ */
+export function parseServerDate(value: string | number | Date): Date {
+  if (value instanceof Date) return value
+  if (typeof value === 'number') return new Date(value)
+  const hasZone = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(value)
+  return new Date(hasZone ? value : value + 'Z')
+}
+
+/**
  * Format a date in the active locale. Accepts a `Date`, an epoch-ms number, or
  * an ISO string. Defaults to a numeric DD/MM/YYYY-style date, which Intl
  * localizes per language (US would flip to MM/DD/YYYY, but we only ship

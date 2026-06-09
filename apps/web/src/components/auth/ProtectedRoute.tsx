@@ -6,6 +6,7 @@ import { api } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
 import { useSeasonStore, seasonKey } from '@/stores/season'
 import { useNotificationsStore } from '@/stores/notifications'
+import { queryClient } from '@/lib/queryClient'
 import { Spinner } from '@/components/ui/spinner'
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -30,16 +31,26 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       setInitialized(true)
       // Clear per-club state on any sign-out (button, token expiry, or third-party revoke)
       // so a re-signin as a different user doesn't see the previous user's club + sims.
+      //
+      // Crucially this resets BOTH the financials value AND its `financialsLoaded`
+      // flag: leaving the flag true while the value is null makes the next login
+      // render the Dashboard's "set up your club" empty-state (the gate thinks the
+      // first load already settled) for the few seconds until the new club +
+      // financials arrive. We also clear the TanStack Query cache so the next user
+      // doesn't momentarily see the previous user's cached roster/scenarios — and
+      // so those queries report `isPending` again, holding their skeletons.
       if (event === 'SIGNED_OUT') {
         useClubStore.setState({
           clubId: null,
           clubName: null,
           leagueId: null,
           financials: null,
+          financialsLoaded: false,
           scenarios: [],
           scenariosLoaded: false,
         })
         useNotificationsStore.getState().reset()
+        queryClient.clear()
       }
     })
 
@@ -50,6 +61,15 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     // Fetch when there's a session AND the club has not been hydrated for THIS user.
     // Using clubId (not clubName) — clubName can be set by an optimistic update during signin.
     if (session && !clubId) {
+      // Logged in but no club known yet (fresh login / switched user). A stale
+      // `financialsLoaded` flag from a previous session would let the Dashboard
+      // fall through to its "set up your club" empty-state during this bootstrap
+      // window. Force it false so the skeleton holds until the real club +
+      // financials land. Runs only here (clubId is set the rest of the time), so
+      // it never interferes with season switches.
+      if (useClubStore.getState().financialsLoaded) {
+        useClubStore.setState({ financialsLoaded: false })
+      }
       api.club.get()
         .then((club) => setClub(club.id, club.name, club.leagueId, club.logoUrl, club.baseCurrency))
         .catch((err) => {

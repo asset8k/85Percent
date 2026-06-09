@@ -20,7 +20,7 @@
  * to `null`, mirroring the pages' prior `.catch(() => null)` behaviour — a missing
  * manager / unconfigured financials is a normal state, not a query error.
  */
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { api } from './api'
 
 /** Centralised query keys — one source of truth so invalidation stays in sync. */
@@ -33,6 +33,11 @@ export const queryKeys = {
   ssrWorkingCapital: (season: string) => ['ssr', 'workingCapital', season] as const,
   ssrLiquidity: (season: string) => ['ssr', 'liquidity', season] as const,
   ssrEquity: (season: string) => ['ssr', 'equity', season] as const,
+  // Settings surfaces — cached so re-entering a settings tab is instant.
+  me: ['me'] as const,
+  teamMembers: ['team', 'members'] as const,
+  invites: ['team', 'invites'] as const,
+  auditLog: (page: number, limit: number) => ['audit', page, limit] as const,
 }
 
 /** Active squad (with contracts). Season-independent, matching the prior load. */
@@ -105,5 +110,46 @@ export function useSsrEquityQuery(season: string) {
   return useQuery({
     queryKey: queryKeys.ssrEquity(season),
     queryFn: () => api.ssr.getEquity(season),
+  })
+}
+
+/** Current user (`/me`): identity, permissions, 2FA state, shared AI balance.
+ *  A single cache entry shared by every consumer — the Settings → Profile tab,
+ *  the Team tab, AND the TopBar/Sidebar identity (via `useMe`). Because they all
+ *  read this one key, a profile save that invalidates `['me']` updates the name
+ *  everywhere at once. Pass `enabled: false` to hold the fetch until there's a
+ *  session (the TopBar mounts before login resolves). */
+export function useMeQuery(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.me,
+    queryFn: () => api.me.get(),
+    enabled,
+  })
+}
+
+/** Team members (Settings → Team). */
+export function useTeamMembersQuery() {
+  return useQuery({
+    queryKey: queryKeys.teamMembers,
+    queryFn: async () => (await api.team.list()).members,
+  })
+}
+
+/** Pending invites (Settings → Team). */
+export function useInvitesQuery() {
+  return useQuery({
+    queryKey: queryKeys.invites,
+    queryFn: async () => (await api.invites.list()).invites,
+  })
+}
+
+/** Paginated audit log (Settings → Activity). `keepPreviousData` holds the
+ *  current page on screen while the next one loads — no skeleton between pages,
+ *  skeleton only on the genuine first load. */
+export function useAuditLogQuery(page: number, limit: number) {
+  return useQuery({
+    queryKey: queryKeys.auditLog(page, limit),
+    queryFn: () => api.audit.list({ page, limit }),
+    placeholderData: keepPreviousData,
   })
 }

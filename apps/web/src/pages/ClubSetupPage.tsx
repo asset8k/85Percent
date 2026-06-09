@@ -5,7 +5,9 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { useMeQuery, useTeamMembersQuery, useInvitesQuery, useAuditLogQuery, queryKeys } from '@/lib/queries'
 import { useClubStore } from '@/stores/club'
 import { useAuthStore } from '@/stores/auth'
 import { supabase } from '@/lib/supabase'
@@ -33,14 +35,14 @@ import { Flag } from '@/components/ui/flag'
 import { EFL_CHAMPIONSHIP_CONFIG } from '@85percent/shared'
 import { calculatePromotedClubRevenueUplift, PROMOTED_CLUB_DEFAULT_UPLIFT_FACTOR } from '@85percent/engine'
 import { cn, formatUsd } from '@/lib/utils'
-import { activeLocale } from '@/lib/locale'
+import { activeLocale, parseServerDate } from '@/lib/locale'
 import { useScrollLock } from '@/lib/useScrollLock'
 import { useCan } from '@/lib/role'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import { SUPPORTED_LANGUAGES, LANGUAGE_LABELS, LANGUAGE_FLAGS, setLanguage, type Language } from '@/lib/i18n'
 import type { TFunction } from 'i18next'
 import type { ComplianceStatus, Currency } from '@85percent/shared'
-import type { InviteRow, TeamMember, AuditEntry, Permissions } from '@/lib/api'
+import type { InviteRow, TeamMember, Permissions } from '@/lib/api'
 
 // Validation messages are built from a translate function so they localize.
 function makeSetupSchema(t: TFunction) {
@@ -781,7 +783,10 @@ function InterfaceLanguageCard() {
 function ProfileSecurityTab() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  // `/me` is cached in the QueryClient (above the router), so re-entering this
+  // tab serves it instantly — skeleton only on the genuine first load.
+  const meQuery = useMeQuery()
 
   // Profile fields
   const [firstName, setFirstName] = useState('')
@@ -810,19 +815,21 @@ function ProfileSecurityTab() {
   const [disarming, setDisarming] = useState(false)
   const [disableCode, setDisableCode] = useState('')
 
+  // Seed the editable form fields from the cached /me data on first load, and
+  // re-seed after a save invalidates the query. TanStack's structural sharing
+  // keeps the data reference stable across no-op background refetches, so this
+  // effect won't re-fire (and clobber in-progress edits) unless the server data
+  // actually changed.
   useEffect(() => {
-    api.me.get()
-      .then((me) => {
-        const parts = me.fullName.trim().split(/\s+/)
-        setFirstName(parts[0] ?? '')
-        setLastName(parts.slice(1).join(' '))
-        setEmail(me.email)
-        setTotpEnabled(me.isTotpEnabled)
-        setAiBalanceUsd(me.aiBalanceUsd)
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [])
+    const me = meQuery.data
+    if (!me) return
+    const parts = me.fullName.trim().split(/\s+/)
+    setFirstName(parts[0] ?? '')
+    setLastName(parts.slice(1).join(' '))
+    setEmail(me.email)
+    setTotpEnabled(me.isTotpEnabled)
+    setAiBalanceUsd(me.aiBalanceUsd)
+  }, [meQuery.data])
 
   const saveProfile = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -832,6 +839,7 @@ function ProfileSecurityTab() {
     setSavingProfile(true)
     try {
       await api.me.update({ fullName, email: email.trim() })
+      queryClient.invalidateQueries({ queryKey: queryKeys.me })
       toast.success(t('settings.profile.updatedTitle'), t('settings.profile.updatedBody'))
     } catch (err) {
       const msg = err instanceof Error ? err.message : t('settings.profile.failUpdate')
@@ -902,6 +910,7 @@ function ProfileSecurityTab() {
       setTotpEnabled(true)
       setSetupData(null)
       setTotpCode('')
+      queryClient.invalidateQueries({ queryKey: queryKeys.me })
       toast.success(t('settings.profile.totpEnabledTitle'), t('settings.profile.totpEnabledBody'))
     } catch (err) {
       setTotpErr(err instanceof Error ? err.message : t('settings.profile.totpInvalidCode'))
@@ -919,6 +928,7 @@ function ProfileSecurityTab() {
       setTotpEnabled(false)
       setDisarming(false)
       setDisableCode('')
+      queryClient.invalidateQueries({ queryKey: queryKeys.me })
       toast.success(t('settings.profile.totpDisabledTitle'), t('settings.profile.totpDisabledBody'))
     } catch (err) {
       setTotpErr(err instanceof Error ? err.message : t('settings.profile.totpInvalidCode'))
@@ -927,7 +937,7 @@ function ProfileSecurityTab() {
     }
   }
 
-  if (loading) return <FormPageSkeleton />
+  if (meQuery.isPending) return <FormPageSkeleton />
 
   return (
     <div className="space-y-5 max-w-3xl">
@@ -1314,10 +1324,19 @@ function PermissionToggles({
 
 function TeamTab() {
   const { t } = useTranslation()
-  const [members, setMembers] = useState<TeamMember[]>([])
-  const [invites, setInvites] = useState<InviteRow[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  // Members, invites and /me are cached in the QueryClient (above the router), so
+  // re-entering the Team tab serves them instantly — skeleton only on first load.
+  const membersQuery = useTeamMembersQuery()
+  const invitesQuery = useInvitesQuery()
+  const meQuery = useMeQuery()
+  const members = membersQuery.data ?? []
+  const invites = invitesQuery.data ?? []
   const [error, setError] = useState('')
+  const loadError =
+    error ||
+    (membersQuery.error instanceof Error ? membersQuery.error.message : '') ||
+    (invitesQuery.error instanceof Error ? invitesQuery.error.message : '')
 
   // Invite form state
   const [inviteEmail, setInviteEmail] = useState('')
@@ -1334,30 +1353,31 @@ function TeamTab() {
   const [revokingId, setRevokingId] = useState<string | null>(null)
 
   // Active-member management (distinct from pending invites).
-  const [meId, setMeId] = useState<string | null>(null)
+  const meId = meQuery.data?.id ?? null
   const [managing, setManaging] = useState<TeamMember | null>(null)
   const [confirmRevokeMemberId, setConfirmRevokeMemberId] = useState<string | null>(null)
   const [revokingMemberId, setRevokingMemberId] = useState<string | null>(null)
 
+  // Re-fetch members + invites by invalidating their cache. Awaiting the
+  // invalidations resolves only once the background refetch settles, preserving
+  // the previous `await refresh()` call sites' semantics.
   const refresh = async () => {
-    setLoading(true)
     setError('')
-    try {
-      const [m, i] = await Promise.all([api.team.list(), api.invites.list()])
-      setMembers(m.members)
-      setInvites(i.invites)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t('settings.team.failLoad'))
-    } finally {
-      setLoading(false)
-    }
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.teamMembers }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.invites }),
+    ])
   }
 
-  useEffect(() => { refresh() }, [])
-  useEffect(() => { api.me.get().then((me) => setMeId(me.id)).catch(() => {}) }, [])
-
   const handleManageSaved = (id: string, next: { title: string | null } & Permissions) => {
-    setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, ...next } : m)))
+    // Optimistically patch the cached members list so the change shows instantly
+    // (no refetch) — mirrors the prior in-place setMembers update.
+    queryClient.setQueryData<TeamMember[]>(queryKeys.teamMembers, (prev) =>
+      prev ? prev.map((m) => (m.id === id ? { ...m, ...next } : m)) : prev,
+    )
+    // If you just edited your OWN title/access, refresh `['me']` too so the
+    // TopBar identity chip (which reads that cache via useMe) stays live.
+    if (id === meId) queryClient.invalidateQueries({ queryKey: queryKeys.me })
     setManaging(null)
     toast.success(t('settings.team.accessUpdated'), t('settings.team.accessUpdatedBody'))
   }
@@ -1426,7 +1446,7 @@ function TeamTab() {
     } catch { /* ignore */ }
   }
 
-  if (loading) return <FormPageSkeleton />
+  if (membersQuery.isPending || invitesQuery.isPending) return <FormPageSkeleton />
 
   return (
     <div className="space-y-5">
@@ -1478,9 +1498,9 @@ function TeamTab() {
           </div>
         </form>
 
-        {error && (
+        {loadError && (
           <div className="mt-4 border border-red-200 bg-red-50 rounded-lg px-4 py-3 text-[13px] text-red-700">
-            {error}
+            {loadError}
           </div>
         )}
 
@@ -1950,30 +1970,20 @@ function ManageAccessModal({
 
 function ActivityTab() {
   const { t } = useTranslation()
-  const [entries, setEntries] = useState<AuditEntry[]>([])
-  const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const limit = 50
+
+  // Cached + paginated. `keepPreviousData` (in the hook) holds the current page
+  // on screen while the next loads, so paging never flashes a skeleton — and
+  // re-entering the tab is instant. Skeleton shows only on the genuine first load.
+  const auditQuery = useAuditLogQuery(page, limit)
+  const entries = auditQuery.data?.entries ?? []
+  const total = auditQuery.data?.total ?? 0
+  const error = auditQuery.error instanceof Error ? auditQuery.error.message : ''
 
   const totalPages = Math.max(1, Math.ceil(total / limit))
 
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    api.audit.list({ page, limit })
-      .then((data) => {
-        if (cancelled) return
-        setEntries(data.entries)
-        setTotal(data.total)
-      })
-      .catch((e: Error) => { if (!cancelled) setError(e.message) })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [page])
-
-  if (loading) return <FormPageSkeleton />
+  if (auditQuery.isPending) return <FormPageSkeleton />
 
   return (
     <div className="space-y-4">
@@ -2017,7 +2027,7 @@ function ActivityTab() {
               {entries.map((entry) => (
                 <tr key={entry.id} className="border-b border-slate-100 last:border-0 hover:bg-violet-50/40">
                   <td className="px-6 py-3 text-[12px] text-slate-500 num whitespace-nowrap">
-                    {new Date(entry.createdAt).toLocaleString(activeLocale(), {
+                    {parseServerDate(entry.createdAt).toLocaleString(activeLocale(), {
                       day: '2-digit', month: 'short', year: 'numeric',
                       hour: '2-digit', minute: '2-digit',
                     })}
