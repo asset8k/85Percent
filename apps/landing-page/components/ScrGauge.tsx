@@ -9,7 +9,7 @@ import { EASE_EXPO } from './motion/variants'
  * with green/amber/red zones, a violet-tip progress arc, a needle, and a centre
  * read-out. Driven by a single motion value, so it both DRAWS in on mount AND
  * smoothly re-sweeps whenever `value` changes — that's what powers the hero
- * (static 81%) and the interactive ScenarioDemo (value moves as you toggle moves).
+ * (static 81%) and the interactive CommandCenter (value moves as you toggle moves).
  *
  * The read-out and needle turn red the moment `value` crosses `limit`, so a breach
  * reads instantly. Reduced motion snaps instead of sweeping.
@@ -19,9 +19,13 @@ import { EASE_EXPO } from './motion/variants'
 const CX = 280
 const CY = 296
 const R = 168
+// Round to 2dp: Math.cos/sin aren't bit-identical across the Node (SSR) and V8
+// (browser) math libs, so the raw floats serialise differently and trip a
+// hydration mismatch on the static SVG coords. 2dp is sub-pixel at this viewBox.
+const r2 = (n: number) => Math.round(n * 100) / 100
 const polar = (deg: number, radius = R) => {
   const rad = (deg * Math.PI) / 180
-  return { x: CX + radius * Math.cos(rad), y: CY - radius * Math.sin(rad) }
+  return { x: r2(CX + radius * Math.cos(rad)), y: r2(CY - radius * Math.sin(rad)) }
 }
 const angleAt = (f: number) => 180 - Math.max(0, Math.min(1, f)) * 180
 const arcStart = polar(180)
@@ -63,8 +67,9 @@ export function ScrGauge({
 
   const breach = pct > Math.round(limit * 100)
   const readout = breach ? '#F87171' : '#FFFFFF'
-  const limInner = polar(angleAt(limit), R - 16)
-  const limOuter = polar(angleAt(limit), R + 16)
+  const limOn = polar(angleAt(limit), R)
+  const limInner = polar(angleAt(limit), R - 19)
+  const limOuter = polar(angleAt(limit), R + 19)
 
   return (
     <svg
@@ -98,10 +103,29 @@ export function ScrGauge({
         <path d={TRACK_D} stroke="hsl(0 72% 51%)" strokeOpacity="0.85" strokeDasharray="15 100" strokeDashoffset="-85" />
       </g>
 
-      {/* Limit tick */}
-      <line x1={limInner.x} y1={limInner.y} x2={limOuter.x} y2={limOuter.y} stroke="#ffffff" strokeOpacity="0.7" strokeWidth="2.5" strokeLinecap="round" />
-      <text x={limOuter.x + 8} y={limOuter.y - 4} textAnchor="start" className="num" fill="#ffffff" fillOpacity="0.55" style={{ fontSize: 14 }}>
-        Limit {Math.round(limit * 100)}%
+      {/* The 85% limit — the whole point of the product, so it's the loudest mark on
+          the dial: a bright radial tick, a pulsing marker on the arc, and a bold
+          read of the number itself. */}
+      <line x1={limInner.x} y1={limInner.y} x2={limOuter.x} y2={limOuter.y} stroke="#ffffff" strokeOpacity="0.92" strokeWidth="3.5" strokeLinecap="round" />
+      {/* Pulsing halo — always rendered (stable initial, so SSR matches), animation
+          gated by reduced-motion at the `animate` level, not by conditional render. */}
+      <motion.circle
+        cx={limOn.x}
+        cy={limOn.y}
+        fill="none"
+        stroke="#C4B5FD"
+        strokeWidth="2"
+        initial={{ r: 6, opacity: 0 }}
+        animate={reduce ? { r: 6, opacity: 0 } : { r: [6, 18], opacity: [0.7, 0] }}
+        transition={reduce ? undefined : { duration: 2.2, repeat: Infinity, ease: 'easeOut' }}
+      />
+      <circle cx={limOn.x} cy={limOn.y} r="5.5" fill="#FFFFFF" />
+      <circle cx={limOn.x} cy={limOn.y} r="5.5" fill="none" stroke="#8B5CF6" strokeWidth="2" />
+      <text x={limOuter.x + 10} y={limOuter.y - 3} textAnchor="start" className="num" fill="#ffffff" style={{ fontSize: 23, fontWeight: 600, letterSpacing: '-0.02em' }}>
+        {Math.round(limit * 100)}%
+      </text>
+      <text x={limOuter.x + 10} y={limOuter.y + 12} textAnchor="start" fill="#C4B5FD" style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.18em' }}>
+        THE LIMIT
       </text>
 
       {/* Violet progress arc (pathLength bound to the motion value) */}

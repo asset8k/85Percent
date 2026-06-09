@@ -2,14 +2,16 @@
 
 import { motion } from 'framer-motion'
 import { EASE_EXPO } from './motion/variants'
+import { TiltCard } from './TiltCard'
 import type { Capability } from '@/content/capabilities'
 
 /**
  * CapabilityCard — one pillar in the carousel (spec §5a). Icon chip (violet-tip
  * gradient, white glyph), display title, the one-line promise, a supporting
  * sentence, and a thin violet underline that draws in (scaleX 0→1, origin-left)
- * only while the card is the active/focal one. Glassy white card with a violet
- * drop shadow.
+ * only while the card is the active/focal one. The whole card lifts on focus: its
+ * border and shadow warm to violet and the icon chip gains a glow, so the centred
+ * card reads as lit while neighbours sit back.
  */
 export function CapabilityCard({
   capability,
@@ -20,14 +22,33 @@ export function CapabilityCard({
 }) {
   const Icon = capability.icon
   return (
-    <div
-      className="flex h-full flex-col rounded-lg border border-border bg-white p-8 shadow-[0_1px_0_rgba(0,0,0,0.04),0_24px_48px_-24px_rgba(109,40,217,0.18)] sm:p-10"
+    <TiltCard className="h-full" enable={isActive} max={5}>
+    <motion.div
+      className="flex h-full flex-col rounded-2xl border bg-white p-8 sm:p-10"
+      initial={false}
+      animate={{
+        // Literal rgba (not CSS vars) so framer can interpolate the colour.
+        borderColor: isActive ? 'rgba(139, 92, 246, 0.45)' : 'rgba(217, 223, 232, 1)',
+        boxShadow: isActive
+          ? '0 1px 0 rgba(0,0,0,0.04), 0 32px 64px -28px rgba(109,40,217,0.4)'
+          : '0 1px 0 rgba(0,0,0,0.04), 0 24px 48px -24px rgba(109,40,217,0.12)',
+      }}
+      transition={{ duration: 0.7, ease: EASE_EXPO }}
     >
-      <span className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-violet-tip text-white shadow-[0_8px_20px_-8px_rgba(109,40,217,0.6)]">
+      <motion.span
+        className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-violet-tip text-white"
+        initial={false}
+        animate={{
+          boxShadow: isActive
+            ? '0 10px 26px -6px rgba(109,40,217,0.75)'
+            : '0 8px 20px -8px rgba(109,40,217,0.4)',
+        }}
+        transition={{ duration: 0.7, ease: EASE_EXPO }}
+      >
         <Icon size={22} strokeWidth={1.75} />
-      </span>
+      </motion.span>
 
-      <h3 className="mt-7 font-display text-2xl font-semibold tracking-tight text-foreground">
+      <h3 className="mt-7 font-display text-2xl font-semibold tracking-[-0.01em] text-foreground">
         {capability.title}
       </h3>
 
@@ -47,6 +68,7 @@ export function CapabilityCard({
       <p className="mt-3 text-[15px] leading-relaxed text-muted-foreground">
         {capability.body}
       </p>
-    </div>
+    </motion.div>
+    </TiltCard>
   )
 }

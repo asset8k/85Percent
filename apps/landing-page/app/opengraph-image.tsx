@@ -3,7 +3,7 @@ import { ImageResponse } from 'next/og'
 // Dynamic Open Graph card (spec §9) — the charcoal band, a violet "85Percent"
 // lockup, and the headline, so links shared on LinkedIn / WhatsApp render rich.
 export const runtime = 'edge'
-export const alt = '85Percent — The Squad Cost Engine'
+export const alt = '85Percent · The Squad Cost Engine'
 export const size = { width: 1200, height: 630 }
 export const contentType = 'image/png'
 

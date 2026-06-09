@@ -5,14 +5,14 @@ import {
   GitBranch,
   CalendarDays,
   Bell,
-  Sparkles,
   FileDown,
   ShieldCheck,
   Users,
   Coins,
   Share2,
-  type LucideIcon,
 } from 'lucide-react'
+import { SparkIcon } from '@/components/icons/SparkIcon'
+import type { IconType } from './capabilities'
 
 /**
  * features — the complete platform surface beyond the three headline pillars
@@ -20,7 +20,7 @@ import {
  * proof of depth. Sourced from the product's actual feature set (BUILD_LOG).
  */
 export interface Feature {
-  icon: LucideIcon
+  icon: IconType
   title: string
   body: string
 }
@@ -28,8 +28,9 @@ export interface Feature {
 export const features: Feature[] = [
   {
     icon: Trophy,
-    title: 'Every Premier League club, ready to go',
-    body: 'All 20 Premier League squads pre-loaded. La Liga and Serie A are next.',
+    // 44 = the 20 Premier League + 24 EFL Championship clubs, all pre-loaded.
+    title: 'Every Premier League & Championship club',
+    body: 'All 44 Premier League and Championship squads pre-loaded, ready to model in seconds. La Liga and Serie A are next.',
   },
   {
     icon: Upload,
@@ -57,7 +58,7 @@ export const features: Feature[] = [
     body: 'Breach-risk, contract-expiry and compliance warnings surface in-app the moment they matter.',
   },
   {
-    icon: Sparkles,
+    icon: SparkIcon,
     title: 'AI analyst, grounded in the rulebook',
     body: 'Retrieval-augmented answers drawn from the Premier League regulations and your club’s own numbers.',
   },

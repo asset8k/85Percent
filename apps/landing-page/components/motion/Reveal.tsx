@@ -22,11 +22,16 @@ export function Reveal({
   children: React.ReactNode
   delay?: number
 } & HTMLMotionProps<'div'>) {
+  // NB: keep this variant reduced-motion-independent — it's the SSR initial style,
+  // so branching it on useReducedMotion would mismatch on hydration. MotionConfig
+  // neutralises the transform for reduced-motion users; the blur/opacity fade that
+  // remains is gentle and non-vestibular.
   const variants: Variants = {
-    hidden: { opacity: 0, y: 24 },
+    hidden: { opacity: 0, y: 24, filter: 'blur(8px)' },
     visible: {
       opacity: 1,
       y: 0,
+      filter: 'blur(0px)',
       transition: { duration: 0.8, ease: EASE_EXPO, delay },
     },
   }

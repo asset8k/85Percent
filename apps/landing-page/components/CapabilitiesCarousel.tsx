@@ -111,12 +111,12 @@ export function CapabilitiesCarousel() {
       <div className="mx-auto max-w-content px-6 py-28">
         <Reveal className="max-w-2xl">
           <span className="meta-label text-primary">Capabilities</span>
-          <h2 className="mt-4 text-balance font-display text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-4xl">
+          <h2 className="mt-4 text-balance font-display text-3xl font-semibold leading-[1.1] tracking-[-0.01em] text-foreground sm:text-4xl">
             One engine, from live position to the next signing.
           </h2>
           <p className="mt-5 text-lg leading-relaxed text-muted-foreground">
             Monitor where you stand, model where you’re going, and ask anything in
-            between — all grounded in your club’s own numbers.
+            between. All grounded in your club’s own numbers.
           </p>
         </Reveal>
 
@@ -133,10 +133,14 @@ export function CapabilitiesCarousel() {
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
         >
-          <div ref={containerRef} className="overflow-hidden">
+          <div ref={containerRef} className="relative overflow-hidden">
+            {/* Soft edge fades so neighbouring cards dissolve into the band. */}
+            <div className="pointer-events-none absolute inset-y-0 left-0 z-20 w-12 bg-gradient-to-r from-surface to-transparent sm:w-24" aria-hidden />
+            <div className="pointer-events-none absolute inset-y-0 right-0 z-20 w-12 bg-gradient-to-l from-surface to-transparent sm:w-24" aria-hidden />
+
             <motion.div
-              className="flex cursor-grab gap-6 active:cursor-grabbing"
-              style={{ x }}
+              className="flex cursor-grab gap-6 py-6 active:cursor-grabbing"
+              style={{ x, perspective: 1600 }}
               drag="x"
               dragConstraints={dragConstraints}
               dragElastic={0.08}
@@ -146,14 +150,21 @@ export function CapabilitiesCarousel() {
             >
               {capabilities.map((cap, i) => {
                 const isActive = i === active
+                const offset = i - active
                 return (
                   <motion.div
                     key={cap.id}
                     className="w-[84%] shrink-0 sm:w-[56%]"
+                    style={{ transformStyle: 'preserve-3d' }}
                     role="group"
                     aria-roledescription="slide"
                     aria-label={`${i + 1} of ${n}`}
-                    animate={{ scale: isActive ? 1 : 0.92, opacity: isActive ? 1 : 0.45 }}
+                    animate={{
+                      scale: isActive ? 1 : 0.9,
+                      opacity: isActive ? 1 : 0.4,
+                      rotateY: isActive ? 0 : offset < 0 ? 9 : -9,
+                      filter: isActive ? 'blur(0px)' : 'blur(3px)',
+                    }}
                     transition={{ duration: 0.7, ease: EASE_EXPO }}
                   >
                     <CapabilityCard capability={cap} isActive={isActive} />
@@ -200,6 +211,20 @@ export function CapabilitiesCarousel() {
             >
               <ArrowRight size={18} />
             </button>
+          </div>
+
+          {/* Autoplay progress — restarts each slide, freezes on hover/focus/drag. */}
+          <div className="mx-auto mt-6 h-0.5 w-32 overflow-hidden rounded-full bg-border">
+            {!reduce && width > 0 && (
+              <div
+                key={active}
+                className="h-full rounded-full bg-violet-tip"
+                style={{
+                  animation: 'carousel-progress 6s linear forwards',
+                  animationPlayState: paused ? 'paused' : 'running',
+                }}
+              />
+            )}
           </div>
 
           {/* Live region — announces the active slide to assistive tech. */}

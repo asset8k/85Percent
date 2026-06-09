@@ -33,7 +33,7 @@ export default {
       },
       fontFamily: {
         sans: ['var(--font-inter)', 'Inter', 'system-ui', 'sans-serif'],
-        display: ['var(--font-space-grotesk)', 'Space Grotesk', 'system-ui', 'sans-serif'],
+        display: ['var(--font-fraunces)', 'Fraunces', 'Georgia', 'serif'],
         mono: ['"JetBrains Mono"', 'monospace'],
       },
       borderRadius: {

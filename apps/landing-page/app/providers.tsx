@@ -1,6 +1,7 @@
 'use client'
 
 import { MotionConfig } from 'framer-motion'
+import { SmoothScroll } from '@/components/SmoothScroll'
 
 /**
  * Client providers for the marketing site.
@@ -12,5 +13,10 @@ import { MotionConfig } from 'framer-motion'
  * auto-play and parallax read the same `useReducedMotion()` signal.
  */
 export function Providers({ children }: { children: React.ReactNode }) {
-  return <MotionConfig reducedMotion="user">{children}</MotionConfig>
+  return (
+    <MotionConfig reducedMotion="user">
+      <SmoothScroll />
+      {children}
+    </MotionConfig>
+  )
 }

@@ -9,10 +9,10 @@ import { EASE_EXPO } from './motion/variants'
 import { navLinks } from '@/content/nav'
 
 /**
- * Navbar — sticky, transparent over the charcoal hero, transitioning to a frosted
- * white bar once scrolled past it (spec §5.1). The Wordmark and links swap from
- * light to dark on the same boolean so the whole bar reads correctly on either
- * band — animated opacity, no jump. Mobile: hamburger → full-height motion sheet.
+ * Navbar — sticky, transparent over the charcoal hero, transitioning to a deep-
+ * violet frosted-glass bar once scrolled past it (spec §5.1). The bar stays dark in
+ * both states, so the white-tone lockup and light links read correctly throughout —
+ * no light/dark swap needed. Mobile: hamburger → full-height motion sheet.
  */
 export function Navbar({ forceSolid = false }: { forceSolid?: boolean }) {
   const [scrolled, setScrolled] = useState(false)
@@ -36,45 +36,27 @@ export function Navbar({ forceSolid = false }: { forceSolid?: boolean }) {
     }
   }, [menuOpen])
 
-  const onLight = scrolled || forceSolid
-  const linkColor = onLight ? 'text-muted-foreground hover:text-foreground' : 'text-white/70 hover:text-white'
+  const solid = scrolled || forceSolid
 
   return (
     <motion.header
       className="fixed inset-x-0 top-0 z-50"
       initial={false}
       animate={{
-        backgroundColor: onLight ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0)',
-        borderColor: onLight ? 'hsl(var(--border))' : 'rgba(255,255,255,0)',
+        backgroundColor: solid ? 'rgba(26,17,48,0.74)' : 'rgba(0,0,0,0)',
+        borderColor: solid ? 'rgba(167,139,250,0.22)' : 'rgba(255,255,255,0)',
+        boxShadow: solid ? '0 12px 40px -16px rgba(11,7,28,0.7)' : '0 0 0 0 rgba(0,0,0,0)',
       }}
       transition={{ duration: 0.4, ease: EASE_EXPO }}
-      style={{ backdropFilter: onLight ? 'blur(12px)' : 'none', borderBottomWidth: 1 }}
+      style={{ backdropFilter: solid ? 'blur(14px) saturate(140%)' : 'none', borderBottomWidth: 1 }}
     >
       <nav className="mx-auto flex h-16 max-w-content items-center justify-between px-6">
-        {/* The two lockups are stacked and cross-faded as the band changes:
-            white-tone over the charcoal hero, violet-tone once scrolled to white.
-            The first sits in flow (sets the footprint); the second overlays it. */}
         <a
           href={forceSolid ? '/' : '#top'}
-          aria-label="85Percent — home"
+          aria-label="85Percent home"
           className="relative inline-flex rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
-          <motion.span
-            className="block"
-            initial={false}
-            animate={{ opacity: onLight ? 0 : 1 }}
-            transition={{ duration: 0.4, ease: EASE_EXPO }}
-          >
-            <Wordmark size={38} tone="white" wordColor="#FFFFFF" fadeTo="#0B1020" interactive={false} />
-          </motion.span>
-          <motion.span
-            className="absolute inset-0 block"
-            initial={false}
-            animate={{ opacity: onLight ? 1 : 0 }}
-            transition={{ duration: 0.4, ease: EASE_EXPO }}
-          >
-            <Wordmark size={38} tone="violet" wordColor="#1E293B" fadeTo="#FFFFFF" interactive={false} />
-          </motion.span>
+          <Wordmark size={38} tone="white" wordColor="#FFFFFF" fadeTo="#0B1020" interactive={false} />
         </a>
 
         {/* Desktop links + CTA */}
@@ -84,14 +66,14 @@ export function Navbar({ forceSolid = false }: { forceSolid?: boolean }) {
               <li key={link.href}>
                 <a
                   href={forceSolid ? `/${link.href}` : link.href}
-                  className={`transition-colors duration-200 ${linkColor}`}
+                  className="text-white/70 transition-colors duration-200 hover:text-white"
                 >
                   {link.label}
                 </a>
               </li>
             ))}
           </ul>
-          <RequestAccessButton variant={onLight ? 'primary' : 'inverse'} size="sm" source="navbar" />
+          <RequestAccessButton variant="inverse" size="sm" source="navbar" gradientShift magnetic />
         </div>
 
         {/* Mobile trigger */}
@@ -99,7 +81,7 @@ export function Navbar({ forceSolid = false }: { forceSolid?: boolean }) {
           type="button"
           onClick={() => setMenuOpen(true)}
           aria-label="Open menu"
-          className={`md:hidden rounded-md p-2 transition-colors ${onLight ? 'text-foreground' : 'text-white'}`}
+          className="rounded-md p-2 text-white transition-colors md:hidden"
         >
           <Menu size={22} />
         </button>

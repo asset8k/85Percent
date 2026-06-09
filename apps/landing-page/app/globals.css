@@ -53,6 +53,21 @@
       scroll-behavior: auto;
     }
   }
+
+  /* Lenis smooth-scroll integration (see components/SmoothScroll). */
+  html.lenis,
+  html.lenis body {
+    height: auto;
+  }
+  .lenis.lenis-smooth {
+    scroll-behavior: auto !important;
+  }
+  .lenis.lenis-smooth [data-lenis-prevent] {
+    overscroll-behavior: contain;
+  }
+  .lenis.lenis-stopped {
+    overflow: hidden;
+  }
 }
 
 @layer utilities {
@@ -73,5 +88,149 @@
   /* Balanced multi-line headlines (Hero, section titles). */
   .text-balance {
     text-wrap: balance;
+  }
+
+  /* Gradient text — violet ramp clipped to the glyphs, for accent phrases on light
+     bands (e.g. a highlighted word in a section heading). */
+  .text-gradient-violet {
+    background-image: linear-gradient(
+      100deg,
+      hsl(var(--v-core)) 0%,
+      hsl(var(--v-mid)) 50%,
+      hsl(var(--v-soft)) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Hero gradient — white falling into violet, with a soft glow, for the headline
+     on the charcoal band. Pairs with `.text-shimmer` for a slow light sweep. */
+  .text-gradient-hero {
+    background-image: linear-gradient(
+      92deg,
+      #ffffff 0%,
+      #ffffff 42%,
+      hsl(var(--v-soft)) 78%,
+      hsl(var(--v-mid)) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 1px 30px hsl(var(--v-mid) / 0.35));
+  }
+
+  /* Animated light sweep across a gradient-text phrase. Needs a >100% background
+     size so there's room to travel. Honours reduced-motion (holds still). */
+  .text-shimmer {
+    background-size: 220% 100%;
+    animation: text-shimmer 7s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .text-shimmer {
+      animation: none;
+    }
+  }
+}
+
+@keyframes text-shimmer {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* Carousel autoplay progress — fills left→right over one autoplay interval. */
+@keyframes carousel-progress {
+  from {
+    width: 0%;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+/* Time-shifting violet gradient for the nav CTA — slowly drifts hue so the button
+   subtly changes colour over a ~6s cycle. Holds still under reduced-motion. */
+.cta-gradient-shift {
+  background-image: linear-gradient(
+    100deg,
+    #6d28d9 0%,
+    #8b5cf6 26%,
+    #a855f7 50%,
+    #7c3aed 74%,
+    #6d28d9 100%
+  );
+  background-size: 220% 100%;
+  animation: cta-gradient 6s linear infinite;
+}
+@keyframes cta-gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cta-gradient-shift {
+    animation: none;
+  }
+}
+
+/* ── Aurora ───────────────────────────────────────────────────────────────
+   Slow-drifting blurred violet light, screen-blended over the charcoal bands.
+   A few large blobs on long, offset loops read as a living aurora rather than
+   a static glow. Holds still under reduced-motion. */
+.aurora-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(72px);
+  opacity: 0.5;
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+.aurora-blob--a {
+  width: 46rem;
+  height: 46rem;
+  left: -10rem;
+  top: -14rem;
+  background: radial-gradient(circle, hsl(263 75% 55% / 0.9), transparent 62%);
+  animation: aurora-a 24s ease-in-out infinite;
+}
+.aurora-blob--b {
+  width: 38rem;
+  height: 38rem;
+  right: -8rem;
+  top: -8rem;
+  background: radial-gradient(circle, hsl(282 70% 58% / 0.8), transparent 62%);
+  animation: aurora-b 30s ease-in-out infinite;
+}
+.aurora-blob--c {
+  width: 42rem;
+  height: 42rem;
+  left: 32%;
+  bottom: -20rem;
+  background: radial-gradient(circle, hsl(248 82% 62% / 0.7), transparent 62%);
+  animation: aurora-c 34s ease-in-out infinite;
+}
+@keyframes aurora-a {
+  0%, 100% { transform: translate3d(-6%, -4%, 0) scale(1); }
+  50% { transform: translate3d(10%, 6%, 0) scale(1.18); }
+}
+@keyframes aurora-b {
+  0%, 100% { transform: translate3d(4%, 2%, 0) scale(1.08); }
+  50% { transform: translate3d(-8%, 8%, 0) scale(0.92); }
+}
+@keyframes aurora-c {
+  0%, 100% { transform: translate3d(0, 4%, 0) scale(1); }
+  50% { transform: translate3d(-10%, -6%, 0) scale(1.22); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aurora-blob {
+    animation: none !important;
   }
 }

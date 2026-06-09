@@ -3673,3 +3673,131 @@ copy, optional commissioned hero render. Not yet committed.
 Verified: `next build` clean (9 routes, home 168 kB First Load), landing + web tsc clean, brand
 rebuilt. CDP-drove the interactive demo (breach 87% → toggle sale → compliant 82%) and the logo
 cross-fade (white over hero / violet when scrolled); no console exceptions.
+
+### Interactive mock-UI upgrade (2026-06-09) — SCR Command Center + AI Analyst chat
+
+Goal: make the landing page demonstrate the product, not just describe it (Stripe/Linear-grade
+interactive sections). Decisions taken with the user up front: **charts = hand-rolled SVG for the
+radial gauge + recharts only for the one genuine multi-series trend chart**; **consolidate** the old
+standalone `ScenarioDemo` into one larger "SCR Command Center" and add a new auto-typing AI chat.
+
+1. **Dependency.** Added `recharts@^2.15.4` to `apps/landing-page` (the only new lib — declined
+   recharts/visx for the gauge and declined magic-ui/aceternity wholesale because their spring/bounce
+   defaults violate the no-bounce doctrine; the radial gauge stays hand-rolled framer-motion SVG).
+2. **SCR Command Center** (`components/command-center/`, `#command-center`, replaces `ScenarioDemo`).
+   One dark dashboard panel that folds the gauge + scenario loop together. State: `CURRENT = 0.78`,
+   toggle a `Set` of moves (sign £80M striker +6.0, renew GK +2.0, loan winger +1.2, sell CB −4.5,
+   promote academy −1.5), `projected = clamp(current + Σδ)`, `breach = projected > 0.85`. Live pieces,
+   all driven off `projected`:
+   - reused `ScrGauge` (re-sweeps, red past limit);
+   - `ScrComparisonBars` — hand-rolled animated Current-vs-Projected bars sharing a 0–100% track with
+     an 85% dashed cap marker + red over-limit wash; projected bar flips red on breach;
+   - `ScrTrendChart` — **recharts** `AreaChart` of SCR Jun→deadline with a dashed red 85% `ReferenceLine`
+     and a live `ReferenceDot` at the projected point (red on breach), fully restyled for charcoal
+     (violet-tip gradient, mono ticks, `ease-out`, `isAnimationActive` gated on reduced-motion);
+   - header status pill `AnimatePresence`-flips Compliant ↔ "Breach — over 85%", panel border/shadow
+     animate red on breach. Move rail is a 3-col toggle grid below.
+3. **AI Analyst chat** (`components/ai-analyst/AiAnalystChat.tsx`, `#ai-analyst`, white band for
+   rhythm). On scroll-in a scripted exchange plays via a small phase machine (idle→ask→think→answer→
+   resolved): the Sporting Director's question types out (`lib/useTypewriter.ts`, steady cps, blinking
+   caret), a thinking-dots indicator, then the analyst's answer types out, then a **deterministic
+   calculation card** resolves (GK renewal +£4.2M/yr → +2.0 pts → 80% → 5 pts headroom ≈ one £60M
+   5-yr signing). "RAG-grounded · Deterministic" badge + inert composer sell the affordance. Reduced
+   motion renders the whole exchange at rest.
+
+Verified: `apps/landing-page` tsc clean; dev server compiles `/` 200 (2569 modules, no errors). CDP
+screenshots confirm: Command Center default (84%, Compliant, recharts trajectory climbing to the cap
+line), breach state (click "Renew the goalkeeper" → 86%, gauge/bars/dot/pill/border all red), AI chat
+full exchange completes, and AI chat under `prefers-reduced-motion: reduce` renders at rest. Old
+`components/ScenarioDemo.tsx` deleted; `app/page.tsx` order is hero → rule → capabilities → command
+center → AI analyst → platform → footer. Production `next build` not re-run this round (user skipped);
+not yet committed.
+
+### Landing high-fidelity polish round (2026-06-09) — fonts, consequences, interactivity
+
+A large multi-item batch to push the landing toward a "£100M enterprise SaaS" feel.
+
+1. **Editorial serif type.** Replaced the Inter + Space Grotesk pairing (the cliché AI combo) with
+   **Fraunces** (display serif, weights 400/500/600, normal+italic) over **Inter** body. `font-display`
+   token now maps to Fraunces; all display headings relaxed from `tracking-tight` to `tracking-[-0.01em]`
+   (serifs don't want negative tracking). Reads expensive/institutional.
+2. **Navbar scrolled colour.** The frosted-white bar became a **deep-violet frosted glass**
+   (`rgba(26,17,48,0.74)` + violet border + blur/saturate + shadow); bar stays dark in both states so the
+   white lockup and light links read throughout (dropped the light/dark cross-fade). 
+3. **Pulsing CTA.** `RequestAccessButton` gained a `pulse` prop: a breathing scale + an expanding violet
+   stroke ring + a soft glow (all reduced-motion gated). Enabled on the hero and navbar CTAs.
+4. **Brand AI icon.** Ported the product app's `SparkIcon` (open compliance-gauge arc + centred spark)
+   to `components/icons/SparkIcon.tsx`; replaced lucide `Sparkles` in the AI chat (avatar + chrome),
+   `capabilities.ts` and `features.ts`. Shared `IconType` widened so lucide + SparkIcon both satisfy it.
+5. **Gradient / glow text.** New globals utilities: `.text-gradient-violet`, `.text-gradient-hero`
+   (white→violet + drop-shadow glow), `.text-shimmer` (animated sweep, reduced-motion safe). Applied to
+   the hero headline (gradient + shimmer) and accent phrases ("Squad Cost Ratio", "one place").
+6. **85% limit emphasis** on `ScrGauge`: brighter/thicker limit tick, a pulsing halo marker on the arc at
+   the limit point, and a bold "85% / THE LIMIT" label — the cap is now the loudest mark on the dial.
+7. **110% + sporting consequences** (the headline ask). Added aggressive moves (£180M galáctico +14,
+   deadline-day spree +10) so stacking reaches 110%, plus a **"Show a points deduction"** preset (and
+   Reset). New `ConsequencesPanel` opens on breach and climbs a 3-rung ladder (registration restrictions
+   → formal breach → automatic deduction); past ~105% a `−N pts` badge appears (−6 at 105%, −10 at 110%)
+   and a new `LeagueTable` **physically re-sorts** the club out of the top four via framer `layout`
+   (illustrative clubs; 4th → 8th at −10). `ScrTrendChart` Y-domain now auto-scales to keep a 110% spike +
+   cap line in frame.
+8. **Carousel visuals.** Added perspective + 3D `rotateY` tilt and `blur` on non-focal cards, violet glow
+   + icon glow on the active card (`CapabilityCard` now motion-driven), soft left/right edge fades, and a
+   CSS autoplay **progress bar** (`@keyframes carousel-progress`) that restarts per slide and freezes on
+   hover/focus/drag/reduced-motion.
+9. **PlatformFeatures interactivity.** Per-card violet top-accent on hover (no grid shift) + icon pop; two
+   live cards — a **ticking transfer-deadline countdown** (client-only, 1s tick) and a **cycling
+   notifications feed** (AnimatePresence). 
+10. **Championship / 44 clubs.** First feature now "Every Premier League & Championship club" / "All 44 …
+    pre-loaded", with a clarifying comment (44 = 20 PL + 24 Championship).
+11. **Em dashes removed** from all user-facing copy (rewritten compacter) and from SEO/OG titles
+    (`—` → `·`); only code comments retain them.
+
+Verified: `apps/landing-page` tsc clean; dev compiles `/` 200 (2581 modules, no console errors). CDP
+screenshots confirm: serif hero with gradient headline + emphasized 85% limit; deep-violet scrolled
+navbar; carousel 3D blur/tilt + edge fades + progress bar; Command Center default (84%, compliant) and
+the **110% consequences** (−10 pts badge, escalation ladder, league table dropping the club to 8th / out
+of the top four); AI chat with SparkIcon + compacted copy; live deadline countdown + notifications feed
+in the platform grid. Production `next build` not re-run; not yet committed.
+
+### Cinematic / "royal" pass (2026-06-09) — atmosphere, smooth scroll, footer, interactions
+
+Goal: make the landing feel like one continuous, expensive experience (Stripe/Linear-grade), not a
+stack of sections. **New deps:** `lenis` (smooth scroll), `react-parallax-tilt` (3D tilt).
+
+- **Atmosphere primitives** (`components/atmosphere/`): `Aurora` (3 blurred, screen-blended violet blobs
+  drifting on long offset CSS loops — globals `.aurora-blob` + `aurora-a/b/c`), `Grain` (tiled SVG
+  fractal-noise overlay, `mix-blend: overlay`), `Spotlight` (cursor-following violet radial glow,
+  attaches to its `relative` parent, off under reduced-motion/touch). Applied to the hero and command
+  center bands (content bumped to `relative z-10`) and the new footer.
+- **Smooth scroll** (`components/SmoothScroll.tsx`, mounted in `providers.tsx`): Lenis with an ease-out
+  cubic, one rAF loop, anchor-link interception (`lenis.scrollTo`, −72 offset). Never initialises under
+  reduced-motion. Lenis CSS added to globals.
+- **Cinematic reveals**: `Reveal` now adds a `blur(8px)→0` to its fade-up (kept reduced-motion-independent
+  so it doesn't mismatch on hydration).
+- **Tactile surfaces**: `TiltCard` (react-parallax-tilt, small angles, slow transition, faint white
+  glare, reduced-motion off) wraps the hero gauge panel and the **active** capability card. The hero +
+  footer CTAs are **magnetic** (lean toward the cursor via spring-smoothed motion values).
+- **Hero microcopy** "Maximize your squad. Protect your points." restyled from flat grey into an editorial
+  lockup: a vertical gradient rule + Fraunces italic + a violet-gradient "Protect your points."
+- **Navbar CTA** now `gradientShift` — a violet gradient that drifts hue over a ~6s loop
+  (`.cta-gradient-shift` + `cta-gradient` keyframes, static under reduced-motion) — plus magnetic.
+- **Footer redesign** (royal close): charcoal band with Aurora + Grain, a giant ghost "85" watermark, a
+  final "Win the transfer window. / Within the rules." headline (gradient) + Request Access CTA, a
+  violet gradient hairline, four columns (brand / Explore / Legal / Contact with icon chips) and a
+  back-to-top.
+
+**Hydration hardening** (all surfaced via a CDP console capture, incl. a `prefers-reduced-motion` pass —
+the dev overlay's "1 error" badge):
+  1. `ScrGauge` polar coords rounded to 2dp — `Math.cos/sin` aren't bit-identical Node vs V8, so the raw
+     floats mismatched on the static limit-mark SVG.
+  2. `ScrGauge` halo + `RequestAccessButton` wrapper + `Reveal` blur: never branch **rendered structure or
+     SSR initial style** on `useReducedMotion` (it resolves false on server / true on client-first-render).
+     Structure/initial now depend only on props; `reduce` is consulted only in `animate`/event handlers.
+  3. `CapabilityCard` animated `borderColor` switched from `hsl(var(--…))` (framer can't interpolate a CSS
+     var) to literal rgba.
+
+Verified: `apps/landing-page` tsc clean; **production `next build` clean** (10 routes, home First Load
+278 kB); CDP console **clean in both normal and reduced-motion** (walked + interacted); screenshots
+confirm the aurora hero, gradient nav CTA, restyled microcopy, command center + 110% consequences, and
+the redesigned royal footer — no dev-overlay errors. Not yet committed.

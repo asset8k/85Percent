@@ -15,14 +15,14 @@ export function ProblemSolution() {
         {/* Beat 1 — the problem */}
         <Reveal className="max-w-2xl">
           <span className="meta-label text-primary">The new era</span>
-          <h2 className="mt-4 text-balance font-display text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-4xl">
+          <h2 className="mt-4 text-balance font-display text-3xl font-semibold leading-[1.1] tracking-[-0.01em] text-foreground sm:text-4xl">
             The end of the unlimited-spending era.
           </h2>
           <p className="mt-5 text-lg leading-relaxed text-muted-foreground">
-            For a generation, the model was simple: spend to the limit of an
-            owner’s patience. That era is over. Squad investment is now governed by
-            a hard, league-enforced ceiling — and the clubs that treat it as an
-            afterthought are the ones that lose points, transfers, and seasons.
+            For a generation the model was simple: spend to the limit of an owner’s
+            patience. That era is over. Squad investment now sits under a hard,
+            league-enforced ceiling, and clubs that treat it as an afterthought lose
+            points, transfers and seasons.
           </p>
         </Reveal>
 
@@ -30,15 +30,15 @@ export function ProblemSolution() {
         <div className="mt-20 grid grid-cols-1 items-center gap-12 lg:grid-cols-2 lg:gap-16">
           <Reveal>
             <span className="meta-label text-primary">The rule</span>
-            <h2 className="mt-4 text-balance font-display text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-4xl">
-              Enter the Squad Cost Ratio.
+            <h2 className="mt-4 text-balance font-display text-3xl font-semibold leading-[1.1] tracking-[-0.01em] text-foreground sm:text-4xl">
+              Enter the{' '}
+              <span className="text-gradient-violet">Squad Cost Ratio</span>.
             </h2>
             <p className="mt-5 text-lg leading-relaxed text-muted-foreground">
-              Wages, transfer amortisation, and agent fees, capped as a percentage
-              of football revenue. Cross the line and the consequences are no longer
-              financial alone — they are sporting. 85Percent is the deterministic
-              engine that keeps your club on the right side of it, every day of the
-              window.
+              Wages, transfer amortisation and agent fees, capped as a share of
+              football revenue. Cross the line and the consequences are no longer
+              financial. They are sporting. 85Percent is the deterministic engine
+              that keeps you on the right side of it, every day of the window.
             </p>
           </Reveal>
 

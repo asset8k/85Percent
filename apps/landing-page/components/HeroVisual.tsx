@@ -3,6 +3,7 @@
 import { useRef } from 'react'
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { ScrGauge } from './ScrGauge'
+import { TiltCard } from './TiltCard'
 
 /**
  * HeroVisual — the abstract "dashboard-meets-pitch-geometry" showpiece (spec §5.2):
@@ -29,7 +30,7 @@ export function HeroVisual() {
         className="pointer-events-none absolute -inset-6 rounded-[2rem] bg-violet-core/20 blur-3xl"
         aria-hidden
       />
-      <div className="relative rounded-2xl border border-white/10 bg-white/[0.04] p-6 shadow-[0_40px_80px_-32px_rgba(0,0,0,0.7)] backdrop-blur-sm sm:p-8">
+      <TiltCard className="relative rounded-2xl border border-white/10 bg-white/[0.04] p-6 shadow-[0_40px_80px_-32px_rgba(0,0,0,0.7)] backdrop-blur-sm sm:p-8">
         {/* Card header — reads like a product panel */}
         <div className="mb-2 flex items-center justify-between">
           <span className="meta-label text-white/50">Squad Cost Ratio</span>
@@ -54,7 +55,7 @@ export function HeroVisual() {
             </div>
           ))}
         </div>
-      </div>
+      </TiltCard>
     </motion.div>
   )
 }
