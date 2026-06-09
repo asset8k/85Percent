@@ -3801,3 +3801,19 @@ Verified: `apps/landing-page` tsc clean; **production `next build` clean** (10 r
 278 kB); CDP console **clean in both normal and reduced-motion** (walked + interacted); screenshots
 confirm the aurora hero, gradient nav CTA, restyled microcopy, command center + 110% consequences, and
 the redesigned royal footer — no dev-overlay errors. Not yet committed.
+
+### Mobile audit + floating-island navbar (2026-06-10)
+
+- **Mobile responsiveness verified** (CDP at 360/390px): every section already stacks to a single
+  column, the hamburger → full-screen sheet works, gauge/recharts scale fluidly, and there is **no
+  horizontal overflow** (`scrollWidth === clientWidth`; the only elements exceeding the viewport are the
+  aurora blobs, carousel track and tilt glare, all inside `overflow-hidden`). One fix: the breach league
+  table's "out of the top four" tag is now `hidden sm:inline` so the row doesn't truncate on phones.
+- **Navbar redesign** — from a flat full-width bar to a **floating frosted-glass island**: a rounded
+  `max-w-content` pill hung below the top edge (`px-4 pt-3`), violet border, top-edge sheen highlight,
+  inset + drop shadow, `blur(8px)` over the hero firming to `blur(16px) saturate` deep-violet glass when
+  scrolled. Links gained an animated violet underline (origin-left scaleX on hover); height trimmed to
+  h-14; markup is now `<header>` wrapping `<motion.nav>`.
+
+Verified: tsc clean; CDP console clean in normal + reduced-motion; screenshots confirm the island over
+the hero, scrolled, and on mobile. Not yet committed.

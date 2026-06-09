@@ -81,7 +81,7 @@ export function LeagueTable({ pointsDeducted }: { pointsDeducted: number }) {
             <span className={`flex-1 truncate ${row.you ? 'font-semibold text-white' : 'text-white/70'}`}>
               {row.name}
               {row.you && i >= 4 && (
-                <span className="ml-2 text-[10px] uppercase tracking-wide text-[#FCA5A5]">
+                <span className="ml-2 hidden text-[10px] uppercase tracking-wide text-[#FCA5A5] sm:inline">
                   out of the top four
                 </span>
               )}
