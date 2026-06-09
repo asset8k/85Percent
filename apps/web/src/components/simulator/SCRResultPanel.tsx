@@ -1,5 +1,5 @@
-import type { SCRResult, TransactionType } from '@headroom/shared'
-import { formatPence } from '@headroom/shared'
+import type { SCRResult, TransactionType } from '@85percent/shared'
+import { formatPence } from '@85percent/shared'
 import { Card } from '@/components/ui/card'
 import { StatusBadge } from '@/components/ui/badge'
 import { ComplianceGauge } from './ComplianceGauge'

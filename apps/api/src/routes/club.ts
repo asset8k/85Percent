@@ -6,8 +6,8 @@ import { authMiddleware } from '../middleware/auth.js'
 import { requirePermission } from '../middleware/permissions.js'
 import { writeAuditLog } from '../lib/audit.js'
 import { getClubOwnerId } from '../lib/clubOwner.js'
-import { LEAGUE_CONFIGS, getDefaultCurrencyForLeague } from '@headroom/shared'
-import { calculateSquadCosts, type ContractInput, type ManagerCostInput } from '@headroom/engine'
+import { LEAGUE_CONFIGS, getDefaultCurrencyForLeague } from '@85percent/shared'
+import { calculateSquadCosts, type ContractInput, type ManagerCostInput } from '@85percent/engine'
 
 const UpdateFinancialsBody = z
   .object({
@@ -61,7 +61,7 @@ async function deriveActiveManager(clubId: string): Promise<ManagerCostInput | n
 
 // Sum active contracts for a club into a single squad-cost pence total. The
 // active Head Coach / Manager is included per SCR rules. Pure engine call —
-// DB I/O is here, not in @headroom/engine.
+// DB I/O is here, not in @85percent/engine.
 async function deriveSquadCostsForClub(clubId: string): Promise<{
   totalPence: number
   contractCount: number

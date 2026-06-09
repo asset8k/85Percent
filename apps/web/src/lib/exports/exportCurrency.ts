@@ -12,7 +12,7 @@
  * are simply rendered with the active currency's symbol/format.
  */
 
-import { currencySymbol, formatMoney, type Currency } from '@headroom/shared'
+import { currencySymbol, formatMoney, type Currency } from '@85percent/shared'
 
 let activeCurrency: Currency = 'GBP'
 

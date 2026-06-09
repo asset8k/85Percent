@@ -1,6 +1,6 @@
 // Tests for the onboarding hydration transform.
 //
-//   pnpm --filter @headroom/api test:onboarding
+//   pnpm --filter @85percent/api test:onboarding
 //
 // Two layers:
 //  1. Pure unit tests of the helpers + buildHydratedRoster (synthetic input).
@@ -269,7 +269,7 @@ describe('DB-backed hydration over the filled template library', () => {
   it('has 20 Premier League + 24 Championship clubs cached', async () => {
     const clubs = await loadTemplateClubs()
     if (clubs.length === 0) {
-      console.warn('  ⚠ no template data — run `pnpm --filter @headroom/api sync:templates` first; skipping')
+      console.warn('  ⚠ no template data — run `pnpm --filter @85percent/api sync:templates` first; skipping')
       return
     }
     const pl = clubs.filter((c) => c.league === 'PREMIER_LEAGUE').length

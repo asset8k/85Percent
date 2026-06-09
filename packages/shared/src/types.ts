@@ -92,7 +92,7 @@ export type ComplianceStatus = 'green' | 'amber' | 'red'
 export type Currency = 'GBP' | 'EUR' | 'USD'
 
 /** Mirrors the engine's ScenarioActionType — duplicated here so frontend types
- *  don't need to depend on @headroom/engine directly. */
+ *  don't need to depend on @85percent/engine directly. */
 export type ScenarioActionType = 'buy' | 'sell' | 'loan_in' | 'loan_out' | 'release'
 
 // ---------------------------------------------------------------------------

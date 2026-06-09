@@ -1,4 +1,4 @@
-import type { AmortisationEntry } from '@headroom/shared'
+import type { AmortisationEntry } from '@85percent/shared'
 
 /**
  * Regulatory amortisation cap (the "Chelsea Rule").

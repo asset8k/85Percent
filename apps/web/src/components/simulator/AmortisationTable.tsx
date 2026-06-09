@@ -1,5 +1,5 @@
-import type { AmortisationEntry } from '@headroom/shared'
-import { formatPence } from '@headroom/shared'
+import type { AmortisationEntry } from '@85percent/shared'
+import { formatPence } from '@85percent/shared'
 import { useSeasonStore, seasonKey } from '@/stores/season'
 
 interface AmortisationTableProps {

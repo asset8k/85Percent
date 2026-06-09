@@ -54,6 +54,12 @@ importers:
 
   apps/api:
     dependencies:
+      '@85percent/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
+      '@85percent/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@ai-sdk/anthropic':
         specifier: ^1.2.0
         version: 1.2.12(zod@3.25.76)
@@ -69,12 +75,6 @@ importers:
       '@fastify/rate-limit':
         specifier: ^10.2.2
         version: 10.3.0
-      '@headroom/engine':
-        specifier: workspace:*
-        version: link:../../packages/engine
-      '@headroom/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
       '@prisma/client':
         specifier: ^6.9.0
         version: 6.19.3(prisma@6.19.3(magicast@0.3.5)(typescript@5.9.3))(typescript@5.9.3)
@@ -124,6 +124,12 @@ importers:
 
   apps/web:
     dependencies:
+      '@85percent/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
+      '@85percent/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@dnd-kit/core':
         specifier: ^6.3.1
         version: 6.3.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -133,12 +139,6 @@ importers:
       '@dnd-kit/utilities':
         specifier: ^3.2.2
         version: 3.2.2(react@18.3.1)
-      '@headroom/engine':
-        specifier: workspace:*
-        version: link:../../packages/engine
-      '@headroom/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
       '@hookform/resolvers':
         specifier: ^3.10.0
         version: 3.10.0(react-hook-form@7.76.0(react@18.3.1))
@@ -266,7 +266,7 @@ importers:
 
   packages/engine:
     dependencies:
-      '@headroom/shared':
+      '@85percent/shared':
         specifier: workspace:*
         version: link:../shared
     devDependencies:

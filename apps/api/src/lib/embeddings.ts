@@ -12,7 +12,7 @@
  * `vector(384)` in prisma/rag.sql.
  *
  * NOTE: this has nothing to do with the SCR/FFP engine. Embeddings drive text
- * retrieval only; the deterministic maths stays in @headroom/engine.
+ * retrieval only; the deterministic maths stays in @85percent/engine.
  */
 
 import { pipeline, type FeatureExtractionPipeline } from '@xenova/transformers'

@@ -1,4 +1,4 @@
-import type { ClubFinancials, TransferInput, SCRResult } from '@headroom/shared'
+import type { ClubFinancials, TransferInput, SCRResult } from '@85percent/shared'
 import { calculateThresholds } from './thresholds.js'
 import { determineStatus } from './status.js'
 import { calculateLevy } from './levy.js'

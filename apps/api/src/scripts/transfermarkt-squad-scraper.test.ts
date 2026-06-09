@@ -1,5 +1,5 @@
 // Unit tests for the native squad-number ("kader") scraper. Run with:
-//   pnpm --filter @headroom/api test:scripts
+//   pnpm --filter @85percent/api test:scripts
 // No network — the parser takes an HTML string. The fixture mirrors the real
 // transfermarkt.com kader markup (rn_nummer cell + /profil/spieler/{id} link).
 

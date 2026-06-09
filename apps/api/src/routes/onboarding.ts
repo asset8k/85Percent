@@ -21,7 +21,7 @@ import { supabase } from '../lib/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { requirePermission } from '../middleware/permissions.js'
 import { writeAuditLog } from '../lib/audit.js'
-import { getDefaultCurrencyForLeague } from '@headroom/shared'
+import { getDefaultCurrencyForLeague } from '@85percent/shared'
 import {
   buildHydratedRoster,
   leagueIdToTemplate,

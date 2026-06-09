@@ -8,7 +8,7 @@
  *   "before / after" projection card. Save creates a new scenario; selecting
  *   a saved scenario loads its actions into the builder.
  *
- * All math is client-side via `applyScenarioActions` from @headroom/engine.
+ * All math is client-side via `applyScenarioActions` from @85percent/engine.
  * Server is just storage + audit.
  */
 
@@ -34,10 +34,10 @@ function formatPenceNumber(pence: number, symbol = '£') {
 }
 import { ComplianceGauge } from '@/components/simulator/ComplianceGauge'
 import { computeActiveBaseline, computeDryRun, computeThresholds, actionToEngineInput, scenarioMoneyImpact } from '@/lib/scr'
-import { calculateSquadCosts, type ContractInput } from '@headroom/engine'
-import type { ScenarioActionInput, ScenarioActionType } from '@headroom/engine'
-import type { PlayerWithContract } from '@headroom/shared'
-import { formatPence } from '@headroom/shared'
+import { calculateSquadCosts, type ContractInput } from '@85percent/engine'
+import type { ScenarioActionInput, ScenarioActionType } from '@85percent/engine'
+import type { PlayerWithContract } from '@85percent/shared'
+import { formatPence } from '@85percent/shared'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import { useScrollLock } from '@/lib/useScrollLock'
 import { useCopilot } from '@/stores/copilot'

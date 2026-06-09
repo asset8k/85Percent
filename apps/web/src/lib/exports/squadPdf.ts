@@ -12,8 +12,8 @@
 
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
-import type { PlayerWithContract, Currency } from '@headroom/shared'
-import { calculateSquadCosts, type ContractInput } from '@headroom/engine'
+import type { PlayerWithContract, Currency } from '@85percent/shared'
+import { calculateSquadCosts, type ContractInput } from '@85percent/engine'
 import type { ClubFinancialsResponse } from '@/lib/api'
 import { computeThresholds, statusFromRatio } from '@/lib/scr'
 import { setExportCurrency } from './exportCurrency'

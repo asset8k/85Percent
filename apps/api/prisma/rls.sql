@@ -1,5 +1,5 @@
 -- ============================================================================
--- Headroom — Row Level Security policies
+-- 85Percent — Row Level Security policies
 -- Apply to your Supabase project via the SQL editor:
 --   Dashboard → SQL Editor → paste this file → Run
 -- ============================================================================

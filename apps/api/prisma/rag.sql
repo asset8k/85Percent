@@ -1,5 +1,5 @@
 -- ===========================================================================
--- Headroom — RAG knowledge base (pgvector)
+-- 85Percent — RAG knowledge base (pgvector)
 -- ===========================================================================
 -- Apply this in the Supabase SQL editor (Dashboard → SQL → New query → Run),
 -- the same way rls.sql is applied. It is idempotent — safe to re-run.
@@ -11,7 +11,7 @@
 -- 384 dims) and calls match_documents() to retrieve the most relevant passages.
 --
 -- The deterministic SCR/FFP engine is NEVER involved here — retrieval only
--- feeds *language context* to the LLM; the maths stays in @headroom/engine.
+-- feeds *language context* to the LLM; the maths stays in @85percent/engine.
 -- ===========================================================================
 
 -- 1. pgvector --------------------------------------------------------------

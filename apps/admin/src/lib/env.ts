@@ -12,7 +12,7 @@ function required(name: string): string {
   return v
 }
 
-// Resolve the monorepo root so we can spawn `pnpm --filter @headroom/api …`.
+// Resolve the monorepo root so we can spawn `pnpm --filter @85percent/api …`.
 // From apps/admin/src/lib → up 4 = repo root. Overridable via REPO_ROOT.
 const here = path.dirname(fileURLToPath(import.meta.url))
 const defaultRepoRoot = path.resolve(here, '../../../..')

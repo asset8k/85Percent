@@ -1,4 +1,4 @@
-import type { ComplianceStatus } from '@headroom/shared'
+import type { ComplianceStatus } from '@85percent/shared'
 import type { Thresholds } from './thresholds.js'
 
 /**

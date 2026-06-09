@@ -17,7 +17,7 @@ import { CopilotChat, CopilotLauncher } from '@/components/ai/CopilotChat'
 import { api, type ClubFinancialsResponse, type ScenarioDetail } from '@/lib/api'
 import { computeActiveBaseline, type ActiveBaseline } from '@/lib/scr'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
-import type { ComplianceStatus } from '@headroom/shared'
+import type { ComplianceStatus } from '@85percent/shared'
 
 // Maps the first path segment to its i18n key for the breadcrumb title.
 const routeLabelKey: Record<string, string> = {

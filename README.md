@@ -55,7 +55,7 @@ Optional (only used by the template sync worker — see [Roster Templates & Onbo
 2. Copy your project URL and keys into the env files above
 3. Run Prisma migrations:
    ```bash
-   pnpm --filter @headroom/api exec prisma migrate dev
+   pnpm --filter @85percent/api exec prisma migrate dev
    ```
 4. Apply Row Level Security policies (see `prisma/rls.sql` — to be added)
 5. Seed an initial club and admin user via Supabase dashboard → Authentication → Users
@@ -71,7 +71,7 @@ This runs all apps in parallel via Turborepo:
 - **API** at http://localhost:3001
 - **Admin panel** at http://localhost:4000
 
-> The admin panel boots only if `apps/admin/.env` exists (see [Environment Setup](#environment-setup)). If it's missing, the admin process exits on startup while the web app and API keep running. To run just the admin panel: `pnpm --filter @headroom/admin dev`.
+> The admin panel boots only if `apps/admin/.env` exists (see [Environment Setup](#environment-setup)). If it's missing, the admin process exits on startup while the web app and API keep running. To run just the admin panel: `pnpm --filter @85percent/admin dev`.
 
 ### Tests
 
@@ -85,10 +85,10 @@ Other test suites:
 
 ```bash
 # Pure Transfermarkt mapping helpers (node:test)
-pnpm --filter @headroom/api test:scripts
+pnpm --filter @85percent/api test:scripts
 
 # Onboarding hydration logic, exercised against the live DB-filled templates
-pnpm --filter @headroom/api test:onboarding
+pnpm --filter @85percent/api test:onboarding
 ```
 
 ### Build
@@ -106,14 +106,15 @@ Headroom/
 ├── apps/
 │   ├── web/          # React 18 + Vite + TypeScript frontend (localhost:5173)
 │   ├── api/          # Fastify + Node.js backend (localhost:3001)
-│   └── admin/        # Standalone server-rendered admin panel (localhost:4000)
+│   ├── admin/        # Standalone server-rendered admin panel (localhost:4000)
+│   └── landing-page/ # Public marketing site (independently deployable)
 ├── packages/
 │   ├── shared/       # Shared types, Zod schemas, money utilities
 │   ├── engine/       # Pure SCR calculation engine (no side effects)
 │   └── ui/           # (reserved for shared UI components)
 ├── prisma/
 │   └── schema.prisma # Database schema (PostgreSQL)
-└── PLAN.md           # Implementation progress tracker
+└── docs/             # Planning & reference docs (PLAN, BUILD_LOG, CONTEXT, DOCKER, mvp_2.0_plan)
 ```
 
 ### Key Design Rules
@@ -170,7 +171,7 @@ You need a reachable `transfermarkt-api` instance (run it locally via Docker, or
 # Fill the template dictionary (monthly cadence recommended)
 TRANSFERMARKT_API_URL=https://<your-transfermarkt-api-host> \
 TRANSFERMARKT_SEASON_ID=2025 \
-pnpm --filter @headroom/api sync:templates
+pnpm --filter @85percent/api sync:templates
 ```
 
 A successful run logs each club and a final summary, e.g. `done — 44 clubs synced, 0 failed, 1218 roster items cached.`
@@ -189,7 +190,7 @@ The wizard lives at `/onboarding` in the web app (also reachable from the empty 
 A standalone, server-rendered control panel in `apps/admin/` — separate from the platform (its own port and its own session login), but pointed at the same Supabase project via the service-role key, so it can be deployed independently later.
 
 ```bash
-pnpm --filter @headroom/admin dev    # → http://localhost:4000  (also started by `pnpm dev`)
+pnpm --filter @85percent/admin dev    # → http://localhost:4000  (also started by `pnpm dev`)
 ```
 
 It provides:
@@ -197,8 +198,8 @@ It provides:
 - **Users** — list every account; edit name/email, reset password, delete an account (basic CRUD via the Supabase auth-admin API).
 - **AI chat balance** — view each user's remaining credit and **top up** (add USD) or set it exactly.
 - **Maintenance jobs** — trigger the two manual scripts and see a full run history (who, start/finish, status, log):
-  - **Club & player update** → runs `pnpm --filter @headroom/api sync:templates` (Transfermarkt → onboarding templates).
-  - **League table update** → runs `pnpm --filter @headroom/api update:league`, which fetches standings into `league_table_snapshots` and publishes them as the active table that `GET /api/league-table` serves (falling back to a live fetch, then the bundled seed).
+  - **Club & player update** → runs `pnpm --filter @85percent/api sync:templates` (Transfermarkt → onboarding templates).
+  - **League table update** → runs `pnpm --filter @85percent/api update:league`, which fetches standings into `league_table_snapshots` and publishes them as the active table that `GET /api/league-table` serves (falling back to a live fetch, then the bundled seed).
 
 Login is a single admin defined in `apps/admin/.env` (`ADMIN_USERNAME` / `ADMIN_PASSWORD`), exchanged for a signed cookie. The DB tables it uses (`admin_jobs`, `league_table_snapshots`, the `admin_topup_balance` RPC) live in `apps/api/prisma/admin.sql`.
 

@@ -10,9 +10,9 @@ import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type { ScenarioDetail, ClubFinancialsResponse } from '@/lib/api'
 import { actionToEngineInput, computeActiveBaseline, computeThresholds, statusFromRatio } from '@/lib/scr'
-import type { ScenarioActionInput } from '@headroom/engine'
-import { applyScenarioActions } from '@headroom/engine'
-import type { Currency } from '@headroom/shared'
+import type { ScenarioActionInput } from '@85percent/engine'
+import { applyScenarioActions } from '@85percent/engine'
+import type { Currency } from '@85percent/shared'
 import { setExportCurrency } from './exportCurrency'
 import {
   addHeader, addSectionHeader, addStatusPill, addComplianceGauge,

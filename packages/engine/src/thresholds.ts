@@ -1,4 +1,4 @@
-import type { ClubFinancials } from '@headroom/shared'
+import type { ClubFinancials } from '@85percent/shared'
 
 export interface Thresholds {
   greenThreshold: number

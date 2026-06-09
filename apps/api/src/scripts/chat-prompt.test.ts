@@ -1,7 +1,7 @@
 /**
  * Tests for the prompt + history helpers (system prompt, title derivation,
  * summary prompt). Pure functions — imported directly so no env/SDK is loaded.
- * Run via: pnpm --filter @headroom/api test:scripts
+ * Run via: pnpm --filter @85percent/api test:scripts
  */
 
 import { test } from 'node:test'
@@ -9,7 +9,7 @@ import assert from 'node:assert/strict'
 import { buildSystemPrompt, type RetrievedPassage } from '../services/ai/system-prompt.js'
 import { deriveTitle, buildSummaryPrompt } from '../services/ai/history.js'
 import { KNOWLEDGE_SOURCE_URL } from '../services/ai/knowledge-source.js'
-import type { ChatTurn } from '@headroom/shared'
+import type { ChatTurn } from '@85percent/shared'
 
 const passage = (content: string): RetrievedPassage => ({ content, source_url: KNOWLEDGE_SOURCE_URL, similarity: 0.9 })
 

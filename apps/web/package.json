@@ -1,5 +1,5 @@
 {
-  "name": "@headroom/web",
+  "name": "@85percent/web",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -14,8 +14,8 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
-    "@headroom/engine": "workspace:*",
-    "@headroom/shared": "workspace:*",
+    "@85percent/engine": "workspace:*",
+    "@85percent/shared": "workspace:*",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-dialog": "^1.1.14",
     "@radix-ui/react-dropdown-menu": "^2.1.15",

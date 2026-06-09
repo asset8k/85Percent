@@ -56,10 +56,10 @@ import type {
   ManagerContractInput,
   ContractPhase,
   ExtendContractInput,
-} from '@headroom/shared'
+} from '@85percent/shared'
 
 // Annualised amortisation of a capitalised fee under the 5-year regulatory cap
-// (the Chelsea Rule). Mirrors amortisationPeriodYears in @headroom/engine.
+// (the Chelsea Rule). Mirrors amortisationPeriodYears in @85percent/engine.
 function annualAmortisation(feePence: number, contractLengthYears: number): number {
   if (feePence <= 0) return 0
   const years = contractLengthYears > 0 ? contractLengthYears : 1

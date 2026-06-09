@@ -13,7 +13,7 @@
  */
 
 import { useCallback } from 'react'
-import { currencySymbol, formatMoney, type Currency } from '@headroom/shared'
+import { currencySymbol, formatMoney, type Currency } from '@85percent/shared'
 import { useClubStore } from '@/stores/club'
 
 export interface WorkspaceCurrency {

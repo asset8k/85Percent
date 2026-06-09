@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { EFL_CHAMPIONSHIP_CONFIG } from '@headroom/shared'
+import { EFL_CHAMPIONSHIP_CONFIG } from '@85percent/shared'
 import {
   calculateSCR,
   calculateThresholds,
@@ -25,7 +25,7 @@ import {
   WORKING_CAPITAL_MINIMUM_PENCE,
   LIQUIDITY_STRESS_TEST_PENCE,
 } from '../src/index.js'
-import type { ClubFinancials, TransferInput } from '@headroom/shared'
+import type { ClubFinancials, TransferInput } from '@85percent/shared'
 
 // All monetary values in pence
 

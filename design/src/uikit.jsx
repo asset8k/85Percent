@@ -660,7 +660,7 @@ function UIKitPage() {
         <div className="flex-1" />
         <div className="flex items-center gap-4">
           <span className="num text-[11px] text-slate-400">v0.4.2 · 2026/27</span>
-          <a href="Headroom.html" className="text-[12px] text-violet-600 hover:text-violet-700 font-medium inline-flex items-center gap-1.5">
+          <a href="85Percent.html" className="text-[12px] text-violet-600 hover:text-violet-700 font-medium inline-flex items-center gap-1.5">
             Open prototype
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M7 17 L17 7" /><path d="M8 7h9v9" />

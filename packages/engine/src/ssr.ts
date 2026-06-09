@@ -4,7 +4,7 @@
  * Three independent solvency tests applied to PL clubs ONLY (not Championship).
  * Pure functions — all monetary values in pence.
  *
- * Source: PL handbook 2026/27 (CONTEXT.md §4.4).
+ * Source: PL handbook 2026/27 (docs/CONTEXT.md §4.4).
  */
 
 // ---------------------------------------------------------------------------

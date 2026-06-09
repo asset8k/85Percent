@@ -13,7 +13,7 @@ import type {
   PhasePatchInput,
   ContractPhase,
   Currency,
-} from '@headroom/shared'
+} from '@85percent/shared'
 
 const BASE = '/api'
 

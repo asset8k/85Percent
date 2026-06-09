@@ -16,7 +16,7 @@ import { z } from 'zod'
 import { supabase } from '../lib/supabase.js'
 import { authMiddleware } from '../middleware/auth.js'
 import { createNotificationOnce } from '../lib/notifications.js'
-import { calculateSquadCosts, type ContractInput, type ManagerCostInput } from '@headroom/engine'
+import { calculateSquadCosts, type ContractInput, type ManagerCostInput } from '@85percent/engine'
 
 interface NotificationRow {
   id: string

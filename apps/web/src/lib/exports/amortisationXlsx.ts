@@ -11,8 +11,8 @@
  */
 
 import * as XLSX from 'xlsx'
-import type { PlayerWithContract, Currency } from '@headroom/shared'
-import { generateAmortisationSchedule } from '@headroom/engine'
+import type { PlayerWithContract, Currency } from '@85percent/shared'
+import { generateAmortisationSchedule } from '@85percent/engine'
 import {
   moneyFormat, COLUMN_WIDTHS, poundsCell,
   filenameTimestamp, applyNumberFormatToColumn, freezeHeaderRow,

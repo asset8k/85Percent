@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
-import type { ComplianceStatus } from '@headroom/shared'
+import type { ComplianceStatus } from '@85percent/shared'
 
 interface BadgeProps {
   status: ComplianceStatus

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Currency } from '@headroom/shared'
+import type { Currency } from '@85percent/shared'
 import type { ClubFinancialsResponse, ScenarioDetail } from '@/lib/api'
 
 // Cheap structural equality for the flat, JSON-safe payloads this store holds

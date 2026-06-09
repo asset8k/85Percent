@@ -99,7 +99,7 @@ function runScript(jobId: string, type: JobType): void {
 
   let child
   try {
-    child = spawn('pnpm', ['--filter', '@headroom/api', script], {
+    child = spawn('pnpm', ['--filter', '@85percent/api', script], {
       cwd: env.repoRoot,
       env: process.env,
     })

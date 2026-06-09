@@ -26,7 +26,7 @@ import {
   evaluateLiquidity,
   evaluateEquity,
   type WorkingCapitalMonthInput,
-} from '@headroom/engine'
+} from '@85percent/engine'
 
 // SSR (working capital / liquidity / equity) is club-level financial compliance
 // data — entry is gated behind the workspace-admin grant, consistent with the

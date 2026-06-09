@@ -1,5 +1,5 @@
 // Unit tests for the native head-coach HTML scraper. Run with:
-//   pnpm --filter @headroom/api test:scripts
+//   pnpm --filter @85percent/api test:scripts
 // No network — the parser takes an HTML string. The fixture mirrors the real
 // transfermarkt.com Coaching Staff markup captured from a live club page.
 

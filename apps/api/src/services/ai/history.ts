@@ -7,7 +7,7 @@
  *    concise running summary when the conversation is compacted.
  */
 
-import type { ChatTurn } from '@headroom/shared'
+import type { ChatTurn } from '@85percent/shared'
 
 const CONTEXT_PREFIX = '[CONTEXT]'
 

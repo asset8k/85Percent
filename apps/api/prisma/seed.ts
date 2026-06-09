@@ -5,8 +5,8 @@
  * squad with contracts so the Dashboard has realistic data to display.
  *
  * ─── Credentials ────────────────────────────────────────────────────────────
- *   Email    : dev@headroom.test
- *   Password : Dev@headroom1!
+ *   Email    : dev@85percent.test
+ *   Password : Dev@85percent1!
  *   Club     : 85Percent Dev FC  (EFL Championship)
  * ────────────────────────────────────────────────────────────────────────────
  *
@@ -16,7 +16,7 @@
 
 import { createClient } from '@supabase/supabase-js'
 import { randomUUID } from 'crypto'
-import { getDefaultCurrencyForLeague } from '@headroom/shared'
+import { getDefaultCurrencyForLeague } from '@85percent/shared'
 
 const supabaseUrl = process.env['SUPABASE_URL']
 const serviceKey  = process.env['SUPABASE_SERVICE_ROLE_KEY']
@@ -30,8 +30,8 @@ const supabase = createClient(supabaseUrl, serviceKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 })
 
-const SEED_EMAIL      = 'dev@headroom.test'
-const SEED_PASSWORD   = 'Dev@headroom1!'
+const SEED_EMAIL      = 'dev@85percent.test'
+const SEED_PASSWORD   = 'Dev@85percent1!'
 const SEED_CLUB_NAME  = '85Percent Dev FC'
 const SEED_CLUB_SHORT = 'HDF'
 const SEASON          = '2026-27'
@@ -291,8 +291,8 @@ async function seed() {
 
    Apply migration : Dashboard → SQL Editor → prisma/migrations/20260527000001_.../migration.sql
    Apply RLS       : Dashboard → SQL Editor → prisma/rls.sql
-   Start API       : pnpm --filter @headroom/api dev
-   Start web       : pnpm --filter @headroom/web dev
+   Start API       : pnpm --filter @85percent/api dev
+   Start web       : pnpm --filter @85percent/web dev
   `)
 }
 

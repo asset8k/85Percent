@@ -1,11 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pnpm --filter @headroom/api dev)",
+      "Bash(pnpm --filter @85percent/api dev)",
       "Bash(echo \"API PID: $!\")",
       "Bash(sleep 4 && cat /tmp/api.log)",
       "Read(//private/tmp/**)",
-      "Bash(pnpm --filter @headroom/web dev)",
+      "Bash(pnpm --filter @85percent/web dev)",
       "Bash(echo \"Web PID: $!\")",
       "Bash(curl -s http://localhost:3001/health)",
       "Bash(node -e \"require\\('dotenv'\\).config\\(\\); const { PrismaClient } = require\\('@prisma/client'\\); const p = new PrismaClient\\(\\); p.user.findFirst\\(\\).then\\(r => console.log\\('OK:', r\\)\\).catch\\(e => console.error\\('ERR:', e.message, e.code\\)\\);\")",
@@ -42,7 +42,7 @@
       "Bash(sed -n '1,60p' src/components/ui/button.tsx)",
       "Bash(sed -n '1,50p' src/components/ui/input.tsx)",
       "Bash(echo \"WEB TYPECHECK EXIT: $?\")",
-      "Bash(pnpm --filter @headroom/api test:scripts)",
+      "Bash(pnpm --filter @85percent/api test:scripts)",
       "Bash(curl -s -m 8 -o /dev/null -w \"google: %{http_code}\\\\n\" https://www.google.com)",
       "Bash(curl -s -m 10 -o /dev/null -w '%{http_code}' __TRACKED_VAR__/)",
       "Bash(curl -s -m 15 \"https://transfermarkt-api.fly.dev/competitions/GB1/clubs?season_id=2024\")",
@@ -55,7 +55,7 @@
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d['players'][0], indent=2, ensure_ascii=False\\)\\); print\\('--- ALL KEYS ACROSS SQUAD ---'\\); ks=set\\(\\); [ks.update\\(p.keys\\(\\)\\) for p in d['players']]; print\\(sorted\\(ks\\)\\)\")",
       "Bash(sed -n '205,217p' apps/web/src/lib/countries.ts)",
       "Bash(sed -n '1117,1245p' apps/web/src/pages/RosterPage.tsx)",
-      "Bash(pnpm --filter @headroom/api test:onboarding)",
+      "Bash(pnpm --filter @85percent/api test:onboarding)",
       "Bash(echo \"TYPECHECK EXIT: $?\")",
       "Bash(TRANSFERMARKT_API_URL=https://transfermarkt-api.fly.dev TRANSFERMARKT_SEASON_ID=2025 TRANSFERMARKT_SYNC_DELAY_MS=800 TRANSFERMARKT_PLAYER_DELAY_MS=300 TRANSFERMARKT_TIMEOUT_MS=30000 pnpm sync:templates)",
       "Bash(tee /tmp/sync_numbers.log)",

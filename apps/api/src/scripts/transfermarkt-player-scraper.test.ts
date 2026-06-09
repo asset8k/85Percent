@@ -1,5 +1,5 @@
 // Unit tests for the native player-profile scraper. Run with:
-//   pnpm --filter @headroom/api test:scripts
+//   pnpm --filter @85percent/api test:scripts
 // No network — the parser takes an HTML string. The fixtures mirror the real
 // transfermarkt.com "Player data" box (modern info-table span layout + the
 // older <th>/<td> layout) so the label→date extraction is exercised on both.

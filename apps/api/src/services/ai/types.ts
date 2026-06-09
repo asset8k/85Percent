@@ -9,7 +9,7 @@
  *
  * Hard rule (mirrors services/ai/index.ts): the LLM never does arithmetic. It
  * reads serialized engine output and explains it in language. All SCR/FFP maths
- * stays in @headroom/engine.
+ * stays in @85percent/engine.
  */
 
 import type { ServerResponse } from 'node:http'

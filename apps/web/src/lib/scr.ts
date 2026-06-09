@@ -8,9 +8,9 @@
  * Replaces the MVP 1.0 simulation-delta model.
  */
 
-import type { ComplianceStatus } from '@headroom/shared'
-import type { ScenarioActionInput, ScenarioActionType } from '@headroom/engine'
-import { applyScenarioActions } from '@headroom/engine'
+import type { ComplianceStatus } from '@85percent/shared'
+import type { ScenarioActionInput, ScenarioActionType } from '@85percent/engine'
+import { applyScenarioActions } from '@85percent/engine'
 import type { ClubFinancialsResponse, ScenarioDetail, ScenarioAction } from '@/lib/api'
 
 // ---------------------------------------------------------------------------

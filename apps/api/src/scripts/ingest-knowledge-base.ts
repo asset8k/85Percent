@@ -5,7 +5,7 @@
  * explainer), strips it to readable text, chunks it semantically, embeds each
  * chunk with the local model, and stores the rows in `documents`.
  *
- * Run with:  pnpm --filter @headroom/api ingest:kb
+ * Run with:  pnpm --filter @85percent/api ingest:kb
  * (requires SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY in apps/api/.env and the
  *  prisma/rag.sql migration applied to the database first).
  *
@@ -102,7 +102,7 @@ async function main() {
   console.log(`[ingest] fetching grounding source: ${KNOWLEDGE_SOURCE_URL}`)
 
   const res = await fetch(KNOWLEDGE_SOURCE_URL, {
-    headers: { 'User-Agent': 'HeadroomBot/1.0 (+compliance copilot ingest)' },
+    headers: { 'User-Agent': '85PercentBot/1.0 (+compliance copilot ingest)' },
   })
   if (!res.ok) {
     throw new Error(`Failed to fetch source (HTTP ${res.status} ${res.statusText})`)

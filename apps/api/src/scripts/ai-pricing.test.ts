@@ -1,6 +1,6 @@
 /**
  * Tests for the AI credit pricing maths (utils/aiPricing).
- * Run via: pnpm --filter @headroom/api test:scripts
+ * Run via: pnpm --filter @85percent/api test:scripts
  */
 
 import { test } from 'node:test'

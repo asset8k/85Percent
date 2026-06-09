@@ -1,5 +1,5 @@
 {
-  "name": "@headroom/api",
+  "name": "@85percent/api",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -21,8 +21,8 @@
     "@fastify/helmet": "^13.0.1",
     "@fastify/multipart": "^10.0.0",
     "@fastify/rate-limit": "^10.2.2",
-    "@headroom/engine": "workspace:*",
-    "@headroom/shared": "workspace:*",
+    "@85percent/engine": "workspace:*",
+    "@85percent/shared": "workspace:*",
     "@prisma/client": "^6.9.0",
     "@supabase/supabase-js": "^2.50.0",
     "@types/papaparse": "^5.5.2",

@@ -1,6 +1,6 @@
 /**
- * Tests for the shared chat-context / compaction helpers (@headroom/shared).
- * Run via: pnpm --filter @headroom/api test:scripts
+ * Tests for the shared chat-context / compaction helpers (@85percent/shared).
+ * Run via: pnpm --filter @85percent/api test:scripts
  */
 
 import { test } from 'node:test'
@@ -16,7 +16,7 @@ import {
   KEEP_RECENT_TURNS,
   MIN_TURNS_TO_COMPACT,
   type ChatTurn,
-} from '@headroom/shared'
+} from '@85percent/shared'
 
 const turn = (role: 'user' | 'assistant', content: string): ChatTurn => ({ role, content })
 /** Build n alternating turns, each `size` chars long. */

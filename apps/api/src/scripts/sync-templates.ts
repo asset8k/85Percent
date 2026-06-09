@@ -18,7 +18,7 @@
 // NOT during user onboarding — onboarding reads only our local cache.
 //
 // Run it with:
-//   pnpm --filter @headroom/api sync:templates
+//   pnpm --filter @85percent/api sync:templates
 // Configure via env (all optional):
 //   TRANSFERMARKT_API_URL        base URL of the felipeall API (default http://localhost:8000)
 //   TRANSFERMARKT_SEASON_ID      season start year, e.g. 2025  (default: derived from today)

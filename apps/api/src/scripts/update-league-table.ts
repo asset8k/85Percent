@@ -5,7 +5,7 @@
 //   • insert a new active snapshot row (league_table_snapshots).
 //
 // The app's /league-table route then serves the newest active snapshot. Run via:
-//   pnpm --filter @headroom/api update:league
+//   pnpm --filter @85percent/api update:league
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { pathToFileURL } from 'url'

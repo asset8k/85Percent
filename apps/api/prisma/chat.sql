@@ -1,5 +1,5 @@
 -- ===========================================================================
--- Headroom — Compliance Analyst chat history (backend-persisted)
+-- 85Percent — Compliance Analyst chat history (backend-persisted)
 -- ===========================================================================
 -- Apply in the Supabase SQL editor (or via `prisma db execute`), like rls.sql /
 -- rag.sql. Idempotent — safe to re-run.

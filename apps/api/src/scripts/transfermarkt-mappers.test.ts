@@ -1,5 +1,5 @@
 // Unit tests for the pure Transfermarkt mappers. Run with:
-//   pnpm --filter @headroom/api test:scripts
+//   pnpm --filter @85percent/api test:scripts
 // (node:test via tsx — no extra deps, no DB connection required).
 
 import { describe, it } from 'node:test'

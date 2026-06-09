@@ -8,7 +8,7 @@
  *   • run the manual maintenance scripts (club/player sync, league table) and
  *     see a full run history with timestamps + logs.
  *
- * Run: pnpm --filter @headroom/admin dev   (http://localhost:4000)
+ * Run: pnpm --filter @85percent/admin dev   (http://localhost:4000)
  */
 
 import Fastify from 'fastify'

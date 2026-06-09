@@ -3510,3 +3510,37 @@ to re-clobber it afterwards.
 scenarios/financials from store; own toggle is store-optimistic, no refetch),
 SSR tabs (per-season editable forms, reseed-after-save matches prior behaviour),
 League Table & Calendar (read-only). `tsc` clean, `pnpm build` succeeds.
+
+## 2026-06-09 — Repo hygiene: docs grouped, landing-page groundwork, scope rename @headroom → @85percent
+
+Three pre-landing-page housekeeping pieces.
+
+**1. Planning docs grouped into `docs/`.** Moved `BUILD_LOG.md`, `CONTEXT.md`,
+`PLAN.md`, `DOCKER.md`, `mvp_2.0_plan.md` out of the repo root into `docs/`
+(git renames, history preserved). `README.md` stays at root (front door) with its
+tree diagram updated; the `ssr.ts` source comment repointed to `docs/CONTEXT.md`.
+
+**2. Landing-page groundwork (no app code yet).**
+- `apps/landing-page/landing-page-spec.md` — full architectural spec for the public
+  marketing site (Next.js 14, design tokens mirrored from `apps/web`, framer-motion
+  motion doctrine, carousel + lead-capture architecture). Decisions: Next.js over
+  Vite SSG; logo extracted to a future `packages/brand`.
+- `demo_requests` lead-capture table — migration
+  `apps/api/prisma/migrations/20260609000001_demo_requests_lead_capture/`. RLS
+  ENABLE + FORCE; the ONLY policy is `FOR INSERT TO anon` → anon can insert a lead
+  but cannot SELECT/UPDATE/DELETE. GRANT layer mirrors it (`REVOKE ALL`, then
+  `GRANT INSERT`). Service-role (BYPASSRLS) reads/triages. Email-format + length
+  CHECK constraints harden the public write path. Modeled in Prisma as
+  `DemoRequest` (standalone, no relations). Includes a post-migration audit query
+  confirming no public table is anon-readable.
+
+**3. Workspace scope renamed `@headroom/*` → `@85percent/*`.** All 6 package names
+(root `85percent`), ~150 imports/deps across 58 files, lockfile regenerated, `dist/`
+rebuilt. Brand residuals also fixed: 3 SQL comment headers, `85PercentBot/1.0`
+ingest User-Agent, dev seed creds (`dev@85percent.test` / `Dev@85percent1!`),
+design scratch href. **Kept as-is (deliberate):** the financial domain term
+"headroom" everywhere (`*HeadroomPence`, `tipHeadroom`, "Headroom to Green") —
+overloaded, not brand; the repo dir name; `localStorage`/persist keys
+(`headroom-auth`, etc. — would log users out without a migration shim); `docs/*.md`
+historical logs. Verified: `pnpm -r typecheck` clean (5/5), 119/119 engine tests
+pass, 0 `@headroom` left in code.

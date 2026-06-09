@@ -17,7 +17,7 @@
  */
 
 import type { FastifyInstance } from 'fastify'
-import { planCompaction, type ChatTurn } from '@headroom/shared'
+import { planCompaction, type ChatTurn } from '@85percent/shared'
 import { authMiddleware } from '../middleware/auth.js'
 import { supabase } from '../lib/supabase.js'
 import { getClubOwnerId } from '../lib/clubOwner.js'

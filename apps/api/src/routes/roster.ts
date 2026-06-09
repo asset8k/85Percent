@@ -8,7 +8,7 @@
  *   means we rely on explicit club_id checks at the application layer for
  *   defence in depth.
  * - bookValue is recomputed on every contract write (and on read) via
- *   currentBookValuePence in @headroom/engine. Storage is the snapshot;
+ *   currentBookValuePence in @85percent/engine. Storage is the snapshot;
  *   reads always recompute against the current date.
  * - Soft-delete only — archived players keep their rows for audit history.
  * - Money is integer pence throughout. Pound conversion happens at the form
@@ -37,8 +37,8 @@ import {
   type PlayerWithContract,
   type ManagerWithContract,
   type ContractPhase,
-} from '@headroom/shared'
-import { currentBookValuePence, calculateRemainingBookValue } from '@headroom/engine'
+} from '@85percent/shared'
+import { currentBookValuePence, calculateRemainingBookValue } from '@85percent/engine'
 
 // Roster mutation requires the explicit canEditRoster grant (admins implicitly).
 function canMutateRoster(permissions: Permissions): boolean {
