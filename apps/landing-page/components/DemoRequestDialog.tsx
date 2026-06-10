@@ -205,7 +205,13 @@ export function DemoRequestDialog({
                 </div>
 
                 <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Field label="Full name" name="fullName" autoComplete="name" inputRef={firstFieldRef} />
+                  <Field
+                    label="Full name"
+                    name="fullName"
+                    required
+                    autoComplete="name"
+                    inputRef={firstFieldRef}
+                  />
                   <Field
                     label="Work email"
                     name="workEmail"

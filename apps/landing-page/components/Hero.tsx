@@ -15,7 +15,7 @@ import { Spotlight } from './atmosphere/Spotlight'
  */
 export function Hero() {
   return (
-    <section className="relative isolate overflow-hidden bg-charcoal text-charcoal-foreground">
+    <section data-nav-theme="dark" className="relative isolate overflow-hidden bg-charcoal text-charcoal-foreground">
       <Aurora />
       <div className="pointer-events-none absolute inset-0 bg-hero-glow" aria-hidden />
       <Spotlight />

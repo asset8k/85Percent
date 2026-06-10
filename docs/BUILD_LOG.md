@@ -3817,3 +3817,48 @@ the redesigned royal footer — no dev-overlay errors. Not yet committed.
 
 Verified: tsc clean; CDP console clean in normal + reduced-motion; screenshots confirm the island over
 the hero, scrolled, and on mobile. Not yet committed.
+
+### Section-aware navbar theme — logo + glass switch on background (2026-06-10)
+
+- **The ask**: make the top-bar logo switch colour with the background it floats over — the violet-cored
+  mark on the light bands, the white-cored mark on the purple/charcoal bands (matching the two brand
+  exports `85Percent-mark-1200.png` / `-violet-1200.png`).
+- **Mechanism**: each section root now declares `data-nav-theme="dark" | "light"` (Hero/CommandCenter/
+  Footer = dark; ProblemSolution/Capabilities/AiAnalyst/PlatformFeatures = light). The Navbar runs a
+  rAF-throttled scroll/resize `measure()` that finds whichever `[data-nav-theme]` element crosses a line
+  ~52px from the top (the bar's vertical centre) and sets a `theme` state from it.
+- **What switches**: the whole island adapts so the mark stays legible — bar background (deep-violet
+  glass ⇄ bright white glass), border (violet-200/30 ⇄ violet-700/18), top-edge sheen (white ⇄ violet),
+  desktop link colour (white/70 ⇄ slate/65), and the mobile trigger. The "85" mark itself **cross-fades**
+  between its `tone="white"` and `tone="violet"` forms via `AnimatePresence` keyed on `theme`
+  (`mode="popLayout"`, both lockups equal width so no layout shift). The CTA keeps its drifting gradient.
+- **Hydration-safe**: `theme` initialises from the same `forceSolid` prop on server + client
+  (`forceSolid ? 'light' : 'dark'`), so the first paint matches; `AnimatePresence initial={false}`.
+  `forceSolid` (legal pages, which sit on the light band) now also maps to the **light** theme — fixing
+  the prior white-logo-on-white-page contrast there.
+
+Verified: tsc + **production `next build` clean** (10 routes, home First Load 279 kB); CDP console
+**clean** scrolling the full page (no hydration warnings). The theme switch confirmed at every section by
+DOM probe — navBg + link colour flip correctly hero→the-rule→capabilities→command-center→ai-analyst→
+platform (dark/light/light/dark/light/light). Note: clipped headless screenshots over scrolled sections
+white-out (a `--disable-gpu` backdrop-filter/Lenis compositing quirk, not a real bug) — verified via DOM
+inspection instead. Not yet committed.
+
+### SCR points-deduction threshold → 115% + mandatory name field (2026-06-10)
+
+- **Rules fix**: the automatic points deduction is supposed to trigger at **115%**, not 105%. Retuned the
+  Command Center: deduction is now `projected >= 1.20 ? 10 : projected >= 1.15 ? 6 : 0`, the
+  ConsequencesPanel ladder reads 85% (restrictions) → 100% (formal breach) → **115% (automatic
+  deduction)**, and the empty-state/comment copy now says "past 115%". Retuned the moves so the scenario
+  can actually reach it (galáctico 0.14→0.18, spree 0.10→0.14, gk 0.02→0.04) and the "Show a points
+  deduction" preset is now the three signings (striker+galáctico+spree). Verified interactively:
+  default = 84% compliant (no deduction); preset = **116% → −6 pts**; preset + goalkeeper renewal =
+  **120% → −10 pts** (the ceiling). Trend-chart frame comment updated to ~120%.
+- **Form**: "Full name" is now **mandatory like work email** — `required` on the dialog field (renders
+  the `*` + HTML constraint) and the shared zod schema tightened from optional to
+  `z.string().trim().min(1, 'Enter your full name').max(120)`. `toRow` still maps cleanly.
+
+Verified: tsc + **production `next build` clean**; CDP console **clean** on CTA click (no runtime error);
+SCR thresholds confirmed by interactive DOM probe (84%/116%/120% → none/−6/−10). The lead dialog won't
+open under headless automation here (Lenis/portal interaction quirk, console stays clean) so the
+`required` field was confirmed from source + build rather than a live screenshot. Not yet committed.

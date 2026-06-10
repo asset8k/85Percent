@@ -45,7 +45,7 @@ export function ScrTrendChart({
   const last = data[data.length - 1] ?? { m: '', scr: projectedPct }
   const dotColor = breach ? '#F87171' : '#B98AF0'
 
-  // Keep the cap line and a breach spike (up to ~110%) in frame.
+  // Keep the cap line and a breach spike (up to the ~120% ceiling) in frame.
   const peak = Math.max(90, ...data.map((d) => d.scr), limitPct)
   const yMax = Math.ceil((peak + 6) / 10) * 10
   const ticks = Array.from({ length: (yMax - 60) / 10 + 1 }, (_, i) => 60 + i * 10)

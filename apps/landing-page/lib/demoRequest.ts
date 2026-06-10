@@ -10,7 +10,7 @@ import { z } from 'zod'
  * a bot, and the route silently drops the request (see route.ts).
  */
 export const demoRequestSchema = z.object({
-  fullName: z.string().trim().max(120).optional().or(z.literal('')),
+  fullName: z.string().trim().min(1, 'Enter your full name').max(120),
   workEmail: z
     .string()
     .trim()

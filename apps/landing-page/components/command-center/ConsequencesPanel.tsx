@@ -9,7 +9,7 @@ import { EASE_EXPO } from '../motion/variants'
  * ConsequencesPanel — what a breach actually costs, escalating with severity. It
  * opens the moment the projection crosses 85% and climbs a three-rung ladder as the
  * ratio worsens: registration/transfer restrictions → formal breach → automatic
- * points deduction. Past ~105% the deduction bites, the points badge appears and the
+ * points deduction. Past 115% the deduction bites, the points badge appears and the
  * LeagueTable re-sorts the club out of the top four. This is the answer to "so
  * what?" — the SCR number turning into lost points and a lost European place.
  */
@@ -22,16 +22,16 @@ const RUNGS = [
     body: 'New signings can be blocked from registration until you’re back under the cap.',
   },
   {
-    at: 0.95,
+    at: 1.0,
     icon: Gavel,
     title: 'Formal breach · points deduction in play',
     body: 'The breach is referred; a sporting sanction moves from possible to likely.',
   },
   {
-    at: 1.05,
+    at: 1.15,
     icon: TrendingDown,
     title: 'Automatic points deduction',
-    body: 'The penalty is applied to the league table, not just the balance sheet.',
+    body: 'Past 115% the penalty hits the league table, not just the balance sheet.',
   },
 ]
 
@@ -111,7 +111,7 @@ export function ConsequencesPanel({
                 <LeagueTable pointsDeducted={pointsDeducted} />
               ) : (
                 <div className="flex items-center justify-center rounded-xl border border-dashed border-white/12 p-6 text-center text-sm text-white/45">
-                  Push the projection past 105% to see the points deduction hit the
+                  Push the projection past 115% to see the points deduction hit the
                   league table.
                 </div>
               )}

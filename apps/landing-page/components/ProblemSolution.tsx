@@ -10,7 +10,7 @@ import { CountUp } from './CountUp'
  */
 export function ProblemSolution() {
   return (
-    <section id="the-rule" className="scroll-mt-20 bg-background">
+    <section id="the-rule" data-nav-theme="light" className="scroll-mt-20 bg-background">
       <div className="mx-auto max-w-content px-6 py-28">
         {/* Beat 1 — the problem */}
         <Reveal className="max-w-2xl">

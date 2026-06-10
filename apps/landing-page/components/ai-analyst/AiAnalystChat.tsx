@@ -63,7 +63,7 @@ export function AiAnalystChat() {
   }, [phase, ask.done, answer.done, reduce])
 
   return (
-    <section id="ai-analyst" className="scroll-mt-20 bg-background">
+    <section id="ai-analyst" data-nav-theme="light" className="scroll-mt-20 bg-background">
       <div className="mx-auto grid max-w-content grid-cols-1 items-center gap-14 px-6 py-28 lg:grid-cols-2 lg:gap-16">
         {/* Pitch */}
         <Reveal>

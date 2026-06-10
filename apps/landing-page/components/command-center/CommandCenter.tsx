@@ -34,15 +34,17 @@ interface Move {
 
 const MOVES: Move[] = [
   { id: 'striker', label: 'Sign elite striker', detail: '£80M, amortised over 5 yrs', delta: 0.06 },
-  { id: 'galactico', label: 'Sign a galáctico', detail: '£180M marquee transfer', delta: 0.14 },
-  { id: 'spree', label: 'Deadline-day spree', detail: 'Three panic signings', delta: 0.1 },
-  { id: 'gk', label: 'Renew the goalkeeper', detail: '+£90k / week', delta: 0.02 },
+  { id: 'galactico', label: 'Sign a galáctico', detail: '£180M marquee transfer', delta: 0.18 },
+  { id: 'spree', label: 'Deadline-day spree', detail: 'Three panic signings', delta: 0.14 },
+  { id: 'gk', label: 'Renew the goalkeeper', detail: '+£90k / week', delta: 0.04 },
   { id: 'sell', label: 'Sell centre-back', detail: '£45M, off the wage bill', delta: -0.045 },
   { id: 'academy', label: 'Promote academy grad', detail: 'Replaces a senior wage', delta: -0.015 },
 ]
 
-// The toggles that, stacked, take an 84% club clean past the cap to 110%.
-const WORST_CASE = ['striker', 'galactico', 'spree', 'gk']
+// Stacked, these three take today's 78% club past the cap to 116% — into
+// automatic-points-deduction territory (the red threshold is 115%). Adding the
+// goalkeeper renewal on top pushes it to the 120% ceiling and a heavier sanction.
+const WORST_CASE = ['striker', 'galactico', 'spree']
 
 const fmtPts = (frac: number) => `${frac >= 0 ? '+' : '−'}${Math.abs(frac * 100).toFixed(1)} pts`
 
@@ -62,8 +64,11 @@ export function CommandCenter() {
   const headroomPts = (SCR_LIMIT - projected) * 100
   const projectedPct = Math.round(projected * 100)
 
-  // Sporting sanction escalates with severity; the deduction only bites past ~105%.
-  const pointsDeducted = projected >= 1.1 ? 10 : projected >= 1.05 ? 6 : 0
+  // Sporting sanction escalates with severity. Per the rules the automatic points
+  // deduction only bites once the ratio passes 115% (−6), worsening to −10 at the
+  // 120% ceiling. Below 115% a breach means restrictions and a formal charge, not
+  // yet a deduction.
+  const pointsDeducted = projected >= 1.2 ? 10 : projected >= 1.15 ? 6 : 0
 
   // The window trajectory: the audited climb to today, then the live projection.
   const trend: TrendPoint[] = [
@@ -75,7 +80,7 @@ export function CommandCenter() {
   ]
 
   return (
-    <section id="command-center" className="relative isolate scroll-mt-20 overflow-hidden bg-charcoal text-charcoal-foreground">
+    <section id="command-center" data-nav-theme="dark" className="relative isolate scroll-mt-20 overflow-hidden bg-charcoal text-charcoal-foreground">
       <Aurora className="opacity-70" />
       <div
         className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_50%_at_50%_0%,hsl(var(--v-core)/0.16),transparent_70%)]"
@@ -228,7 +233,7 @@ export function CommandCenter() {
             </div>
 
             {/* Sporting consequences — opens on breach, escalates to a points
-                deduction and a league-table drop past ~105%. */}
+                deduction and a league-table drop past 115%. */}
             <ConsequencesPanel
               projected={projected}
               pointsDeducted={pointsDeducted}

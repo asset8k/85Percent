@@ -15,7 +15,7 @@ import { navLinks } from '@/content/nav'
  */
 export function Footer() {
   return (
-    <footer className="relative isolate overflow-hidden bg-charcoal text-white">
+    <footer data-nav-theme="dark" className="relative isolate overflow-hidden bg-charcoal text-white">
       <Aurora className="opacity-45" />
       <Grain opacity={0.04} />
 
