@@ -4068,3 +4068,38 @@ circles. Each star uses the translated-group + local-(0,0) pattern so GSAP scale
 its own centre (no SVG-origin drift); they fade up with the formation and twinkle on a yoyo
 loop that's killed at the morph. `.he-marker-star` CSS replaced by `.he-star`. tsc clean;
 seek capture confirms even, shining distribution. Not yet committed.
+
+---
+
+## Legal section — deep-slate (legal) route group + full pre-incorporation copy (2026-06-10)
+
+Replaced the three placeholder legal stubs with a finished **`app/(legal)` route group**
+of four pages, all carrying real institutional copy positioned for 85Percent's
+**pre-incorporation** status (no Ltd/LLC/Inc; framed as a "project" by "the creators of
+85Percent"; website terms, not a SaaS contract):
+
+- **`/terms` — Website Terms of Use** (not "Terms of Service"): acceptance by browsing, IP
+  over the name/marks/UI, acceptable use (anti-scraping + form abuse), "as is" limitation
+  of liability, governing law (England & Wales).
+- **`/privacy` — Privacy Policy**: UK/EU GDPR lead-gen notice — what the access-request form
+  collects (name, work email, club, role, message), legitimate-interest basis, never sold,
+  storage/security, full data-subject rights incl. deletion on request.
+- **`/disclaimer` — SCR Compliance Disclaimer** (replaces the old `/ssr-disclaimer`): not
+  regulatory advice (decision-support, not a governing body/auditor), accuracy-of-inputs
+  (deterministic math, GIGO), legacy/PSR disclaimer, assumption of risk (clubs solely own
+  UEFA/PL submissions; zero liability for sanctions, points deductions, levies).
+- **`/cookies` — Cookie Policy**: PECR/GDPR — essential cookies (routing/security) + basic
+  privacy-respecting analytics; documents current "essential-only" status forward-compatibly.
+
+Design: installed **`@tailwindcss/typography`** and registered it in `tailwind.config.ts`;
+reworked the shared **`LegalPage`** shell into a **deep-slate band** (`bg-charcoal`, same
+aurora/grain as the hero) rendering body copy as **`prose prose-invert`** tuned to brand
+(display headings, violet links, constrained measure, last-updated date + optional eyebrow/
+summary). Made the **Navbar dark** on legal pages (`forceSolid` now initialises theme `dark`)
+so navbar → page → footer form one continuous dark surface. `site.legal` updated to the four
+routes (footer Legal column + `sitemap.ts` both derive from it automatically); old flat
+`app/terms|privacy|ssr-disclaimer` routes removed.
+
+Verified: tsc clean; `next build` prerenders all four routes; CDP screenshots of `/terms`
+and `/disclaimer` confirm slate bg `rgb(14,16,27)`, violet links, correct titles, cohesive
+dark navbar+footer, no console exceptions. Not yet committed.

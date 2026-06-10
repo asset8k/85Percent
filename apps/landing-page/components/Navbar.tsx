@@ -24,10 +24,11 @@ type NavTheme = 'dark' | 'light'
 export function Navbar({ forceSolid = false }: { forceSolid?: boolean }) {
   const [scrolled, setScrolled] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
-  // Legal pages (forceSolid) sit on the light band, so they start light; the home
-  // page opens over the charcoal hero, so it starts dark. Initialising from the
-  // same prop on server and client keeps hydration in sync.
-  const [theme, setTheme] = useState<NavTheme>(forceSolid ? 'light' : 'dark')
+  // Legal pages (forceSolid) sit on the deep-slate band, continuous with the dark
+  // footer, so the bar stays dark and solid throughout. The home page opens over
+  // the charcoal hero, so it also starts dark and then tracks the section beneath
+  // it. Initialising from the same prop on server and client keeps hydration in sync.
+  const [theme, setTheme] = useState<NavTheme>('dark')
 
   useEffect(() => {
     if (forceSolid) return

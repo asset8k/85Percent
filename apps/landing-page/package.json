@@ -25,6 +25,7 @@
     "zod": "^3.25.28"
   },
   "devDependencies": {
+    "@tailwindcss/typography": "^0.5.20",
     "@types/node": "^22.5.0",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",

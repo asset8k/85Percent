@@ -19,11 +19,12 @@ export const site = {
     whatsapp: 'https://wa.me/00000000000',
   },
 
-  /** Jurisdictional & legal routes (scaffolded; counsel-owned copy lands later). */
+  /** Jurisdictional & legal routes — the /(legal) route group. */
   legal: [
-    { label: 'Terms of Service', href: '/terms' },
+    { label: 'Website Terms of Use', href: '/terms' },
     { label: 'Privacy Policy', href: '/privacy' },
-    { label: 'SSR Compliance Disclaimer', href: '/ssr-disclaimer' },
+    { label: 'SCR Compliance Disclaimer', href: '/disclaimer' },
+    { label: 'Cookie Policy', href: '/cookies' },
   ],
 } as const
 
