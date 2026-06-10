@@ -3862,3 +3862,89 @@ Verified: tsc + **production `next build` clean**; CDP console **clean** on CTA 
 SCR thresholds confirmed by interactive DOM probe (84%/116%/120% → none/−6/−10). The lead dialog won't
 open under headless automation here (Lenis/portal interaction quirk, console stays clean) so the
 `required` field was confirmed from source + build rather than a live screenshot. Not yet committed.
+
+### Cinematic GSAP hero entrance — pitch → chrome pass → morph → dashboard (2026-06-10)
+
+- Rebuilt `components/Hero.tsx` as a single **GSAP-orchestrated** entrance (added `gsap@3.15`
+  + `MotionPathPlugin`; +36 kB First Load, now 315 kB). Sequence: (1) **the pitch** — top-down
+  pitch geometry etched in by a clinical icy light **sweep**, chrome strokes drawing on under
+  `power3/power4` ease; (2) **the pass** — a chrome football (`<g class="he-ball">`, radial-gradient
+  sphere + specular) runs a tactical **MotionPath** across the pitch, drawing a fading violet/ice
+  specular **trail**; (3) **the morph** — it reaches target, a white **flash** fires, the pitch
+  contracts + dissolves and the glassmorphism **dashboard** assembles (gauge count-up to **81%** under
+  the 85% cap, FFP €42.8M, wage/turnover 68% vs 70% cap, net-spend sparkline draw-on, per-panel
+  specular sweep); (4) **the reveal** — headline opens with a vertical **clip-path slice + seam flash
+  + metallic sheen**, then kicker/sub/CTA fade up. Strictly `power4.inOut`/`expo.out` — no linear, no
+  bounce. Cold/charcoal with violet (#6D28D9) only as a laser accent. A **Replay** control restarts
+  the timeline; `prefers-reduced-motion` jumps straight to the end state.
+- Styles live in `app/globals.css` scoped under `.hero-entrance` with short `he-` class names; the
+  section keeps `data-nav-theme="dark"` so the Navbar theme detection still reads it. Reuses the real
+  `RequestAccessButton` (lead dialog) — no duplicate nav.
+- **Two bugs found and fixed while driving it in-browser (CDP, real delays):** (a) the pitch/ball/trail
+  overlay sat **outside** the `ref={root}` element, so `gsap.utils.selector` never found them — the
+  pitch rendered statically and never faded; moved the GSAP root + `hero-entrance` var scope to the
+  `<section>`. (b) `MotionPathPlugin` reads a string `path:` as a **CSS selector**, so passing raw SVG
+  path data threw `querySelectorAll('M 70 330…')` every tick and halted the timeline — now passes the
+  `.he-trail` **element** (same SVG coord space as the ball) for `path`/`align`.
+- Verified: tsc clean; **production `next build` clean**; CDP capture across the timeline shows the
+  full sequence; DOM probe confirms end state (`pitchOpacity:0`, panels `1`, gauge `81`); **console
+  clean** throughout. Headless one-shot `--screenshot`+`--virtual-time-budget` proved unreliable (grabs
+  the frame before dev's JS-injected CSS applies, and `next start` 500s on assets while the dev server
+  shares `.next`) — CDP with real delays against the dev server is the reliable path. Not yet committed.
+
+### Hero entrance — restored original copy/data, 3D morph, glyph + replay cleanup (2026-06-10)
+
+Iteration on the cinematic hero per feedback:
+- **Restored the original first-slide copy + glowing gradient title.** Eyebrow back to the
+  "The Squad Cost Engine" pill; H1 back to "The definitive financial compliance platform for elite
+  football clubs." with `text-gradient-hero text-shimmer` (the white→violet glow + slow light sweep);
+  sub back to "Win the transfer window. Within the rules." The two-line slice/seam/sheen headline was
+  dropped (its CSS pruned).
+- **Corrected the dashboard data** to the real SCR story (was generic/wrong): gauge **81%** under the
+  85% cap with **+4 pts headroom / Within the rules**, **Wages 62%** + **Amortisation 19%** (= the 81%
+  SCR), and an **SCR · this window** trajectory sparkline. Dropped the invented FFP €42.8M and the
+  wage/turnover-70% panel.
+- **Fixed the gauge number position** — `.he-gnum` was `align-items: baseline`, floating "81%" to the
+  top of the ring; now `center`.
+- **Removed glyph symbols** the brief flagged: the em dash in the sub copy, and the ▾/▴ triangles
+  (replaced the "live" triangle with a dot pill).
+- **Removed the Replay control** (button + `replay()` + its timeline reveal + CSS).
+- **3D morph transition** (the "evolve into the dashboard" ask): the pitch now **folds away in 3D**
+  (`rotationY 42 / rotationX -8 / z -320`) instead of a flat fade, and the dashboard **unfolds from
+  depth** — the rack swings level (`rotationY -16 → 0`) while each panel rotates in from a tilted,
+  receded stack (`z -300, rotationY -34, rotationX 16`, staggered, `power4.out`) under a shared
+  `perspective: 1600px` + `transform-style: preserve-3d`.
+- Verified: tsc clean; **production `next build` clean** (First Load 314 kB); CDP capture shows the full
+  sequence incl. the mid-morph 3D unfold; DOM probe confirms end state (`pitchOpacity:0`, panels `1`,
+  gauge `81`); **console clean**. (`next build` 500s on a missing chunk only when the dev server is
+  racing the same `.next` — build clean once dev is stopped.) Not yet committed.
+
+### Hero entrance — 6-point polish pass (2026-06-10)
+
+Feedback round on the cinematic hero:
+1. **Full-bleed checkered grid.** The `.he-bg-grid` / `.he-bg-glow` layers were inside the centred
+   `max-w-content` column, so the grid only showed mid-screen. Moved them to **section-level**
+   `absolute inset-0` (full width) and widened the radial mask (`150% 130% at 50% 38%`) so the grid
+   spans the whole purple band. Verified by DOM probe: gridW == sectionW (1440).
+2. **85% cap focus.** Added a bright **cap tick** on the gauge ring at the 0.85 mark (computed in the
+   ring's pre-rotation coords), retitled the panel "Holding under the **85% cap**", added a **CAP 85%**
+   chip beside "Within the rules", and a **85% cap** label on the SCR sparkline's dashed cap line.
+3. **Replaced the ugly light-sweep.** The flat vertical light bar that crossed the pitch is gone.
+   The pitch now **ignites from the centre spot** (`.he-ignite` cold violet/white bloom) and the chrome
+   strokes crystallise outward (`stagger from:'center'`).
+4. **Shiny pitch + unpredictable 3D ball.** Added specular **sparkle glints** (`.he-glint`, radial-grad
+   circles) that flick on across the markings and settle to a shimmer; brightened the chrome stroke
+   glow. New **erratic** ball route (several sharp reversals, no smooth arc). At the end the ball
+   **rushes the camera** — scales to 12× with motion blur + white bloom (`power3.in`), reading as it
+   leaves the screen, then the flash + 3D pitch-fold hands off to the dashboard.
+5. **Fixed the text-over-pitch flash.** The H1 was only clipped by GSAP (post-hydration), so it flashed
+   fully-formed over the pitch for ~seconds pre-JS. Now clipped in **CSS** (`clip-path: inset(0 100% 0 0)`)
+   from first paint; reduced-motion shows it immediately.
+6. **3D tilt on the dashboard panels.** Wrapped all four panels in **`TiltCard`** (the same
+   react-parallax-tilt primitive the capabilities carousel uses) — interactive parallax tilt + glare on
+   pointer, disabled under reduced motion. Grid spans moved to the TiltCard wrapper (`.he-cell-full`).
+
+Verified: tsc clean; **production `next build` clean**; CDP captures show the ignite bloom, erratic
+pass, ball camera-rush (scale>3 detected mid-flight) and the settled dashboard; DOM probes confirm
+full-bleed grid + end state (`pitchOpacity:0`, panels `1`, gauge `81`); **console clean** throughout;
+high-res crop confirms the gauge cap tick + CAP 85% chip. Not yet committed.
