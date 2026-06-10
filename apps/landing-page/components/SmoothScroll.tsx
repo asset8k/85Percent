@@ -35,7 +35,10 @@ export function SmoothScroll() {
       const target = document.querySelector(href)
       if (target) {
         e.preventDefault()
-        lenis.scrollTo(target as HTMLElement, { offset: -72 })
+        // Land the section's heading just below the floating navbar — clear of it,
+        // not tucked under. The sections carry ~112px of top padding, so a small
+        // positive offset scrolls just past most of that empty padding.
+        lenis.scrollTo(target as HTMLElement, { offset: 8 })
       }
     }
     document.addEventListener('click', onClick)

@@ -1,5 +1,6 @@
 import { Reveal } from './motion/Reveal'
 import { CountUp } from './CountUp'
+import { TiltCard } from './TiltCard'
 
 /**
  * ProblemSolution — the two-beat narrative (spec §5.3) on the light band:
@@ -10,7 +11,7 @@ import { CountUp } from './CountUp'
  */
 export function ProblemSolution() {
   return (
-    <section id="the-rule" data-nav-theme="light" className="scroll-mt-20 bg-background">
+    <section id="the-rule" data-nav-theme="light" className="scroll-mt-[-0.5rem] bg-background">
       <div className="mx-auto max-w-content px-6 py-28">
         {/* Beat 1 — the problem */}
         <Reveal className="max-w-2xl">
@@ -42,9 +43,12 @@ export function ProblemSolution() {
             </p>
           </Reveal>
 
-          {/* The stat band — the formula that yields the cap, audited in mono. */}
+          {/* The stat band — the formula that yields the cap, audited in mono.
+              Wrapped in TiltCard so it lifts into a slight 3D parallax on hover,
+              matching the carousel panels (glare sweep + scale, no bounce). */}
           <Reveal delay={0.1}>
-            <div className="rounded-2xl border border-border bg-surface p-8 shadow-[0_1px_0_rgba(0,0,0,0.04),0_24px_48px_-32px_rgba(109,40,217,0.25)]">
+            <TiltCard max={8} className="[transform-style:preserve-3d]">
+            <div className="rounded-2xl border border-border bg-surface p-8 shadow-[0_1px_0_rgba(0,0,0,0.04),0_24px_48px_-32px_rgba(109,40,217,0.25)] transition-shadow duration-500 hover:shadow-[0_1px_0_rgba(0,0,0,0.04),0_40px_80px_-40px_rgba(109,40,217,0.4)]">
               <div className="flex items-baseline gap-3">
                 <CountUp
                   to={85}
@@ -74,6 +78,7 @@ export function ProblemSolution() {
                 </div>
               </div>
             </div>
+            </TiltCard>
           </Reveal>
         </div>
       </div>

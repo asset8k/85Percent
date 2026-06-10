@@ -107,7 +107,7 @@ export function CapabilitiesCarousel() {
     : { left: 0, right: 0 }
 
   return (
-    <section id="capabilities" data-nav-theme="light" className="scroll-mt-20 overflow-hidden bg-surface">
+    <section id="capabilities" data-nav-theme="light" className="scroll-mt-[-0.5rem] overflow-hidden bg-surface">
       <div className="mx-auto max-w-content px-6 py-28">
         <Reveal className="max-w-2xl">
           <span className="meta-label text-primary">Capabilities</span>

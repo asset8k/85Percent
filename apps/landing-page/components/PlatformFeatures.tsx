@@ -16,7 +16,7 @@ import { features } from '@/content/features'
  */
 export function PlatformFeatures() {
   return (
-    <section id="platform" data-nav-theme="light" className="scroll-mt-20 bg-background">
+    <section id="platform" data-nav-theme="light" className="scroll-mt-[-0.5rem] bg-background">
       <div className="mx-auto max-w-content px-6 py-28">
         <Reveal className="max-w-2xl">
           <span className="meta-label text-primary">The platform</span>

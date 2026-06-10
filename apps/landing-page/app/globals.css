@@ -502,7 +502,10 @@
   perspective: 1600px;
 }
 .he-pitch-tilt {
-  transform: rotateX(20deg) scale(1);
+  position: relative;
+  /* GSAP owns the live transform (rotationX, fold); this is the pre-JS rest pose
+     so the board already reads as a steep 3D tactical table before the timeline. */
+  transform: perspective(1080px) rotateX(58deg);
   transform-style: preserve-3d;
   will-change: transform, opacity;
 }
@@ -527,11 +530,54 @@
   fill: var(--he-chrome);
   opacity: 0;
 }
-.he-glint {
+/* mowing stripes — the richer pitch surface under the markings */
+.he-stripes {
+  opacity: 0;
   mix-blend-mode: screen;
-  transform-box: fill-box;
-  transform-origin: center;
 }
+/* a soft floor sheen grounds the raked board in 3D space */
+.he-pitch-tilt::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 62%;
+  width: 86%;
+  height: 64%;
+  transform: translate(-50%, -50%);
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(
+    60% 50% at 50% 50%,
+    rgba(120, 140, 200, 0.16),
+    rgba(80, 70, 150, 0.06) 55%,
+    transparent 78%
+  );
+  filter: blur(14px);
+}
+
+/* ── coaching formation: a glowing player circle with a sparkling star inside ── */
+.he-marker-disc {
+  stroke-width: 1.1;
+  opacity: 0;
+}
+.he-marker[data-team='h'] .he-marker-disc {
+  fill: rgba(223, 231, 251, 0.16);
+  stroke: rgba(223, 231, 251, 0.85);
+  filter: drop-shadow(0 0 5px rgba(223, 231, 251, 0.6));
+}
+.he-marker[data-team='a'] .he-marker-disc {
+  fill: rgba(167, 139, 250, 0.18);
+  stroke: rgba(176, 150, 255, 0.95);
+  filter: drop-shadow(0 0 6px rgba(139, 92, 246, 0.7));
+}
+/* shining stars spread evenly over the pitch (outside the player circles) */
+.he-star {
+  fill: #ffffff;
+  mix-blend-mode: screen;
+  opacity: 0;
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 1)) drop-shadow(0 0 8px rgba(201, 184, 255, 0.75));
+}
+
 .he-trail {
   fill: none;
   stroke: url(#heTrail);
@@ -539,10 +585,28 @@
   stroke-linecap: round;
   filter: drop-shadow(0 0 6px rgba(201, 184, 255, 0.7));
 }
+/* ── the patterned soccer ball ──────────────────────────────────────────────── */
 .he-ball {
   filter: drop-shadow(0 0 12px rgba(232, 238, 251, 0.7))
     drop-shadow(0 6px 14px rgba(0, 0, 0, 0.55));
   opacity: 0;
+}
+/* GSAP rotates this around its bbox centre (≈ the ball's local origin); no
+   transform-box override — that would offset GSAP's SVG matrix. */
+.he-ball-pent {
+  fill: #12161f;
+}
+.he-ball-seam {
+  stroke: rgba(10, 13, 20, 0.6);
+  stroke-width: 0.8;
+  fill: none;
+}
+.he-ball-rim {
+  stroke: rgba(120, 132, 160, 0.55);
+  stroke-width: 0.7;
+}
+.he-ball-spec {
+  fill: rgba(255, 255, 255, 0.85);
 }
 /* the centre ignition bloom that crystallises the pitch (replaces the flat sweep) */
 .he-ignite {
@@ -583,6 +647,71 @@
     transparent 70%
   );
   mix-blend-mode: screen;
+}
+
+/* ── morph FX: raking light shards + an expanding shockwave ring ─────────────── */
+.he-shards {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+.he-shard {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: 0 50%;
+  opacity: 0;
+}
+.he-shard b {
+  display: block;
+  height: 2px;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  border-radius: 2px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.95),
+    rgba(201, 184, 255, 0.55) 45%,
+    transparent
+  );
+  filter: drop-shadow(0 0 4px rgba(201, 184, 255, 0.7));
+}
+.he-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 340px;
+  height: 340px;
+  margin: -170px 0 0 -170px;
+  border-radius: 50%;
+  border: 2px solid rgba(201, 184, 255, 0.7);
+  box-shadow: 0 0 30px rgba(139, 92, 246, 0.5), inset 0 0 30px rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+  opacity: 0;
+  mix-blend-mode: screen;
+}
+
+/* ── violet scan that rakes the dashboard into focus during the morph ───────── */
+.he-dash-scan {
+  position: absolute;
+  inset: -2% -5%;
+  height: 30%;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 4;
+  mix-blend-mode: screen;
+  filter: blur(5px);
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgba(167, 139, 250, 0.22) 45%,
+    rgba(255, 255, 255, 0.14) 55%,
+    transparent
+  );
 }
 
 /* full-width dashboard cells (the TiltCard wrapper carries the grid span now) */

@@ -3948,3 +3948,123 @@ Verified: tsc clean; **production `next build` clean**; CDP captures show the ig
 pass, ball camera-rush (scale>3 detected mid-flight) and the settled dashboard; DOM probes confirm
 full-bleed grid + end state (`pitchOpacity:0`, panels `1`, gauge `81`); **console clean** throughout;
 high-res crop confirms the gauge cap tick + CAP 85% chip. Not yet committed.
+
+---
+
+## Hero animation — 3D pitch, patterned ball, richer morph + hover-3D cap card (2026-06-10)
+
+Second polish pass on the cinematic hero (`components/Hero.tsx`, `app/globals.css`) plus a 3D
+hover on the marketing cap card. Six asks, all verified via deterministic GSAP-timeline seeking
+over CDP (`window.__tl.time(t)` — a temporary hook, since removed).
+
+1. **Visibly 3D pitch.** Raked the tactical board hard — `.he-pitch-tilt` now sits at
+   `rotateX(52deg)` (GSAP-owned via `gsap.set(... transformPerspective:1600, rotationX:52)`), with a
+   blurred floor sheen (`::after`) grounding it in depth. Added **mowing stripes** (`.he-stripes`,
+   8 alternating cold bands) under the markings, plus **corner arcs** and **goals** for a richer field.
+2. **Shining tactical player markers.** Replaced the generic field glints with a **4-3-3-a-side
+   coaching formation** (`FORMATION`, 14 chrome/violet discs). Each disc catches a crisp **4-point
+   star sparkle** (`starPath`) that **twinkles forever** (standalone `gsap.fromTo … repeat:-1 yoyo`,
+   random stagger). Reduced motion pins them to a static lit state.
+3. **Ball — slower, bigger, real soccer pattern.** MotionPath duration `1.5→1.75s` (~17% slower).
+   `R_BALL 11→13`, pattern scaled with it (`F`). Built a **Telstar pattern** in local space
+   (central + 5 rim pentagons via `pentPts`, seams), clipped to the ball, on a chrome sphere
+   gradient with a specular highlight; the pattern **spins** as it rolls. The rush now **swells crisp**
+   to 7.5× (pattern reads big, coming at you) **then whites out** to 19× with motion blur — split so
+   the soccer ball is legible before the bloom. **Clip fix:** the pattern was detaching/floating above
+   the ball — caused by `transform-box: fill-box` offsetting GSAP's SVG matrix + the clip riding the
+   spun element. Fixed by a **static clip wrapper around the spinning inner group** and dropping
+   `fill-box`.
+4. **Richer morph (not just a flash).** On impact: specular **flash** + **14 raking light shards**
+   (`.he-shard b` scaleX burst, random stagger) + an **expanding shockwave ring** (`.he-ring`), the
+   **camera lifts** (`rotationX 52→14`) so the ball strikes head-on, the pitch **folds away in 3D**,
+   and a **violet scan** (`.he-dash-scan`) rakes down the dashboard as it unfolds. Route re-ended at
+   pitch centre so the rush aligns with the centre burst.
+5. **Dashboard 3D at rest.** The rack settles to a **resting rake** (`rotationY:-10, rotationX:3`)
+   instead of flat — visibly 3D at a slight angle even before hover; `TiltCard` still adds interactive
+   parallax on pointer.
+6. **Cap-definition card hover-3D.** Wrapped the marketing **85% cap** stat band
+   (`components/ProblemSolution.tsx`) in **`TiltCard max={8}`** + a deepening hover shadow — the same
+   carousel parallax/glare, now on the light band.
+
+Verified: tsc clean (ESLint not configured in this app — interactive setup prompt, skipped); CDP
+timeline-seek captures confirm the raked 3D board + twinkling formation, the legible spinning soccer
+ball at the swell, the shard/ring/flash burst, the 3D fold, and the settled dashboard at a resting
+rake; hover capture confirms the cap card tilts with glare; **no exceptions/console errors** in any
+run. Not yet committed.
+
+---
+
+## Hero animation — six follow-up fixes (2026-06-10)
+
+1. **Post-animation jank/jumping fixed.** Root cause: after the morph the pitch overlay
+   stayed in the DOM — a `transform-style:preserve-3d` + `mix-blend-mode:screen` + drop-shadow
+   layer with an **infinite star twinkle** (`repeat:-1`) repainting forever and janking scroll.
+   Fix: kept the twinkle tween in a ref and, at `t=5.2` on the timeline, **kill it and set
+   `.he-pitch-layer { display:none }`** — the whole overlay leaves the compositor once it's
+   off-screen. Probe confirms `pitchLayerDisplay:"none"` at end state.
+2. **Stars now sit inside the player circles.** Redesigned markers: the disc is a **glowing
+   player ring** (translucent fill + bright team-coloured stroke, r 5.4) with a **smaller
+   sparkling star inside** (s 3.1, white/violet, double drop-shadow glow) that twinkles.
+3. **Pitch more visibly 3D.** Raised the rake `52°→58°` and shortened the perspective
+   `1600→1080px` (`PITCH_TILT`/`PITCH_PERSP`), so the near edge is markedly wider than the far —
+   a much stronger tactical-table depth.
+4. **Ball now rides the trajectory.** It was momentarily parked at the SVG origin (top-left)
+   before the MotionPath kicked in. Added `gsap.set('.he-ball',{x:60,y:60→360})` to the path
+   start so it appears **on the line**; zoom-crop confirms the ball tracks the trail centreline.
+5. **Nav anchor landing fixed.** The real control was **Lenis** `scrollTo(target,{offset:-72})`
+   in `SmoothScroll.tsx` (overrides CSS scroll-margin for motion users) — combined with the
+   sections' 112px top padding it left the heading mid-screen. Changed the offset to **`+28`**
+   (scrolls just past the empty padding) and set the three sections' `scroll-mt` to **`-1.75rem`**
+   for the reduced-motion/native path. Clicking The Rule / Capabilities / Platform now lands each
+   **heading at y≈96px**, just under the navbar (was ~184px).
+6. **Cap panel.** Removed the **"Cap 85%" chip** (only the "Within the rules" pill remains) and
+   lengthened the line to *"Projected to settle at 81% on deadline day, with +4 full points of
+   headroom still in hand."*
+
+Verified: tsc clean; deterministic timeline-seek captures confirm the steeper 3D board, the
+star-in-circle markers, the patterned ball on the trail line; end-state probe confirms the pitch
+layer is dropped from the compositor and the chip is gone; click-through measures all three nav
+headings landing at the top. Not yet committed.
+
+---
+
+## Hero animation — four more fixes (2026-06-10)
+
+1. **Nav heading no longer hidden under the top bar.** Lowered the landing further:
+   Lenis `scrollTo` offset `28→8` in `SmoothScroll.tsx` and sections' `scroll-mt` to
+   `-0.5rem`. The three nav headings now land at **y≈136px** (was 96, originally ~184) —
+   comfortably clear of the floating navbar.
+2. **Ball now rides the trajectory line.** Two compounding bugs: (a) `align: trailEl`
+   makes the path *relative* to the ball's pre-set position (floated it ~60px off), and
+   (b) `alignOrigin:[0.5,0.5]` registers the ball by its **bounding-box centre**, which
+   shifts every frame as the asymmetric pattern *spins*. Removed **both** — all ball
+   geometry is centred at local (0,0), so default origin registration lands its true
+   centre on the path. Seek crops confirm the ball sits at the tip of the drawn trail.
+3. **Stars distributed evenly (were bunched top-left).** Same class of SVG bug as the
+   ball pattern: discs/stars drawn at absolute (x,y) with GSAP `scale` were scaling about
+   the **SVG origin (0,0 = top-left)**, dragging the twinkling stars toward the corner.
+   Fix: wrap each marker in `<g transform="translate(x y)">` with children at local (0,0),
+   and drop the `transform-box`/`transformOrigin` overrides — scale now happens about each
+   star's own centre. Confirmed evenly spread across both halves.
+4. **Post-morph stutter reduced.** The infinite star twinkle (3D + mix-blend + drop-shadow,
+   repainting forever) is now **killed at the morph start (t=3.9)** instead of lingering;
+   the whole `.he-pitch-layer` is dropped from the compositor at **t=5.05** (right as the
+   fold ends); and the costly **`filter: blur()` was removed from the glass-panel unfold**
+   (animating a filter on backdrop-filtered panels thrashes the compositor). End-state probe
+   confirms `pitchDisplay:"none"`, no exceptions.
+
+Verified: tsc clean; deterministic seek crops confirm ball-on-line and evenly-spread
+star-in-circle markers; click-through measures all three nav headings at y≈136; settled
+end-state probe clean. Not yet committed.
+
+---
+
+## Hero — stars moved outside the player circles (2026-06-10)
+
+Reversed the earlier "star inside the circle" treatment per request. The player markers
+are now plain glowing circles, and a **separate field of shining white stars** (`STAR_FIELD`,
+23 points on a staggered grid) is spread **evenly across the whole pitch**, outside the
+circles. Each star uses the translated-group + local-(0,0) pattern so GSAP scales it about
+its own centre (no SVG-origin drift); they fade up with the formation and twinkle on a yoyo
+loop that's killed at the morph. `.he-marker-star` CSS replaced by `.he-star`. tsc clean;
+seek capture confirms even, shining distribution. Not yet committed.
