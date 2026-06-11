@@ -500,6 +500,12 @@
   place-items: center;
   pointer-events: none;
   perspective: 1600px;
+  /* Hidden until the timeline has applied its initial states (.he-ready), so the
+     fully-drawn pitch can't flash on first paint / before hydration. */
+  opacity: 0;
+}
+.hero-entrance.he-ready .he-pitch-layer {
+  opacity: 1;
 }
 .he-pitch-tilt {
   position: relative;

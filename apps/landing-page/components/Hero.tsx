@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import gsap from 'gsap'
 import { MotionPathPlugin } from 'gsap/MotionPathPlugin'
 import { RequestAccessButton } from './RequestAccessButton'
@@ -103,14 +103,29 @@ const BALL_SEAMS: [number, number, number, number][] = pentPts(0, 0, 4.3 * F, 0)
 // 14 light shards raked from the point of impact during the morph.
 const SHARDS = Array.from({ length: 14 }, (_, i) => i * (360 / 14) + (i % 2 ? 7 : -7))
 
+// useLayoutEffect on the client (so GSAP's initial states + the reveal commit
+// before the browser paints — no flash of the finished pitch), useEffect on the
+// server (avoids React's SSR warning).
+const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
+
+// Per-document guard for the cinematic intro. This lives at module scope, so it
+// resets on every full document load (a browser reload, a new tab, or the first
+// navigation in — the intro plays) but persists across in-app soft remounts within
+// the same JS context (clicking the logo to scroll back to the top must NOT replay
+// it). It is recorded on a deferred tick (see the effect) so React StrictMode's
+// throwaway first mount can't set it before the surviving mount gets to play.
+let introHasPlayed = false
+
 export function Hero() {
   const root = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
+  useIsoLayoutEffect(() => {
     const el = root.current
     if (!el) return
     gsap.registerPlugin(MotionPathPlugin)
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    // Reduced motion, or an intro already played in this document (a logo-click soft
+    // remount), both skip straight to the resolved end state rather than replaying.
+    const skip = window.matchMedia('(prefers-reduced-motion: reduce)').matches || introHasPlayed
 
     const ctx = gsap.context(() => {
       const q = gsap.utils.selector(el)
@@ -279,7 +294,7 @@ export function Hero() {
       tl.add(() => twinkle?.kill(), 3.9)
       tl.add(() => gsap.set(q('.he-pitch-layer'), { display: 'none' }), 5.05)
 
-      if (reduce) {
+      if (skip) {
         tl.progress(1)
       } else {
         // the star field twinkles like a sky over the pitch while it's on screen
@@ -290,7 +305,23 @@ export function Hero() {
       }
     }, el)
 
-    return () => ctx.revert()
+    // Reveal the pitch overlay now that GSAP has applied its initial (hidden) states.
+    // Until this class lands, CSS keeps the layer at opacity:0 so the fully-drawn
+    // pitch can never flash before the timeline takes over.
+    el.classList.add('he-ready')
+
+    // Record the play on a deferred tick. StrictMode mounts → cleans up → remounts
+    // synchronously in dev; the throwaway first mount's cleanup cancels this timer
+    // before it fires, so the flag is set only by the surviving mount — and the intro
+    // still animates in dev. A later logo-click remount finds the flag and skips.
+    let markTimer = 0
+    if (!skip) markTimer = window.setTimeout(() => { introHasPlayed = true }, 0)
+
+    return () => {
+      clearTimeout(markTimer)
+      ctx.revert()
+      el.classList.remove('he-ready')
+    }
   }, [])
 
   return (
