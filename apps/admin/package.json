@@ -2,24 +2,32 @@
   "name": "@85percent/admin",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "scripts": {
-    "dev": "tsx watch --env-file=.env src/server.ts",
-    "build": "tsc",
-    "start": "node --env-file=.env dist/server.js",
+    "dev": "next dev -p 4000",
+    "build": "next build",
+    "start": "next start -p 4000",
+    "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf .next"
   },
   "dependencies": {
-    "@fastify/cookie": "^11.0.2",
-    "@fastify/formbody": "^8.0.2",
     "@supabase/supabase-js": "^2.50.0",
-    "fastify": "^5.4.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.511.0",
+    "next": "^14.2.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "server-only": "^0.0.1",
+    "tailwind-merge": "^2.5.4",
     "zod": "^3.25.28"
   },
   "devDependencies": {
-    "@types/node": "^22.15.18",
-    "tsx": "^4.19.4",
+    "@types/node": "^22.5.0",
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.4",
+    "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3"
   }
 }

@@ -1,18 +1,18 @@
+import 'server-only'
+import { spawn } from 'node:child_process'
+import { getSupabase } from './supabase'
+import { env } from './env'
+
 /**
  * jobs — trigger the manual maintenance scripts and record their history.
  *
  * Each job spawns the corresponding api package script (so we run the EXACT same
  * code the team runs by hand) and records a row in admin_jobs: who triggered it,
- * start/finish times, status, a one-line summary and a tail of the output.
- *
- * The HTTP handler kicks a job off and returns immediately; the child process
- * runs in the background and updates its row on exit. Concurrent runs of the same
- * job type are refused so we don't double-scrape.
+ * start/finish times, status, a one-line summary and a tail of the output. The
+ * caller kicks a job off and returns immediately; the child process runs in the
+ * background and updates its row on exit. Concurrent runs of the same job type
+ * are refused so we don't double-scrape.
  */
-
-import { spawn } from 'node:child_process'
-import { supabase } from './supabase.js'
-import { env } from './env.js'
 
 export type JobType = 'sync_templates' | 'league_table'
 
@@ -25,6 +25,10 @@ export const JOB_LABEL: Record<JobType, string> = {
 const JOB_SCRIPT: Record<JobType, string> = {
   sync_templates: 'sync:templates',
   league_table: 'update:league',
+}
+
+export function isJobType(v: string): v is JobType {
+  return v === 'sync_templates' || v === 'league_table'
 }
 
 const LOG_TAIL_CHARS = 12_000
@@ -41,7 +45,7 @@ export interface JobRow {
 }
 
 export async function listJobs(limit = 50): Promise<JobRow[]> {
-  const { data } = await supabase
+  const { data } = await getSupabase()
     .from('admin_jobs')
     .select('*')
     .order('started_at', { ascending: false })
@@ -50,12 +54,12 @@ export async function listJobs(limit = 50): Promise<JobRow[]> {
 }
 
 export async function getJob(id: string): Promise<JobRow | null> {
-  const { data } = await supabase.from('admin_jobs').select('*').eq('id', id).maybeSingle()
+  const { data } = await getSupabase().from('admin_jobs').select('*').eq('id', id).maybeSingle()
   return (data as JobRow | null) ?? null
 }
 
 async function isRunning(type: JobType): Promise<boolean> {
-  const { data } = await supabase
+  const { data } = await getSupabase()
     .from('admin_jobs')
     .select('id')
     .eq('type', type)
@@ -65,8 +69,8 @@ async function isRunning(type: JobType): Promise<boolean> {
 }
 
 /**
- * Start a job. Returns { started, jobId, reason }. When `started` is false the
- * job was refused (e.g. one of the same type is already running).
+ * Start a job. When `started` is false the job was refused (e.g. one of the same
+ * type is already running).
  */
 export async function startJob(
   type: JobType,
@@ -76,7 +80,7 @@ export async function startJob(
     return { started: false, reason: `A ${JOB_LABEL[type]} job is already running.` }
   }
 
-  const { data: row, error } = await supabase
+  const { data: row, error } = await getSupabase()
     .from('admin_jobs')
     .insert({ type, status: 'running', triggered_by: triggeredBy })
     .select('id')
@@ -128,7 +132,7 @@ async function finalize(
   summary: string,
   log: string,
 ): Promise<void> {
-  await supabase
+  await getSupabase()
     .from('admin_jobs')
     .update({ status, summary, log, finished_at: new Date().toISOString() })
     .eq('id', jobId)

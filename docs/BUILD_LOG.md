@@ -4103,3 +4103,74 @@ routes (footer Legal column + `sitemap.ts` both derive from it automatically); o
 Verified: tsc clean; `next build` prerenders all four routes; CDP screenshots of `/terms`
 and `/disclaimer` confirm slate bg `rgb(14,16,27)`, violet links, correct titles, cohesive
 dark navbar+footer, no console exceptions. Not yet committed.
+
+## Hero intro: kill finished-state flash + play-once-per-tab (2026-06-11)
+
+Two bugs on the cinematic GSAP hero (`apps/landing-page/components/Hero.tsx`):
+
+1. **Finished-state flash on entry.** The `.he-pitch-layer` had no initial hidden
+   state, so the server-rendered / pre-hydration paint showed the fully-drawn pitch
+   before GSAP took over. Fix: CSS now keeps the layer at `opacity:0` and reveals it
+   only under `.hero-entrance.he-ready` (globals.css). The effect adds `he-ready`
+   after building the timeline (so GSAP's initial states are already applied), and the
+   effect is now an isomorphic `useLayoutEffect` so the from-states + reveal commit
+   before paint. (Dashboard panels / kicker / sub / actions / h1 were already CSS-hidden.)
+
+2. **Intro replay semantics** (clarified by user): a browser reload / re-entering the
+   tab must play the intro EVERY time; an in-app logo click back to the top must NOT.
+   The landing logo is `<a href="#top">` intercepted by Lenis (scroll only, no remount),
+   so the right scope is per-document, not per-tab. Fix: a module-level `introHasPlayed`
+   flag — it resets on every full document load (reload / new tab → plays) but persists
+   across in-app soft remounts in the same JS context (logo click → `tl.progress(1)`,
+   no replay). The flag is set on a deferred `setTimeout(0)` whose cleanup cancels it, so
+   React StrictMode's throwaway first mount (dev) can't set it before the surviving mount
+   plays — without this the intro would not animate at all in dev. (An earlier attempt
+   used `sessionStorage`, which wrongly suppressed reloads and got stuck → "not playing at
+   all"; replaced.) Reduced-motion still skips via the same path.
+
+Verified (CDP headless, dev/StrictMode): fresh load @180ms → pitch `opacity:0`, panels
+`opacity:0`, h1 clipped (no finished flash); @1.4s → PLAYING (pitch grid, panels 0);
+@7.4s → RESOLVED. **Reload @1.4s → PLAYING again** (replays as required); @7.4s → RESOLVED.
+tsc clean, no console exceptions. Not committed.
+
+## Admin panel migrated to Next.js + new "Inbound Leads" dashboard (2026-06-11)
+
+Migrated `apps/admin` from the Fastify server-rendered control panel to a **Next.js 14
+App Router** app (Tailwind + lucide-react + a hand-rolled shadcn-style UI layer), and
+added the requested Leads / Demo Requests dashboard. Still a standalone app on its own
+port (4000) and own session auth, intended for a separate domain.
+
+**Stack / structure**
+- `app/` (App Router): `login/`, protected `(dashboard)/` group (`leads`, `users`,
+  `users/[id]`, `jobs`, `jobs/[id]`), root `page.tsx` redirects → `/leads`.
+- Server Actions replace the old Fastify POST routes: `app/actions/{auth,users,jobs,leads}.ts`.
+- Server-only libs in `lib/`: `env` (lazy getters, no NEXT_PUBLIC), `supabase` (lazy
+  service-role client), `session` (HMAC-signed httpOnly cookie via node:crypto;
+  `requireSession()` guards the dashboard layout), `format`, `jobs` (ported verbatim,
+  still spawns the api scripts), `users`, `leads.server` (DB) + `leads` (client-safe
+  constants/types — split because the client sheet imports `LEAD_STATUSES`).
+- UI: `components/ui/{button,card,badge,table,input,select,sheet,dropdown}` + `cn()`
+  (clsx + tailwind-merge). Cold monochrome shadcn token layer in `globals.css`
+  (white/slate, hairline `border-border`, brand violet #6D28D9 as the only accent).
+- Feature pieces: `metric-card`, `top-nav` (active link), `flash` (?flash=&msg= banner),
+  `confirm-submit`, and `leads/{leads-table,lead-sheet,status-badge}`.
+
+**Leads dashboard** — real schema (`demo_requests` already fed by the landing form):
+columns are `full_name`/`work_email`/`club`/`role`/`message`/`source`/`status` (the
+task's `name`/`email` assumption was wrong; `leads.server.ts` maps DB→display). Header +
+3 metric cards (Total / New in violet / Demos Scheduled), dense data table (Date · Name
+w/ avatar+email · Club · Role · Status pill · Actions kebab). Long CFO messages stay out
+of the table — a right-hand slide-out **Sheet** (portal, Esc/click-outside/scroll-lock)
+shows full details + the message, with a status `<select>` that writes via the
+`updateLeadStatus` server action (optimistic + rollback, `revalidatePath` + router.refresh).
+Status tones: New=violet, Contacted=blue, Demo Scheduled=green, Archived=grey. Seeded 5
+sample `@example.com` leads so it's demonstrable (archive/delete anytime).
+
+**Verified** — `tsc` clean; `next build` compiles all 8 routes. Drove it headless against
+`next start` (prod): login form → `/leads`; metrics [5,2,1]; headers Date/Name/Club/Role/
+Status/Actions; 5 rows; row click opens the sheet (full message shown); status change →
+Supabase write + "Saved". Zero console exceptions in production. (A `__webpack_require__.n`
+error appears only on the dev server's cross-route-group server-action redirect — a known
+Next dev-only quirk; absent in the production build, which is the deployed artifact.)
+
+Old Fastify `src/` + `dist/` removed. turbo.json already captured `.next/**`. Not committed.
