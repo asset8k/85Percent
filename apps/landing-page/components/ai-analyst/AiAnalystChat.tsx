@@ -109,68 +109,55 @@ export function AiAnalystChat() {
               </span>
             </div>
 
-            <div className="space-y-4 p-5">
-              {/* Director's question */}
-              <div className="flex justify-end">
-                <div className="max-w-[85%] rounded-2xl rounded-br-md bg-violet-tip px-4 py-2.5 text-sm leading-relaxed text-white">
-                  {ask.shown}
-                  {phase === 1 && !ask.done && <Caret />}
-                </div>
+            {/*
+              The exchange animates from a single question to a full answer +
+              calculation card, so its content height grows over time. To stop
+              that growth from reflowing the panel (and shifting the whole grid
+              row), a hidden ghost of the fully-resolved exchange reserves the
+              final height up front, and the live animated content is overlaid
+              absolutely on top. The panel is always its final size; nothing
+              jumps. Both layers share `space-y-4 p-5` so they align exactly.
+            */}
+            <div className="relative">
+              {/* Ghost: reserves the resolved height. visibility:hidden keeps layout. */}
+              <div aria-hidden className="invisible space-y-4 p-5">
+                <QuestionBubble text={QUESTION} />
+                <AnswerBlock text={ANSWER} showCard />
               </div>
 
-              {/* Thinking indicator */}
-              <AnimatePresence>
-                {phase === 2 && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.3, ease: EASE_EXPO }}
-                    className="flex items-center gap-2"
-                  >
-                    <AvatarDot />
-                    <ThinkingDots />
-                  </motion.div>
+              {/* Live, animated exchange */}
+              <div className="absolute inset-0 space-y-4 p-5">
+                {/* Director's question */}
+                <QuestionBubble
+                  text={ask.shown}
+                  caret={phase === 1 && !ask.done}
+                />
+
+                {/* Thinking indicator */}
+                <AnimatePresence>
+                  {phase === 2 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.3, ease: EASE_EXPO }}
+                      className="flex items-center gap-2"
+                    >
+                      <AvatarDot />
+                      <ThinkingDots />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Analyst's answer */}
+                {phase >= 3 && (
+                  <AnswerBlock
+                    text={answer.shown}
+                    caret={phase === 3 && !answer.done}
+                    showCard={phase >= 4}
+                  />
                 )}
-              </AnimatePresence>
-
-              {/* Analyst's answer */}
-              {phase >= 3 && (
-                <div className="flex items-start gap-2.5">
-                  <AvatarDot />
-                  <div className="max-w-[88%]">
-                    <div className="rounded-2xl rounded-tl-md bg-white/[0.06] px-4 py-2.5 text-sm leading-relaxed text-white/90">
-                      {answer.shown}
-                      {phase === 3 && !answer.done && <Caret />}
-                    </div>
-
-                    {/* Deterministic calculation card */}
-                    <AnimatePresence>
-                      {phase >= 4 && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.6, ease: EASE_EXPO }}
-                          className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-4"
-                        >
-                          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
-                            {FIGURES.map((f) => (
-                              <div key={f.k} className="flex items-center justify-between gap-3">
-                                <span className="meta-label text-white/40">{f.k}</span>
-                                <span className="num text-sm text-white/90">{f.v}</span>
-                              </div>
-                            ))}
-                          </div>
-                          <p className="mt-3 border-t border-white/10 pt-3 text-xs leading-relaxed text-white/50">
-                            ≈ one £60M signing on a 5-year deal, or £12M/yr of added
-                            wage capacity, all within the cap.
-                          </p>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                </div>
-              )}
+              </div>
             </div>
 
             {/* Inert composer — sells the affordance without faking input. */}
@@ -184,6 +171,70 @@ export function AiAnalystChat() {
         </Reveal>
       </div>
     </section>
+  )
+}
+
+/** The Sporting Director's question bubble. Shared by the ghost and live layers. */
+function QuestionBubble({ text, caret }: { text: string; caret?: boolean }) {
+  return (
+    <div className="flex justify-end">
+      <div className="max-w-[85%] rounded-2xl rounded-br-md bg-violet-tip px-4 py-2.5 text-sm leading-relaxed text-white">
+        {text}
+        {caret && <Caret />}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The analyst's answer bubble plus its deterministic calculation card. Shared by
+ * the ghost (full text + card, to reserve height) and the live layer (typed text,
+ * card revealed once resolved).
+ */
+function AnswerBlock({
+  text,
+  caret,
+  showCard,
+}: {
+  text: string
+  caret?: boolean
+  showCard?: boolean
+}) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <AvatarDot />
+      <div className="max-w-[88%]">
+        <div className="rounded-2xl rounded-tl-md bg-white/[0.06] px-4 py-2.5 text-sm leading-relaxed text-white/90">
+          {text}
+          {caret && <Caret />}
+        </div>
+
+        {/* Deterministic calculation card */}
+        <AnimatePresence>
+          {showCard && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, ease: EASE_EXPO }}
+              className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-4"
+            >
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                {FIGURES.map((f) => (
+                  <div key={f.k} className="flex items-center justify-between gap-3">
+                    <span className="meta-label text-white/40">{f.k}</span>
+                    <span className="num text-sm text-white/90">{f.v}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 border-t border-white/10 pt-3 text-xs leading-relaxed text-white/50">
+                ≈ one £60M signing on a 5-year deal, or £12M/yr of added
+                wage capacity, all within the cap.
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
   )
 }
 
