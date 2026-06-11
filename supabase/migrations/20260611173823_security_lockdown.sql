@@ -65,7 +65,14 @@ ALTER TABLE public.notifications       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_logs          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.template_clubs        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.template_roster_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public._prisma_migrations  ENABLE ROW LEVEL SECURITY;
+-- _prisma_migrations only exists when the schema was provisioned via Prisma
+-- (dev). On a DB bootstrapped from these Supabase migrations (prod) it is
+-- absent, so guard it — keeps this migration portable to either provisioning path.
+DO $$ BEGIN
+  IF to_regclass('public._prisma_migrations') IS NOT NULL THEN
+    EXECUTE 'ALTER TABLE public._prisma_migrations ENABLE ROW LEVEL SECURITY';
+  END IF;
+END $$;
 
 -- ---------------------------------------------------------------------------
 -- Drop existing policies before recreating (idempotent)
@@ -167,6 +174,42 @@ CREATE POLICY "audit_logs: own club only" ON public.audit_logs
 --   _prisma_migrations                     : Prisma's migration bookkeeping
 -- (left intentionally policy-less above)
 -- ---------------------------------------------------------------------------
+
+-- ============================================================================
+-- RAG / AI Co-pilot + admin/reference tables. These are created by raw SQL
+-- (apps/api/prisma/rag.sql etc.), NOT prisma/schema.prisma, so they sit outside
+-- the tenant policy set above. Posture mirrors dev exactly.
+-- ============================================================================
+ALTER TABLE public.chat_sessions          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.chat_messages          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.documents              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_jobs             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.league_table_snapshots ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "chat_sessions: own club only"     ON public.chat_sessions;
+DROP POLICY IF EXISTS "chat_messages: via session club"  ON public.chat_messages;
+
+-- chat_sessions — tenant-scoped by club.
+CREATE POLICY "chat_sessions: own club only" ON public.chat_sessions
+  FOR ALL USING (club_id = public.current_club_id())
+          WITH CHECK (club_id = public.current_club_id());
+
+-- chat_messages — no club_id of their own; inherit isolation through the
+-- owning chat_session's club.
+CREATE POLICY "chat_messages: via session club" ON public.chat_messages
+  FOR ALL
+  USING (EXISTS (
+    SELECT 1 FROM public.chat_sessions s
+    WHERE s.id = chat_messages.session_id
+      AND s.club_id = public.current_club_id()))
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM public.chat_sessions s
+    WHERE s.id = chat_messages.session_id
+      AND s.club_id = public.current_club_id()));
+
+-- documents (RAG knowledge base), admin_jobs (job ledger), and
+-- league_table_snapshots (league reference cache) are service-role-only:
+-- RLS ON with NO policy → default-deny to anon/authenticated.
 
 -- ============================================================================
 -- demo_requests — the public lead form (apps/landing-page) writes here with the
