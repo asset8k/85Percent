@@ -19,6 +19,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation, Trans } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion'
+import { useQueryClient } from '@tanstack/react-query'
 import { api, type OnboardingClub } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
 import { useCan } from '@/lib/role'
@@ -85,6 +86,7 @@ export function OnboardingPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const can = useCan()
+  const queryClient = useQueryClient()
   const { clubId, setClub } = useClubStore()
 
   const [step, setStep] = useState<1 | 2>(1)
@@ -141,6 +143,26 @@ export function OnboardingPage() {
     try {
       const res = await api.onboarding.complete(selectedId, replacing)
       if (clubId) setClub(clubId, res.club.name, res.club.leagueId, res.club.logoUrl, res.club.baseCurrency)
+
+      // The squad was just (re)built on the server. The old squad is cached in
+      // TWO places that must be dropped, or /roster (and the SCR baseline) keep
+      // serving the pre-onboarding data — within the 5m staleTime nothing would
+      // refetch on its own, and clubId is unchanged so the bootstrap effects in
+      // ProtectedRoute / AppLayout don't re-fire either.
+      //
+      //  1) React Query — roster (queryKeys.roster / rosterArchived / manager all
+      //     share the ['roster'] prefix), scenario details, and the squad-derived
+      //     SSR tests. removeQueries (not invalidate) so the destination shows a
+      //     skeleton then the real squad, never a flash of the stale/empty cache.
+      queryClient.removeQueries({ queryKey: ['roster'] })
+      queryClient.removeQueries({ queryKey: ['scenarios'] })
+      queryClient.removeQueries({ queryKey: ['ssr'] })
+      //  2) Club store — a freshly pre-filled club has no what-if scenarios; clear
+      //     any carried over from a previous club so the SCR baseline and Scenarios
+      //     tab don't reference deleted players. Mark loaded (not loading) so the
+      //     TopBar SCR pill resolves immediately instead of hanging on a spinner.
+      useClubStore.setState({ scenarios: [], scenariosLoaded: true })
+
       toast.success(
         replacing ? t('onboarding.toast.changed') : t('onboarding.toast.prefilled'),
         t('onboarding.toast.body', { count: res.playersCreated, club: res.club.name }),
