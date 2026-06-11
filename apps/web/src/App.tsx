@@ -3,6 +3,7 @@ import { AppLayout } from '@/components/layout/AppLayout'
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute'
 import { LoginPage } from '@/pages/LoginPage'
 import { ResetPasswordPage } from '@/pages/ResetPasswordPage'
+import { SetPasswordPage } from '@/pages/SetPasswordPage'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { RosterPage } from '@/pages/RosterPage'
 import { ScenariosPage } from '@/pages/ScenariosPage'
@@ -19,7 +20,12 @@ export function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        {/* Public self-serve registration is disabled (invite-only). Any stale
+            link to /register lands on sign-in. */}
+        <Route path="/register" element={<Navigate to="/login" replace />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
+        {/* Supabase invite landing — admin-provisioned leads set their password here. */}
+        <Route path="/set-password" element={<SetPasswordPage />} />
 
         <Route
           element={

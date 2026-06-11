@@ -4174,3 +4174,129 @@ error appears only on the dev server's cross-route-group server-action redirect 
 Next dev-only quirk; absent in the production build, which is the deployed artifact.)
 
 Old Fastify `src/` + `dist/` removed. turbo.json already captured `.next/**`. Not committed.
+
+---
+
+## Session — Supabase project migration: Headroom (SG) → 85Percent (EU) (2026-06-11)
+
+All four apps were silently still wired to the **old** Headroom project
+`xwvtwczdwdqaxdblyxtr` (aws-1-**ap-southeast-1**), not the new
+`deebcfzsgdwnmeoqphgm` (**eu-central-1**, "85Percent"). Caught via the region in
+the API's Prisma pooler host. Repointed everything to EU.
+
+**Env repoints** (gitignored, never committed; old values backed up to
+`/tmp/env-backup-headroom/`): `apps/web/.env.local` (`VITE_SUPABASE_URL` +
+`VITE_SUPABASE_ANON_KEY`), `apps/admin/.env` (`SUPABASE_URL` +
+`SUPABASE_SERVICE_ROLE_KEY`), `apps/landing-page/.env.local`
+(`NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_ANON_KEY`), `apps/api/.env`
+(`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `DATABASE_URL`).
+New keys are the `sb_publishable_…` / `sb_secret_…` format.
+
+**Connection gotcha:** the direct host `db.deebcfzsgdwnmeoqphgm.supabase.co` is
+**IPv6-only** (AAAA, no A record) → P1001 from this machine. Use the IPv4
+**session pooler** instead: `aws-1-eu-central-1.pooler.supabase.com:5432`, user
+`postgres.deebcfzsgdwnmeoqphgm` (note: this project is on **aws-1**, not aws-0 —
+aws-0 returns "tenant not found"). `DATABASE_URL` now uses that pooler.
+
+**Schema:** EU project was *not* empty — 18 of 20 migrations already applied.
+`prisma migrate deploy` applied the last two (`user_ai_balance`,
+`demo_requests_lead_capture`). `migrate status` → "Database schema is up to date".
+EU already held data (44 templateClubs / 1316 templateRoster / 56 clubs / 5 users /
+267 players), so **no seeding** was done (would duplicate templates;
+`seed.ts` is a demo-club + auth-user seeder, not the template sync). Per the
+"fresh start" decision, **no** user/club/auth data was carried over from Headroom.
+
+**Verified end-to-end against EU:** anon insert into `demo_requests` (landing-form
+path, RLS-gated) → OK; service-role read (admin dashboard path) → OK; cleanup
+delete → OK. Zero references to the old ref remain outside this log.
+
+**Note for whoever deletes Headroom:** safe to delete the SG project
+`xwvtwczdwdqaxdblyxtr` only after confirming EU works in the deployed
+environment too (the IPv6 caveat is local-only; prod hosts may reach the direct
+host fine, but the pooler URL works everywhere). Minor pre-existing detail: the
+`demo_requests.status` DB default is lowercase `new`, while the admin's
+`LEAD_STATUSES`/badge map key on `New` — unchanged by this migration, flagged for
+later.
+
+---
+
+## Session — Onboarding stale-roster cache bug + app-wide cache audit (2026-06-11)
+
+**Reported bug:** first-time user picks a club in onboarding → server pre-fills the
+squad → lands on `/roster` but the roster shows empty/stale; the UI doesn't reflect
+the new squad until a hard reload or the 5-minute `staleTime` elapses.
+
+**Root cause:** the web app caches server data in TWO systems —
+TanStack Query (`staleTime: 5m`, see `lib/queryClient.ts`) and a Zustand club store
+(`stores/club.ts`, holds `financials` + `scenarios`). Every other mutation invalidates
+the right keys, but `OnboardingPage.complete()` reset **neither** after
+`api.onboarding.complete()`. With a 5m staleTime nothing refetches on its own, and
+because onboarding keeps the SAME `clubId` (it re-identifies the existing tenant row,
+doesn't create a new one), the bootstrap effects in `ProtectedRoute` / `AppLayout`
+(keyed on `clubId` / `financials`) don't re-fire either. So `/roster` served the
+pre-onboarding `['roster','active']` cache (often an empty `[]` cached by a prior
+Dashboard visit).
+
+**Fix** (`pages/OnboardingPage.tsx`): after a successful complete, before navigating —
+`queryClient.removeQueries` for the `['roster']` (covers active/archived/manager),
+`['scenarios']` and `['ssr']` prefixes (removeQueries, not invalidate, so /roster shows
+a skeleton then the real squad instead of flashing the stale-empty list), and
+`useClubStore.setState({ scenarios: [], scenariosLoaded: true })` (a freshly pre-filled
+club has no what-if scenarios; clears any carried over from a previous club so the SCR
+baseline / Scenarios tab don't reference deleted players, and marks loaded so the TopBar
+SCR pill resolves instead of hanging).
+
+**App-wide cache audit (the "check all such cases" ask):** swept every write path —
+RosterPage (✓ invalidates roster/archived/manager + refreshes financials store; baselines
+derive live from the roster query), financials save in `ClubSetupPage` (✓ updates store
+`financials`, Dashboard reads it reactively), ScenariosPage (✓ store is source of truth
+with optimistic create/delete/toggle; the `scenarioDetails` query is a one-time seed,
+guarded by `!scenariosLoaded`), SSRPage (✓ invalidates its own SSR keys), profile/team
+(✓ me/team/invites), sign-out (✓ clears store + `queryClient.clear()`). **Onboarding was
+the only broken path.** Known non-cache edge (left as-is): deleting a player that a saved
+scenario references leaves a stale action in the store — a server-side referential-integrity
+concern, not a UI cache-refresh bug.
+
+**Verified:** `tsc --noEmit` clean; `vite build` succeeds. Live click-through E2E
+(login → pick club → confirm roster populates) not run here — it writes a squad into the
+new EU prod DB and needs a test login.
+
+---
+
+## Session — Enterprise lead protection + VIP invite auth flow (2026-06-11)
+
+Hardening for an **invite-only / white-glove** production model. Adapted a generic
+spec (which named non-existent `apps/main-app` / `apps/admin-panel` / Next `@supabase/ssr`)
+onto the real monorepo: web = `apps/web` (Vite SPA, `@supabase/supabase-js`), admin = `apps/admin` (Next).
+
+**Step 1 — Upstash rate limit (landing).** `apps/landing-page/lib/ratelimit.ts` (new): Upstash
+`Ratelimit.slidingWindow(3, '1 h')` per IP, `Redis.fromEnv()`, prefix `ratelimit:demo-request`.
+`app/api/demo-request/route.ts` now calls `checkRateLimit(clientIp)` (replacing the old in-memory
+counter) → 429 `"You've submitted too many requests. Please try again later."`. `DemoRequestDialog.tsx`
+now reads the server JSON `error` on non-2xx so the 429 message actually surfaces (it previously
+masked everything with a generic string). Deps `@upstash/ratelimit` + `@upstash/redis`. Creds in
+`apps/landing-page/.env.local` (gitignored): `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`.
+**Verified live:** 4 POSTs from one IP → `200,200,200,429`; test rows cleaned from EU.
+
+**Step 2 — Close public signup (web).** Public is invite-only. Removed the visible "Create account"
+link in `LoginPage.tsx` (and the now-unused `onSwitchToSignUp` prop) — signup form/OTP/`signUp` logic
+and the `?invite=` team-invite flow are all preserved (decision: "hide link, keep mode open"). Added
+`/register → /login` redirect in `App.tsx`.
+
+**Step 3 — Provision Account (admin Leads CRM).** New server action `provisionLeadAccount(email)` in
+`app/actions/leads.ts`: `requireSession()` → `getSupabase().auth.admin.inviteUserByEmail(email,
+{ redirectTo: ${env.appUrl}/set-password })`; maps "already registered" to a friendly message. New
+`env.appUrl` (`APP_URL`, default `http://localhost:5173`) in `lib/env.ts` + `.env`/`.env.example`.
+`lead-sheet.tsx`: a "Provision account" button (own `useTransition`) with inline "Invite sent to …"
+/ error feedback (admin has no toast lib — reused the existing inline pattern).
+
+**Step 4 — Set Password page (web).** New `pages/SetPasswordPage.tsx` at `/set-password`: the Supabase
+invite link lands here, the default client (`detectSessionInUrl`) exchanges the hash tokens, we wait
+for the session (auth-event + getSession, 1.5s timeout → invalid-link state), then
+`supabase.auth.updateUser({ password })` → navigate `/`. The API's existing auto-provision
+(`apps/api/src/middleware/auth.ts:48`) gives the new auth user a fresh workspace on first call — no
+backend change needed. Shared validator extracted to `lib/password.ts` (reused by ResetPasswordPage).
+
+**Verified:** `tsc` + production build clean for all three apps (web/landing/admin); live 429 probe
+passed. Not committed. **User-owned Supabase settings still needed:** enable email invites, add
+`${APP_URL}/set-password` to allowed redirect URLs, disable public signups.

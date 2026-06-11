@@ -2,15 +2,16 @@
 
 import { useEffect, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Mail, Building2, BadgeCheck, Clock, Tag, Check, AlertTriangle } from 'lucide-react'
+import { Mail, Building2, BadgeCheck, Clock, Tag, Check, AlertTriangle, UserPlus } from 'lucide-react'
 import type { Lead, LeadStatus } from '@/lib/leads'
 import { LEAD_STATUSES } from '@/lib/leads'
 import { formatDateTime, initials } from '@/lib/format'
 import { Sheet } from '@/components/ui/sheet'
 import { Select } from '@/components/ui/select'
 import { Label } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { StatusBadge } from './status-badge'
-import { updateLeadStatus } from '@/app/actions/leads'
+import { updateLeadStatus, provisionLeadAccount } from '@/app/actions/leads'
 
 /**
  * LeadSheet — the read-and-act detail panel. Shows the full lead (including the
@@ -24,14 +25,34 @@ export function LeadSheet({ lead, onClose }: { lead: Lead | null; onClose: () =>
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
 
+  // Account provisioning has its own transition + feedback so it never collides
+  // with a status save.
+  const [provisioning, startProvision] = useTransition()
+  const [invite, setInvite] = useState<{ ok: boolean; text: string } | null>(null)
+
   // Re-sync local state whenever a different lead is opened.
   useEffect(() => {
     if (lead) {
       setStatus(lead.status)
       setError(null)
       setSaved(false)
+      setInvite(null)
     }
   }, [lead])
+
+  function onProvision() {
+    if (!lead) return
+    setInvite(null)
+    startProvision(async () => {
+      const res = await provisionLeadAccount(lead.email)
+      if (res.ok) {
+        setInvite({ ok: true, text: `Invite sent to ${lead.email}` })
+        router.refresh()
+      } else {
+        setInvite({ ok: false, text: res.error ?? 'Could not send the invite.' })
+      }
+    })
+  }
 
   function onChangeStatus(next: LeadStatus) {
     if (next === status) return
@@ -127,6 +148,34 @@ export function LeadSheet({ lead, onClose }: { lead: Lead | null; onClose: () =>
               {!pending && error && (
                 <span className="inline-flex items-center gap-1 text-destructive">
                   <AlertTriangle className="h-3.5 w-3.5" /> {error}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="border-t border-border pt-5">
+            <Label>Account</Label>
+            <p className="mb-3 mt-1 text-xs text-muted-foreground">
+              Send a white-glove invite. The lead sets a password and gets their own workspace.
+            </p>
+            <Button onClick={onProvision} disabled={provisioning} className="w-full">
+              <UserPlus className="h-4 w-4" />
+              {provisioning ? 'Sending invite…' : 'Provision account'}
+            </Button>
+
+            <div className="mt-2 h-5 text-xs">
+              {invite && (
+                <span
+                  className={`inline-flex items-center gap-1 ${
+                    invite.ok ? 'text-emerald-600' : 'text-destructive'
+                  }`}
+                >
+                  {invite.ok ? (
+                    <Check className="h-3.5 w-3.5" />
+                  ) : (
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                  )}
+                  {invite.text}
                 </span>
               )}
             </div>

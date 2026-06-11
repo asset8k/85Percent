@@ -157,7 +157,6 @@ export function LoginPage() {
               onSuccess={() => navigate('/dashboard')}
               onNeed2fa={(email, password) => { setServerError(''); setPending2fa({ email, password }) }}
               onError={setServerError}
-              onSwitchToSignUp={() => switchMode('signup')}
               onForgot={() => switchMode('forgot')}
             />
           ) : (
@@ -188,13 +187,11 @@ function SignInForm({
   onSuccess,
   onNeed2fa,
   onError,
-  onSwitchToSignUp,
   onForgot,
 }: {
   onSuccess: () => void
   onNeed2fa: (email: string, password: string) => void
   onError: (msg: string) => void
-  onSwitchToSignUp: () => void
   onForgot: () => void
 }) {
   const { t } = useTranslation()
@@ -241,12 +238,10 @@ function SignInForm({
         {form.formState.isSubmitting && <Spinner size={14} />}
         {form.formState.isSubmitting ? t('auth.signin.signingIn') : t('auth.signin.signIn')}
       </Button>
-      <p className="text-center text-[13px] text-slate-500 mt-1">
-        {t('auth.signin.noAccount')}{' '}
-        <button type="button" onClick={onSwitchToSignUp} className="text-violet-600 hover:text-violet-700 font-medium">
-          {t('auth.signin.createOne')}
-        </button>
-      </p>
+      {/* Public self-serve signup is disabled — 85Percent is invite-only. The
+          "Create account" link is intentionally removed here; the signup form
+          and logic remain in this file and are reached only via an invite
+          (?invite=<token>) or an admin-provisioned Supabase invite. */}
     </form>
   )
 }

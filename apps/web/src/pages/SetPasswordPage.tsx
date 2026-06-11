@@ -1,24 +1,56 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams, useNavigate, Link } from 'react-router-dom'
-import { api } from '@/lib/api'
+import { useNavigate, Link } from 'react-router-dom'
+import { supabase } from '@/lib/supabase'
 import { passwordIssue } from '@/lib/password'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 
 const INPUT = 'w-full px-3 py-2.5 text-sm text-slate-900 rounded-lg border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent'
 
-export function ResetPasswordPage() {
+/**
+ * SetPasswordPage — the destination for an admin-provisioned Supabase invite
+ * (auth.admin.inviteUserByEmail → redirectTo `${APP_URL}/set-password`).
+ *
+ * The invite link carries the session tokens in the URL hash; the shared
+ * `supabase` client has `detectSessionInUrl` on (default), so it exchanges them
+ * for a session shortly after load. We wait for that session, then let the
+ * invitee choose a password via `supabase.auth.updateUser`. On success we send
+ * them to the dashboard — the API auto-provisions a fresh workspace for the new
+ * auth user on their first authenticated request.
+ *
+ * This is the Supabase-native flow, distinct from the custom token-based
+ * ResetPasswordPage (which goes through our own API).
+ */
+export function SetPasswordPage() {
   const { t } = useTranslation()
-  const [search] = useSearchParams()
   const navigate = useNavigate()
-  const token = search.get('token') ?? ''
 
+  // checking → ready (session established) | invalid (no/expired link); done after save.
+  const [phase, setPhase] = useState<'checking' | 'ready' | 'invalid' | 'done'>('checking')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [done, setDone] = useState(false)
+
+  useEffect(() => {
+    // The session can arrive either synchronously (already parsed) or via the
+    // auth event once detectSessionInUrl finishes exchanging the hash tokens.
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) setPhase('ready')
+    })
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) setPhase('ready')
+    })
+    // If no session materialises shortly, the link is missing, used, or expired.
+    const timer = setTimeout(() => {
+      setPhase((p) => (p === 'checking' ? 'invalid' : p))
+    }, 1500)
+    return () => {
+      sub.subscription.unsubscribe()
+      clearTimeout(timer)
+    }
+  }, [])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -28,11 +60,12 @@ export function ResetPasswordPage() {
     if (password !== confirm) { setError(t('validation.passwordMatch')); return }
     setLoading(true)
     try {
-      await api.auth.resetPassword(token, password)
-      setDone(true)
+      const { error: updErr } = await supabase.auth.updateUser({ password })
+      if (updErr) throw new Error(updErr.message)
+      setPhase('done')
+      navigate('/') // dashboard — the API auto-provisions the workspace on first call
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('auth.reset.failed'))
-    } finally {
+      setError(err instanceof Error ? err.message : 'Could not set your password. Please try again.')
       setLoading(false)
     }
   }
@@ -57,27 +90,24 @@ export function ResetPasswordPage() {
         </div>
 
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-7">
-          {!token ? (
+          {phase === 'checking' ? (
+            <div className="flex flex-col items-center gap-3 py-4">
+              <Spinner size={20} />
+              <p className="text-[13px] text-slate-500">Verifying your invitation…</p>
+            </div>
+          ) : phase === 'invalid' ? (
             <div className="flex flex-col gap-4">
-              <p className="text-sm font-medium text-slate-900">{t('auth.reset.invalidLinkTitle')}</p>
+              <p className="text-sm font-medium text-slate-900">This invitation link is invalid or has expired</p>
               <p className="text-[13px] text-slate-500">
-                {t('auth.reset.invalidLinkBody')}
+                Ask your 85Percent contact to send a fresh invite, then open the link from that email.
               </p>
               <Link to="/login" className="text-[13px] text-violet-600 hover:text-violet-700 font-medium">← {t('auth.backToSignIn')}</Link>
-            </div>
-          ) : done ? (
-            <div className="flex flex-col gap-5">
-              <div>
-                <p className="text-sm font-medium text-slate-900 mb-1">{t('auth.reset.updatedTitle')}</p>
-                <p className="text-[13px] text-slate-500">{t('auth.reset.updatedBody')}</p>
-              </div>
-              <Button className="w-full" onClick={() => navigate('/login')}>{t('auth.reset.goToSignIn')}</Button>
             </div>
           ) : (
             <form onSubmit={submit} className="flex flex-col gap-4">
               <div>
-                <p className="text-sm font-medium text-slate-900 mb-1">{t('auth.reset.chooseTitle')}</p>
-                <p className="text-[13px] text-slate-500">{t('auth.reset.chooseSubtitle')}</p>
+                <p className="text-sm font-medium text-slate-900 mb-1">Set Your Secure Password</p>
+                <p className="text-[13px] text-slate-500">Choose a password to finish setting up your account.</p>
               </div>
 
               {error && (
@@ -87,19 +117,18 @@ export function ResetPasswordPage() {
               )}
 
               <label className="block">
-                <span className="meta-label block mb-2">{t('auth.reset.newPassword')}</span>
+                <span className="meta-label block mb-2">New password</span>
                 <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" autoComplete="new-password" className={INPUT} />
               </label>
               <label className="block">
-                <span className="meta-label block mb-2">{t('auth.reset.confirmNewPassword')}</span>
+                <span className="meta-label block mb-2">Confirm password</span>
                 <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="••••••••" autoComplete="new-password" className={INPUT} />
               </label>
 
               <Button type="submit" className="w-full mt-1" disabled={loading || !password || !confirm}>
                 {loading && <Spinner size={14} />}
-                {loading ? t('auth.reset.updating') : t('auth.reset.submit')}
+                {loading ? 'Setting password…' : 'Set password'}
               </Button>
-              <Link to="/login" className="text-[13px] text-slate-500 hover:text-slate-700 text-center">← {t('auth.backToSignIn')}</Link>
             </form>
           )}
         </div>

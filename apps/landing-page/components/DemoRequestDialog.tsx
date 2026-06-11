@@ -113,7 +113,14 @@ export function DemoRequestDialog({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(parsed.data),
       })
-      if (!res.ok) throw new Error(`Request failed (${res.status})`)
+      if (!res.ok) {
+        // Surface the server's own message when it sends one (e.g. the 429
+        // rate-limit notice) rather than a generic fallback.
+        const body = (await res.json().catch(() => null)) as { error?: string } | null
+        setStatus('error')
+        setError(body?.error ?? 'Something went wrong sending your request. Please try again.')
+        return
+      }
       setStatus('success')
     } catch {
       setStatus('error')

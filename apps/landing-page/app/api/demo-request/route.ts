@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 import { demoRequestSchema, toRow } from '@/lib/demoRequest'
 import { getSupabaseAnon } from '@/lib/supabase'
+import { checkRateLimit } from '@/lib/ratelimit'
 
 // Lead capture is dynamic and runs in the Node runtime (uses the Supabase client
-// + per-instance rate-limit memory). It must never be statically cached.
+// + the Upstash rate limiter). It must never be statically cached.
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
@@ -16,21 +17,6 @@ export const dynamic = 'force-dynamic'
  * the landing app cannot read core data. On success it returns 200; the row is
  * triaged later service-role-side.
  */
-
-// Lightweight in-memory rate limit: max N inserts per IP per window. Per-instance
-// only (resets on cold start) — a coarse abuse blunt, not a security boundary;
-// the DB RLS + CHECK constraints are the real guarantees.
-const WINDOW_MS = 60_000
-const MAX_PER_WINDOW = 5
-const hits = new Map<string, number[]>()
-
-function rateLimited(ip: string): boolean {
-  const now = Date.now()
-  const recent = (hits.get(ip) ?? []).filter((t) => now - t < WINDOW_MS)
-  recent.push(now)
-  hits.set(ip, recent)
-  return recent.length > MAX_PER_WINDOW
-}
 
 function clientIp(req: Request): string {
   const xff = req.headers.get('x-forwarded-for')
@@ -60,9 +46,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true }, { status: 200 })
   }
 
-  if (rateLimited(clientIp(req))) {
+  // Strict per-IP limit (3/hour, Upstash-backed). A real club fills this in once;
+  // anything beyond that from one address is a bot. 429 + a polite, surfaced message.
+  const { success } = await checkRateLimit(clientIp(req))
+  if (!success) {
     return NextResponse.json(
-      { error: 'Too many requests. Please try again shortly.' },
+      { error: "You've submitted too many requests. Please try again later." },
       { status: 429 },
     )
   }

@@ -41,4 +41,10 @@ export const env = {
   get repoRoot(): string {
     return process.env['REPO_ROOT']?.trim() || defaultRepoRoot
   },
+  // Base URL of the main web app — used as the redirect target for Supabase
+  // account-provisioning invites (the invitee lands on `${appUrl}/set-password`).
+  // Defaults to the Vite dev server so local provisioning works out of the box.
+  get appUrl(): string {
+    return process.env['APP_URL']?.trim().replace(/\/+$/, '') || 'http://localhost:5173'
+  },
 }
