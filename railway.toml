@@ -1,0 +1,21 @@
+# Railway deploy config for the Fastify API (apps/api).
+#
+# We build from a Dockerfile (see ./Dockerfile) rather than Nixpacks: Nixpacks
+# pins an old corepack that cannot load pnpm 11, so its install phase crashes.
+# The Dockerfile installs pnpm 11 directly and builds the API from the monorepo
+# root so the shared packages/* are in context. The container starts the server
+# with the Dockerfile CMD (`node apps/api/dist/server.js`), which reads Railway's
+# injected env directly — NOT the package `start` script (that one uses
+# --env-file=.env, which would crash since there is no .env file on Railway).
+#
+# NOTE: do NOT set NODE_ENV=production as a Railway service variable — it would
+# leak into the build and make pnpm skip devDependencies (typescript, turbo).
+# The Dockerfile sets NODE_ENV=production only for the runtime layer.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
