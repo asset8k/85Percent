@@ -1,5 +1,4 @@
 import 'server-only'
-import path from 'node:path'
 
 /**
  * env — validated, server-only environment for the admin panel. Values are read
@@ -14,10 +13,6 @@ function required(name: string): string {
   if (!v) throw new Error(`Missing required env var: ${name} (see apps/admin/.env.example)`)
   return v
 }
-
-// From apps/admin (Next runs with cwd = the app dir) up 2 = repo root, so we can
-// spawn `pnpm --filter @85percent/api …`. Overridable via REPO_ROOT.
-const defaultRepoRoot = path.resolve(process.cwd(), '../..')
 
 export const env = {
   get isProd(): boolean {
@@ -38,8 +33,17 @@ export const env = {
   get sessionSecret(): string {
     return required('ADMIN_SESSION_SECRET')
   },
-  get repoRoot(): string {
-    return process.env['REPO_ROOT']?.trim() || defaultRepoRoot
+  // Base URL of the Fastify API. The admin panel POSTs here to trigger the
+  // maintenance jobs (the API runs them; this serverless panel cannot spawn a
+  // subprocess). Defaults to the local API dev server.
+  get apiBaseUrl(): string {
+    return process.env['API_BASE_URL']?.trim().replace(/\/+$/, '') || 'http://localhost:3001'
+  },
+  // Shared secret authenticating the admin → API job-trigger call. Must match
+  // INTERNAL_JOB_SECRET on the API. Required (no default) so a job can't be
+  // fired with an empty credential.
+  get internalJobSecret(): string {
+    return required('INTERNAL_JOB_SECRET')
   },
   // Base URL of the main web app — used as the redirect target for Supabase
   // account-provisioning invites (the invitee lands on `${appUrl}/set-password`).

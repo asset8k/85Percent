@@ -13,6 +13,7 @@ import { authRoutes } from './routes/auth.js'
 import { notificationRoutes } from './routes/notifications.js'
 import { leagueTableRoutes } from './routes/league-table.js'
 import { chatRoutes } from './routes/chat.js'
+import { adminJobRoutes } from './routes/admin-jobs.js'
 
 const app = Fastify({
   logger: {
@@ -45,6 +46,7 @@ async function start() {
   await app.register(notificationRoutes)
   await app.register(leagueTableRoutes)
   await app.register(chatRoutes)
+  await app.register(adminJobRoutes)
 
   app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
     request.log.error({ err: error, url: request.url }, 'Unhandled error')

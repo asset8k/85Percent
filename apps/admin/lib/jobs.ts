@@ -1,17 +1,16 @@
 import 'server-only'
-import { spawn } from 'node:child_process'
 import { getSupabase } from './supabase'
 import { env } from './env'
 
 /**
- * jobs — trigger the manual maintenance scripts and record their history.
+ * jobs — trigger the maintenance scripts and read their history.
  *
- * Each job spawns the corresponding api package script (so we run the EXACT same
- * code the team runs by hand) and records a row in admin_jobs: who triggered it,
- * start/finish times, status, a one-line summary and a tail of the output. The
- * caller kicks a job off and returns immediately; the child process runs in the
- * background and updates its row on exit. Concurrent runs of the same job type
- * are refused so we don't double-scrape.
+ * The scripts run on the Fastify API (a long-running host), NOT here: this panel
+ * deploys to a serverless platform where spawning `pnpm` is impossible. To start
+ * a job we POST to the API's protected `/internal/jobs/:type` endpoint (shared
+ * secret); the API creates the `admin_jobs` row and runs the script in the
+ * background. History is read straight from `admin_jobs` (this module's
+ * list/get), which the panel can do directly via the service-role client.
  */
 
 export type JobType = 'sync_templates' | 'league_table'
@@ -21,17 +20,9 @@ export const JOB_LABEL: Record<JobType, string> = {
   league_table: 'League table update',
 }
 
-// The api package script behind each job.
-const JOB_SCRIPT: Record<JobType, string> = {
-  sync_templates: 'sync:templates',
-  league_table: 'update:league',
-}
-
 export function isJobType(v: string): v is JobType {
   return v === 'sync_templates' || v === 'league_table'
 }
-
-const LOG_TAIL_CHARS = 12_000
 
 export interface JobRow {
   id: string
@@ -58,87 +49,37 @@ export async function getJob(id: string): Promise<JobRow | null> {
   return (data as JobRow | null) ?? null
 }
 
-async function isRunning(type: JobType): Promise<boolean> {
-  const { data } = await getSupabase()
-    .from('admin_jobs')
-    .select('id')
-    .eq('type', type)
-    .eq('status', 'running')
-    .limit(1)
-  return (data?.length ?? 0) > 0
-}
-
 /**
- * Start a job. When `started` is false the job was refused (e.g. one of the same
- * type is already running).
+ * Start a job by asking the API to run it. When `started` is false the job was
+ * refused (already running) or the API was unreachable — `reason` explains.
  */
 export async function startJob(
   type: JobType,
   triggeredBy: string,
 ): Promise<{ started: boolean; jobId?: string; reason?: string }> {
-  if (await isRunning(type)) {
-    return { started: false, reason: `A ${JOB_LABEL[type]} job is already running.` }
-  }
-
-  const { data: row, error } = await getSupabase()
-    .from('admin_jobs')
-    .insert({ type, status: 'running', triggered_by: triggeredBy })
-    .select('id')
-    .single()
-  if (error || !row) return { started: false, reason: 'Could not create the job record.' }
-
-  const jobId = row.id as string
-  runScript(jobId, type)
-  return { started: true, jobId }
-}
-
-// Spawn the api script, stream output into a buffer, and finalise the row on exit.
-function runScript(jobId: string, type: JobType): void {
-  const script = JOB_SCRIPT[type]
-  let output = ''
-  const append = (chunk: Buffer) => {
-    output += chunk.toString()
-    if (output.length > LOG_TAIL_CHARS) output = output.slice(-LOG_TAIL_CHARS)
-  }
-
-  let child
+  let res: Response
   try {
-    child = spawn('pnpm', ['--filter', '@85percent/api', script], {
-      cwd: env.repoRoot,
-      env: process.env,
+    res = await fetch(`${env.apiBaseUrl}/internal/jobs/${type}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-internal-job-secret': env.internalJobSecret,
+      },
+      body: JSON.stringify({ triggeredBy }),
     })
   } catch (err) {
-    void finalize(jobId, 'failed', `Failed to start: ${(err as Error).message}`, output)
-    return
+    return { started: false, reason: `Could not reach the job runner: ${(err as Error).message}` }
   }
 
-  child.stdout.on('data', append)
-  child.stderr.on('data', append)
-  child.on('error', (err) => {
-    void finalize(jobId, 'failed', `Process error: ${err.message}`, output)
-  })
-  child.on('close', (code) => {
-    const ok = code === 0
-    const summary = ok
-      ? lastMeaningfulLine(output) || 'Completed successfully.'
-      : `Exited with code ${code}. ${lastMeaningfulLine(output)}`.trim()
-    void finalize(jobId, ok ? 'success' : 'failed', summary.slice(0, 500), output)
-  })
-}
+  const body = (await res.json().catch(() => ({}))) as {
+    started?: boolean
+    jobId?: string
+    reason?: string
+    error?: string
+  }
 
-async function finalize(
-  jobId: string,
-  status: 'success' | 'failed',
-  summary: string,
-  log: string,
-): Promise<void> {
-  await getSupabase()
-    .from('admin_jobs')
-    .update({ status, summary, log, finished_at: new Date().toISOString() })
-    .eq('id', jobId)
-}
-
-function lastMeaningfulLine(output: string): string {
-  const lines = output.split('\n').map((l) => l.trim()).filter(Boolean)
-  return lines[lines.length - 1] ?? ''
+  if (!res.ok) {
+    return { started: false, reason: body.reason ?? body.error ?? `Job runner error (${res.status}).` }
+  }
+  return { started: Boolean(body.started), jobId: body.jobId, reason: body.reason }
 }
