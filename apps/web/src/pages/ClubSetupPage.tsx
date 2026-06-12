@@ -1241,9 +1241,6 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
 // TeamTab — invite + member list
 // ---------------------------------------------------------------------------
 
-const INVITE_LINK_BASE = () =>
-  typeof window !== 'undefined' ? `${window.location.origin}/login?invite=` : '/login?invite='
-
 const NO_GRANTS: Permissions = {
   canEditRoster: false,
   canEditScenarios: false,
@@ -1343,12 +1340,10 @@ function TeamTab() {
   const [inviteTitle, setInviteTitle] = useState('')
   const [invitePerms, setInvitePerms] = useState<Permissions>({ ...NO_GRANTS })
   const [creating, setCreating] = useState(false)
-  const [justCreated, setJustCreated] = useState<{ token: string; email: string } | null>(null)
-  const [copied, setCopied] = useState(false)
-  // Per-row state for the pending-invites table — mirrors the archived-roster
-  // pattern: copy gives transient feedback; revoke uses a two-step inline
-  // confirm so a single misclick can't kill a pending invite.
-  const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null)
+  // Email of the teammate we just invited, for the inline confirmation banner.
+  const [sentTo, setSentTo] = useState<string | null>(null)
+  // Revoke a pending invite via a two-step inline confirm so a single misclick
+  // can't kill it.
   const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null)
   const [revokingId, setRevokingId] = useState<string | null>(null)
 
@@ -1401,14 +1396,16 @@ function TeamTab() {
     e.preventDefault()
     setCreating(true)
     setError('')
-    setJustCreated(null)
+    setSentTo(null)
     try {
-      const result = await api.invites.create({
+      // Server-side admin invite: emails the teammate a /set-password link and
+      // records the invite (club + grants) the API matches on their first login.
+      const { email } = await api.team.invite({
         email: inviteEmail.trim(),
         title: inviteTitle.trim() || null,
         ...invitePerms,
       })
-      setJustCreated({ token: result.token, email: result.email })
+      setSentTo(email)
       setInviteEmail('')
       setInviteTitle('')
       setInvitePerms({ ...NO_GRANTS })
@@ -1431,19 +1428,6 @@ function TeamTab() {
     } finally {
       setRevokingId(null)
     }
-  }
-
-  const copyLink = async (token: string, inviteId?: string) => {
-    try {
-      await navigator.clipboard.writeText(INVITE_LINK_BASE() + token)
-      if (inviteId) {
-        setCopiedInviteId(inviteId)
-        setTimeout(() => setCopiedInviteId((curr) => (curr === inviteId ? null : curr)), 2000)
-      } else {
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
-      }
-    } catch { /* ignore */ }
   }
 
   if (membersQuery.isPending || invitesQuery.isPending) return <FormPageSkeleton />
@@ -1504,23 +1488,12 @@ function TeamTab() {
           </div>
         )}
 
-        {justCreated && (
+        {sentTo && (
           <div className="mt-4 border border-violet-100 bg-violet-50/60 rounded-lg p-4">
-            <div className="meta-label text-violet-700 mb-2">{t('settings.team.inviteCreated', { email: justCreated.email })}</div>
-            <p className="text-[12px] text-slate-600 mb-3">
-              {t('settings.team.shareLink')}
+            <div className="meta-label text-violet-700 mb-1">{t('settings.team.inviteSent', { email: sentTo })}</div>
+            <p className="text-[12px] text-slate-600">
+              {t('settings.team.inviteSentBody')}
             </p>
-            <div className="flex items-center gap-2">
-              <input
-                readOnly
-                value={INVITE_LINK_BASE() + justCreated.token}
-                className="flex-1 num text-[12px] px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700"
-                onFocus={(e) => e.currentTarget.select()}
-              />
-              <Button variant="outline" type="button" onClick={() => copyLink(justCreated.token)}>
-                {copied ? t('settings.team.copied') : t('settings.team.copyLink')}
-              </Button>
-            </div>
           </div>
         )}
       </Card>
@@ -1654,10 +1627,8 @@ function TeamTab() {
                   <td className="px-6 py-3.5 text-right">
                     <InviteRowActions
                       invite={inv}
-                      copiedInviteId={copiedInviteId}
                       confirmRevokeId={confirmRevokeId}
                       revokingId={revokingId}
-                      onCopy={(token, id) => copyLink(token, id)}
                       onRequestRevoke={(id) => setConfirmRevokeId(id)}
                       onConfirmRevoke={handleRevoke}
                       onCancelRevoke={() => setConfirmRevokeId(null)}
@@ -1702,19 +1673,15 @@ const TABLE_LABEL: Record<string, string> = {
 // Revoke is two-step (icon → inline Confirm/Cancel) to avoid accidental loss.
 function InviteRowActions({
   invite,
-  copiedInviteId,
   confirmRevokeId,
   revokingId,
-  onCopy,
   onRequestRevoke,
   onConfirmRevoke,
   onCancelRevoke,
 }: {
   invite: InviteRow
-  copiedInviteId: string | null
   confirmRevokeId: string | null
   revokingId: string | null
-  onCopy: (token: string, inviteId: string) => void
   onRequestRevoke: (id: string) => void
   onConfirmRevoke: (id: string) => void
   onCancelRevoke: () => void
@@ -1722,7 +1689,6 @@ function InviteRowActions({
   const { t } = useTranslation()
   const confirming = confirmRevokeId === invite.id
   const revoking = revokingId === invite.id
-  const justCopied = copiedInviteId === invite.id
 
   if (confirming) {
     return (
@@ -1750,15 +1716,6 @@ function InviteRowActions({
 
   return (
     <span className="inline-flex items-center gap-1.5 justify-end">
-      {invite.token && (
-        <SettingsIconButton
-          label={justCopied ? t('settings.team.copied') : t('settings.team.copyInviteLink')}
-          tone={justCopied ? 'success' : 'violet'}
-          onClick={() => onCopy(invite.token!, invite.id)}
-        >
-          {justCopied ? <CheckIcon /> : <CopyIcon />}
-        </SettingsIconButton>
-      )}
       <SettingsIconButton
         label={t('settings.team.revokeInvite')}
         tone="danger"

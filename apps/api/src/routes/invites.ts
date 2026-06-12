@@ -196,6 +196,98 @@ export async function inviteRoutes(app: FastifyInstance) {
       }
     })
 
+    // POST /team/invite — invite a teammate to THIS club (workspace admin only).
+    //
+    // Secure server-side replacement for the old copy-a-link flow. Public signup
+    // is disabled, so delivery goes through Supabase's service-role admin API
+    // instead of a browser `auth.signUp`. We still write the `invites` row first:
+    // that row is what `authMiddleware` matches by email to place the invitee in
+    // THIS club with these exact permission grants when they set their password
+    // and first authenticate. `inviteUserByEmail` then emails them a link to
+    // `${FRONTEND_URL}/set-password`. If the email send fails we roll the row
+    // back so we never leave a dangling invite with no delivery.
+    scoped.post('/team/invite', { preHandler: requirePermission('isWorkspaceAdmin') }, async (request, reply) => {
+      const parsed = CreateInviteBody.safeParse(request.body)
+      if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+
+      const { email, title, canEditRoster, canEditScenarios, isWorkspaceAdmin } = parsed.data
+
+      try {
+        // Reject if the email is already a member of any club.
+        const { data: existingUser } = await supabase
+          .from('users')
+          .select('id')
+          .eq('email', email)
+          .maybeSingle()
+        if (existingUser) {
+          return reply.status(409).send({
+            error: 'A user with this email already exists. Ask them to sign in instead.',
+          })
+        }
+
+        // Reject if there's already an active pending invite for this email + club.
+        const { data: existingInvite } = await supabase
+          .from('invites')
+          .select('id')
+          .eq('club_id', request.clubId)
+          .eq('email', email)
+          .is('accepted_at', null)
+          .gt('expires_at', new Date().toISOString())
+          .maybeSingle()
+        if (existingInvite) {
+          return reply.status(409).send({
+            error: 'A pending invite for this email already exists. Revoke it before sending a new one.',
+          })
+        }
+
+        const inviteId = randomUUID()
+        const grants = {
+          title: title ?? null,
+          can_edit_roster: canEditRoster,
+          can_edit_scenarios: canEditScenarios,
+          is_workspace_admin: isWorkspaceAdmin,
+        }
+
+        // 1) Persist the invite (carries club + permissions for authMiddleware).
+        const { error: insErr } = await supabase.from('invites').insert({
+          id: inviteId,
+          club_id: request.clubId,
+          email,
+          ...grants,
+          invited_by: request.userId,
+          // Retained for the row's token column; no longer shared as a link.
+          token: generateToken(),
+          expires_at: expiryFromNow(),
+          created_at: new Date().toISOString(),
+        })
+        if (insErr) throw insErr
+
+        // 2) Deliver via the service-role admin API — bypasses the disabled
+        // public signup. The invitee lands on /set-password; on their first
+        // authenticated request authMiddleware links them to this club.
+        const appOrigin = process.env['FRONTEND_URL'] ?? 'http://localhost:5173'
+        const { error: inviteErr } = await supabase.auth.admin.inviteUserByEmail(email, {
+          redirectTo: `${appOrigin}/set-password`,
+        })
+        if (inviteErr) {
+          // Roll back the row so a failed send doesn't leave a dangling invite.
+          await supabase.from('invites').delete().eq('id', inviteId)
+          const msg = inviteErr.message ?? ''
+          if (/already|registered|exists/i.test(msg)) {
+            return reply.status(409).send({ error: 'That email already has an account.' })
+          }
+          request.log.error({ err: inviteErr }, 'POST /team/invite: inviteUserByEmail failed')
+          return reply.status(502).send({ error: 'Could not send the invitation email. Please try again.' })
+        }
+
+        await writeAuditLog(request, 'invites', inviteId, 'create', { email, ...grants })
+        return reply.status(201).send({ ok: true, email })
+      } catch (err) {
+        request.log.error({ err }, 'POST /team/invite failed')
+        return reply.status(500).send({ error: 'Failed to send the invitation' })
+      }
+    })
+
     // GET /invites — list invites for the calling club (workspace admin only)
     scoped.get('/invites', { preHandler: requirePermission('isWorkspaceAdmin') }, async (request, reply) => {
       try {

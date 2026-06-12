@@ -639,6 +639,17 @@ export const api = {
   },
   team: {
     list: () => apiFetch<{ members: TeamMember[] }>('/team'),
+    /**
+     * Invite a teammate to the caller's club. Server-side: validates the JWT,
+     * requires workspace-admin, then sends a Supabase admin invite email (public
+     * signup stays disabled). The invitee sets their password on /set-password
+     * and is auto-joined to this club with these grants on first login.
+     */
+    invite: (input: { email: string; title?: string | null } & Permissions) =>
+      apiFetch<{ ok: boolean; email: string }>('/team/invite', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      }),
     update: (id: string, patch: Partial<{ title: string | null } & Permissions>) =>
       apiFetch<{ success: boolean; title: string | null } & Permissions>(`/team/${id}`, {
         method: 'PATCH',

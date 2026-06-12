@@ -1144,7 +1144,7 @@
     },
     "team": {
       "inviteTitle": "Invite a team member",
-      "inviteSub": "Invitees complete the same 8-digit OTP signup as the CFO. The invite link expires in 7 days.",
+      "inviteSub": "Invitees receive an email with a link to set their password and join your club. The invite expires in 7 days.",
       "email": "Email",
       "jobTitle": "Job Title (Optional)",
       "jobTitlePlaceholder": "e.g. Head of Finance",
@@ -1153,6 +1153,8 @@
       "sending": "Sending…",
       "sendInvite": "Send invite",
       "inviteCreated": "Invite created for {{email}}",
+      "inviteSent": "Invitation emailed to {{email}}",
+      "inviteSentBody": "They will receive an email with a link to set their password and join your club.",
       "shareLink": "Share this link directly with them. You are responsible for verifying the recipient's identity.",
       "copied": "Copied",
       "copyLink": "Copy link",

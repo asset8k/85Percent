@@ -1144,7 +1144,7 @@
     },
     "team": {
       "inviteTitle": "Invitar a un miembro del equipo",
-      "inviteSub": "Los invitados completan el mismo registro con OTP de 8 dígitos que el director financiero. El enlace de invitación caduca en 7 días.",
+      "inviteSub": "Los invitados reciben un correo con un enlace para establecer su contraseña y unirse a tu club. La invitación caduca en 7 días.",
       "email": "Correo electrónico",
       "jobTitle": "Puesto (opcional)",
       "jobTitlePlaceholder": "p. ej. Director de Finanzas",
@@ -1153,6 +1153,8 @@
       "sending": "Enviando…",
       "sendInvite": "Enviar invitación",
       "inviteCreated": "Invitación creada para {{email}}",
+      "inviteSent": "Invitación enviada por correo a {{email}}",
+      "inviteSentBody": "Recibirán un correo con un enlace para establecer su contraseña y unirse a tu club.",
       "shareLink": "Comparte este enlace directamente con esa persona. Eres responsable de verificar su identidad.",
       "copied": "Copiado",
       "copyLink": "Copiar enlace",
