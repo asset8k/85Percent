@@ -14,9 +14,8 @@ export const site = {
   contact: {
     email: 'contact@85percent.pro',
     linkedin: 'https://www.linkedin.com/company/85percent',
-    // TODO: replace with the real WhatsApp number (digits only, intl format,
-    // no '+') once provided — e.g. wa.me/447700900000.
-    whatsapp: 'https://wa.me/00000000000',
+    // WhatsApp click-to-chat — digits only, intl format, no '+' (+7 778 357 9520).
+    whatsapp: 'https://wa.me/77783579520',
   },
 
   /** Jurisdictional & legal routes — the /(legal) route group. */
