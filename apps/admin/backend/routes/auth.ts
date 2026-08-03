@@ -184,7 +184,7 @@ export async function authRoutes(app: ApiApp) {
       if (error) {
         request.log.error({ err: error }, 'forgot-password: token persist failed')
       } else {
-        const base = process.env['FRONTEND_URL'] ?? 'http://localhost:5173'
+        const base = process.env['APP_URL'] ?? 'http://localhost:5173'
         const link = `${base}/reset-password?token=${token}`
         // No mailer in dev — surface the link in the server logs (and stdout).
         request.log.info({ email }, 'Password reset requested')

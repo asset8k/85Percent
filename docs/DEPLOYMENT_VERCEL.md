@@ -87,6 +87,14 @@ deployment URL when triggering maintenance routes.
 The same rotated Upstash database can back landing and API limits, but its
 credentials must be configured independently in both Vercel projects.
 
+Every Vercel build runs `scripts/validate-vercel-env.mjs` before compiling the
+application. The build fails if a critical variable is missing, blank, still a
+placeholder, or if a production deployment points at the development Supabase
+project. Admin production builds also require the canonical web `APP_URL`.
+Encrypted Vercel values cannot be read back through `vercel env pull`; verify
+their presence with `vercel env ls` and rely on the build validator to inspect
+the injected values without printing them.
+
 `TRANSFERMARKT_API_URL=http://localhost:8000` works only on a developer machine.
 Production template sync requires a reachable HTTPS endpoint and must finish
 inside the configured function duration.
@@ -109,7 +117,8 @@ is required by the application.
 ## Deployment Order
 
 1. Configure Preview and Production environment variables in all three Vercel
-   projects. Rotate any credential previously pasted into chat or logs.
+   projects. Rotate any credential previously pasted into chat or logs. A
+   deployment must pass the environment validator before its application build.
 2. Deploy admin/API first and verify `GET /api/health`.
 3. Verify an unauthenticated `GET /api/me` returns 401 JSON, not an admin login
    redirect.
