@@ -21,7 +21,7 @@ export function Spotlight({
   const reduce = useReducedMotion()
 
   useEffect(() => {
-    if (reduce) return
+    if (reduce || window.matchMedia('(pointer: coarse)').matches) return
     const el = ref.current
     const parent = el?.parentElement
     if (!el || !parent) return

@@ -54,20 +54,6 @@
     }
   }
 
-  /* Lenis smooth-scroll integration (see components/SmoothScroll). */
-  html.lenis,
-  html.lenis body {
-    height: auto;
-  }
-  .lenis.lenis-smooth {
-    scroll-behavior: auto !important;
-  }
-  .lenis.lenis-smooth [data-lenis-prevent] {
-    overscroll-behavior: contain;
-  }
-  .lenis.lenis-stopped {
-    overflow: hidden;
-  }
 }
 
 @layer utilities {
@@ -191,7 +177,8 @@
   filter: blur(72px);
   opacity: 0.5;
   mix-blend-mode: screen;
-  will-change: transform;
+  /* Static atmosphere: large blurred, blended layers are expensive to repaint
+     continuously, especially in Safari. */
 }
 .aurora-blob--a {
   width: 46rem;
@@ -199,7 +186,6 @@
   left: -10rem;
   top: -14rem;
   background: radial-gradient(circle, hsl(263 75% 55% / 0.9), transparent 62%);
-  animation: aurora-a 24s ease-in-out infinite;
 }
 .aurora-blob--b {
   width: 38rem;
@@ -207,7 +193,6 @@
   right: -8rem;
   top: -8rem;
   background: radial-gradient(circle, hsl(282 70% 58% / 0.8), transparent 62%);
-  animation: aurora-b 30s ease-in-out infinite;
 }
 .aurora-blob--c {
   width: 42rem;
@@ -215,7 +200,6 @@
   left: 32%;
   bottom: -20rem;
   background: radial-gradient(circle, hsl(248 82% 62% / 0.7), transparent 62%);
-  animation: aurora-c 34s ease-in-out infinite;
 }
 @keyframes aurora-a {
   0%, 100% { transform: translate3d(-6%, -4%, 0) scale(1); }
@@ -232,6 +216,96 @@
 @media (prefers-reduced-motion: reduce) {
   .aurora-blob {
     animation: none !important;
+  }
+}
+
+/* One coordinated, compositing-only opening sequence. It deliberately has no
+   runtime controller or repeated keyframes: after 1.9s the hero is idle. */
+.hero-intro-overlay {
+  background:
+    radial-gradient(70% 85% at 70% 42%, hsl(var(--v-core) / 0.35), transparent 70%),
+    hsl(230 33% 7% / 0.9);
+  transform-origin: 50% 0;
+  animation: hero-overlay-out 920ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.hero-header-reveal {
+  animation: hero-header-in 1080ms cubic-bezier(0.4, 0, 0.2, 1) 140ms both;
+}
+.hero-copy-reveal {
+  animation: hero-copy-in 1080ms cubic-bezier(0.4, 0, 0.2, 1) 240ms both;
+}
+.hero-heading-mask {
+  overflow: hidden;
+}
+.hero-heading-reveal {
+  animation: hero-heading-in 1000ms cubic-bezier(0.4, 0, 0.2, 1) 300ms both;
+}
+.hero-dashboard {
+  isolation: isolate;
+  animation: hero-dashboard-in 1200ms cubic-bezier(0.4, 0, 0.2, 1) 700ms both;
+}
+.hero-panel {
+  overflow: hidden;
+  border: 1px solid rgba(168, 180, 214, 0.14);
+  border-radius: 18px;
+  background: linear-gradient(155deg, rgba(28, 34, 56, 0.78), rgba(11, 15, 28, 0.82));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 24px 60px -32px rgba(0, 0, 0, 0.8);
+}
+@keyframes hero-overlay-out {
+  from { opacity: 1; transform: scaleY(1); }
+  to { opacity: 0; transform: scaleY(0.985); }
+}
+@keyframes hero-header-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes hero-copy-in {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes hero-heading-in {
+  from { opacity: 0; transform: translateY(20px); clip-path: inset(0 0 100% 0); }
+  to { opacity: 1; transform: translateY(0); clip-path: inset(0 0 0 0); }
+}
+@keyframes hero-dashboard-in {
+  from { opacity: 0; transform: translateY(24px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-intro-overlay {
+    display: none;
+  }
+  .hero-header-reveal,
+  .hero-copy-reveal,
+  .hero-heading-reveal,
+  .hero-dashboard {
+    animation: none;
+  }
+}
+
+@media (pointer: coarse), (max-width: 767px) {
+  .aurora-blob {
+    display: none;
+  }
+  .cta-gradient-shift {
+    animation: none;
+  }
+  .hero-intro-overlay { animation-duration: 640ms; }
+  .hero-header-reveal { animation-duration: 760ms; animation-delay: 80ms; }
+  .hero-copy-reveal { animation-duration: 800ms; animation-delay: 160ms; }
+  .hero-heading-reveal { animation-duration: 720ms; animation-delay: 200ms; }
+  .hero-dashboard { animation-duration: 880ms; animation-delay: 480ms; }
+  @keyframes hero-copy-in {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes hero-heading-in {
+    from { opacity: 0; transform: translateY(12px); clip-path: inset(0 0 100% 0); }
+    to { opacity: 1; transform: translateY(0); clip-path: inset(0 0 0 0); }
+  }
+  @keyframes hero-dashboard-in {
+    from { opacity: 0; transform: translateY(14px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
   }
 }
 

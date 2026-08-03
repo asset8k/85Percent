@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { animate, motion, useMotionValue, useReducedMotion, type PanInfo } from 'framer-motion'
+import { animate, motion, useMotionValue, type PanInfo } from 'framer-motion'
 import { ArrowLeft, ArrowRight } from 'lucide-react'
 import { CapabilityCard } from './CapabilityCard'
 import { Reveal } from './motion/Reveal'
@@ -14,9 +14,9 @@ const useIso = typeof window !== 'undefined' ? useLayoutEffect : useEffect
 /**
  * CapabilitiesCarousel — the centrepiece (spec §5.4 / §5a). A hand-rolled,
  * heavy/controlled horizontal slider: one focal card centred with neighbours
- * peeking (scale/opacity falloff), auto-play every 6s that pauses on hover,
- * focus, drag, tab-hidden and reduced-motion, draggable with velocity snap, and
- * full keyboard + ARIA carousel semantics.
+ * peeking (scale/opacity falloff), manual controls, draggable velocity snap, and
+ * full keyboard + ARIA carousel semantics. It intentionally does not auto-play:
+ * the preview stays idle until the visitor interacts with it.
  *
  * x lives in one motion value shared by drag (user) and `animate()` (programmatic),
  * so both move the same track without fighting a controlled prop.
@@ -29,13 +29,6 @@ export function CapabilitiesCarousel() {
   const [active, setActive] = useState(0)
   const activeRef = useRef(0)
   const x = useMotionValue(0)
-  const reduce = useReducedMotion()
-
-  // Pause inputs.
-  const [hovering, setHovering] = useState(false)
-  const [focused, setFocused] = useState(false)
-  const [dragging, setDragging] = useState(false)
-  const [tabHidden, setTabHidden] = useState(false)
 
   const cardWidth = width * (width < 640 ? 0.84 : 0.56)
   const step = cardWidth + GAP
@@ -73,23 +66,7 @@ export function CapabilitiesCarousel() {
     [n, targetX, x],
   )
 
-  // Auto-play (6s), paused by any of the inputs below.
-  const paused = hovering || focused || dragging || tabHidden || !!reduce
-  useEffect(() => {
-    if (paused || !width) return
-    const t = window.setTimeout(() => goTo((activeRef.current + 1) % n), 6000)
-    return () => window.clearTimeout(t)
-  }, [paused, width, active, n, goTo])
-
-  // Pause when the tab is hidden.
-  useEffect(() => {
-    const onVis = () => setTabHidden(document.hidden)
-    document.addEventListener('visibilitychange', onVis)
-    return () => document.removeEventListener('visibilitychange', onVis)
-  }, [])
-
   function onDragEnd(_e: unknown, info: PanInfo) {
-    setDragging(false)
     const projected = x.get() + info.velocity.x * 0.2
     const i = Math.round((widthRef.current / 2 - cardWidth / 2 - projected) / step)
     goTo(i)
@@ -128,10 +105,6 @@ export function CapabilitiesCarousel() {
           aria-label="Core capabilities"
           tabIndex={0}
           onKeyDown={onKeyDown}
-          onMouseEnter={() => setHovering(true)}
-          onMouseLeave={() => setHovering(false)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
         >
           <div ref={containerRef} className="relative overflow-hidden">
             {/* Soft edge fades so neighbouring cards dissolve into the band. */}
@@ -145,12 +118,10 @@ export function CapabilitiesCarousel() {
               dragConstraints={dragConstraints}
               dragElastic={0.08}
               dragMomentum={false}
-              onDragStart={() => setDragging(true)}
               onDragEnd={onDragEnd}
             >
               {capabilities.map((cap, i) => {
                 const isActive = i === active
-                const offset = i - active
                 return (
                   <motion.div
                     key={cap.id}
@@ -162,8 +133,8 @@ export function CapabilitiesCarousel() {
                     animate={{
                       scale: isActive ? 1 : 0.9,
                       opacity: isActive ? 1 : 0.4,
-                      rotateY: isActive ? 0 : offset < 0 ? 9 : -9,
-                      filter: isActive ? 'blur(0px)' : 'blur(3px)',
+                      rotateY: 0,
+                      filter: 'none',
                     }}
                     transition={{ duration: 0.7, ease: EASE_EXPO }}
                   >
@@ -211,20 +182,6 @@ export function CapabilitiesCarousel() {
             >
               <ArrowRight size={18} />
             </button>
-          </div>
-
-          {/* Autoplay progress — restarts each slide, freezes on hover/focus/drag. */}
-          <div className="mx-auto mt-6 h-0.5 w-32 overflow-hidden rounded-full bg-border">
-            {!reduce && width > 0 && (
-              <div
-                key={active}
-                className="h-full rounded-full bg-violet-tip"
-                style={{
-                  animation: 'carousel-progress 6s linear forwards',
-                  animationPlayState: paused ? 'paused' : 'running',
-                }}
-              />
-            )}
           </div>
 
           {/* Live region — announces the active slide to assistive tech. */}

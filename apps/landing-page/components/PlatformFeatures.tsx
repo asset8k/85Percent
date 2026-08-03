@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import { useEffect, useRef, useState } from 'react'
+import { motion, useInView } from 'framer-motion'
 import { Reveal } from './motion/Reveal'
 import { EASE_EXPO, staggerParent, fadeUp } from './motion/variants'
 import { features } from '@/content/features'
@@ -15,8 +15,21 @@ import { features } from '@/content/features'
  * top-accent on hover without shifting the seamless 1px-gap grid.
  */
 export function PlatformFeatures() {
+  const ref = useRef<HTMLElement>(null)
+  const inView = useInView(ref, { amount: 0.1 })
+  const [pageVisible, setPageVisible] = useState(true)
+
+  useEffect(() => {
+    const update = () => setPageVisible(!document.hidden)
+    update()
+    document.addEventListener('visibilitychange', update)
+    return () => document.removeEventListener('visibilitychange', update)
+  }, [])
+
+  const active = inView && pageVisible
+
   return (
-    <section id="platform" data-nav-theme="light" className="scroll-mt-[-0.5rem] bg-background">
+    <section ref={ref} id="platform" data-nav-theme="light" className="scroll-mt-[-0.5rem] bg-background">
       <div className="mx-auto max-w-content px-6 py-28">
         <Reveal className="max-w-2xl">
           <span className="meta-label text-primary">The platform</span>
@@ -60,8 +73,8 @@ export function PlatformFeatures() {
                   {f.body}
                 </p>
 
-                {isCalendar && <DeadlineCountdown />}
-                {isNotifications && <NotificationToasts />}
+                {isCalendar && <DeadlineCountdown active={active} />}
+                {isNotifications && <NotificationToast />}
               </motion.div>
             )
           })}
@@ -75,14 +88,15 @@ export function PlatformFeatures() {
  * DeadlineCountdown — a live transfer-deadline countdown. Mounts client-only (state
  * starts null) to avoid an SSR/first-paint mismatch, then ticks every second.
  */
-function DeadlineCountdown() {
+function DeadlineCountdown({ active }: { active: boolean }) {
   const [now, setNow] = useState<number | null>(null)
 
   useEffect(() => {
+    if (!active) return
     setNow(Date.now())
     const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
-  }, [])
+  }, [active])
 
   if (now === null) return null
 
@@ -99,7 +113,7 @@ function DeadlineCountdown() {
 
   return (
     <div className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2">
-      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-violet-core" />
+      <span className="h-1.5 w-1.5 rounded-full bg-violet-core" />
       <span className="num text-sm text-foreground">
         {d}d {pad(h)}h {pad(m)}m {pad(s)}s
       </span>
@@ -115,33 +129,14 @@ const ALERTS = [
 ] as const
 
 /** NotificationToasts — a small feed that cycles real-looking alerts on a loop. */
-function NotificationToasts() {
-  const [i, setI] = useState(0)
-  const reduce = useReducedMotion()
-
-  useEffect(() => {
-    if (reduce) return
-    const id = setInterval(() => setI((p) => (p + 1) % ALERTS.length), 2600)
-    return () => clearInterval(id)
-  }, [reduce])
-
-  const a = ALERTS[i % ALERTS.length]!
-
+function NotificationToast() {
+  const a = ALERTS[0]
   return (
     <div className="mt-4 h-10 overflow-hidden">
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={i}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -10 }}
-          transition={{ duration: 0.4, ease: EASE_EXPO }}
-          className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2"
-        >
-          <span className={`h-1.5 w-1.5 rounded-full ${a.tone}`} />
-          <span className="text-sm text-foreground">{a.text}</span>
-        </motion.div>
-      </AnimatePresence>
+      <div className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2">
+        <span className={`h-1.5 w-1.5 rounded-full ${a.tone}`} />
+        <span className="text-sm text-foreground">{a.text}</span>
+      </div>
     </div>
   )
 }
