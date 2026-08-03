@@ -3,7 +3,7 @@
   "framework": "vite",
   "outputDirectory": "dist",
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile --filter @85percent/web...",
-  "buildCommand": "cd ../.. && pnpm --filter @85percent/web... run build",
+  "buildCommand": "cd ../.. && node scripts/validate-vercel-env.mjs web && pnpm --filter @85percent/web... run build",
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://admin.85percent.pro/api/:path*" },
     { "source": "/((?!assets/).*)", "destination": "/index.html" }

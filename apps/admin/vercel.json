@@ -3,5 +3,5 @@
   "framework": "nextjs",
   "regions": ["fra1"],
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile --filter @85percent/admin...",
-  "buildCommand": "cd ../.. && pnpm --filter @85percent/admin... run build"
+  "buildCommand": "cd ../.. && node scripts/validate-vercel-env.mjs admin && pnpm --filter @85percent/admin... run build"
 }

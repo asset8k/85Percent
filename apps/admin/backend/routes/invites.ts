@@ -204,7 +204,7 @@ export async function inviteRoutes(app: ApiApp) {
     // that row is what `authMiddleware` matches by email to place the invitee in
     // THIS club with these exact permission grants when they set their password
     // and first authenticate. `inviteUserByEmail` then emails them a link to
-    // `${FRONTEND_URL}/set-password`. If the email send fails we roll the row
+    // `${APP_URL}/set-password`. If the email send fails we roll the row
     // back so we never leave a dangling invite with no delivery.
     scoped.post('/team/invite', { preHandler: requirePermission('isWorkspaceAdmin') }, async (request, reply) => {
       const parsed = CreateInviteBody.safeParse(request.body)
@@ -265,7 +265,7 @@ export async function inviteRoutes(app: ApiApp) {
         // 2) Deliver via the service-role admin API — bypasses the disabled
         // public signup. The invitee lands on /set-password; on their first
         // authenticated request authMiddleware links them to this club.
-        const appOrigin = process.env['FRONTEND_URL'] ?? 'http://localhost:5173'
+        const appOrigin = process.env['APP_URL'] ?? 'http://localhost:5173'
         const { error: inviteErr } = await supabase.auth.admin.inviteUserByEmail(email, {
           redirectTo: `${appOrigin}/set-password`,
         })
