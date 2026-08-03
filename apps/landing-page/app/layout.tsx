@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import Script from 'next/script'
 import { Inter, Fraunces } from 'next/font/google'
 import { Providers } from './providers'
 import { site } from '@/content/site'
@@ -85,6 +86,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${fraunces.variable}`}>
       <body>
+        <Script id="safari-hero-fallback" strategy="beforeInteractive">
+          {`(function(){var ua=navigator.userAgent;var safari=/Safari\\//.test(ua)&&!/(Chrome|Chromium|CriOS|FxiOS|EdgiOS|OPiOS|Android)/.test(ua);if(safari)document.documentElement.classList.add('safari');})();`}
+        </Script>
         <Providers>{children}</Providers>
         <script
           type="application/ld+json"

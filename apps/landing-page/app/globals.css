@@ -167,6 +167,39 @@
   }
 }
 
+/* Safari performs poorly when a large text clip, filtered heading, blurred aura
+   and backdrop-filtered header all enter the compositor together. The class is
+   set before first paint by a narrow Safari-only user-agent check in the root
+   layout, excluding Chromium, Firefox and alternate iOS browsers. */
+html.safari .hero-heading-reveal {
+  animation: none;
+}
+html.safari .text-gradient-hero {
+  filter: none;
+}
+html.safari .hero-dashboard > div:first-child {
+  display: none;
+}
+html.safari .hero-header-reveal nav {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+html.safari .hero-intro-overlay {
+  animation-duration: 450ms;
+}
+html.safari .hero-header-reveal {
+  animation-duration: 550ms;
+  animation-delay: 60ms;
+}
+html.safari .hero-copy-reveal {
+  animation-duration: 650ms;
+  animation-delay: 100ms;
+}
+html.safari .hero-dashboard {
+  animation-duration: 720ms;
+  animation-delay: 280ms;
+}
+
 /* ── Aurora ───────────────────────────────────────────────────────────────
    Slow-drifting blurred violet light, screen-blended over the charcoal bands.
    A few large blobs on long, offset loops read as a living aurora rather than

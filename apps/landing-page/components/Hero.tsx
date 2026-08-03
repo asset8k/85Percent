@@ -30,7 +30,7 @@ export function Hero() {
       />
       <div className="hero-intro-overlay pointer-events-none absolute inset-0 z-20" aria-hidden />
 
-      <div className="relative z-10 mx-auto grid min-h-[min(760px,100svh)] max-w-content grid-cols-1 items-center gap-16 px-6 py-28 lg:grid-cols-[1.05fr_0.95fr] lg:gap-12">
+      <div className="relative z-10 mx-auto grid min-h-[100svh] max-w-content grid-cols-1 items-center gap-16 px-6 py-28 lg:grid-cols-[1.05fr_0.95fr] lg:gap-12">
         <div className="hero-copy-reveal flex flex-col items-start text-left">
           <span className="meta-label inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-white/60">
             The Squad Cost Engine
