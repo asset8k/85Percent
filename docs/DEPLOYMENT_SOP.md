@@ -16,8 +16,8 @@ section first — it prevents the most expensive mistake.
 | Env template | `.env.dev.example` | `.env.prod.example` |
 | Vercel target | Preview (branch `dev`) | Production (branch `main`) |
 
-Apps: `apps/web` (Vite SPA), `apps/admin` + `apps/landing-page` (Next.js),
-`apps/api` (Fastify). Each reads its **own** env file — see the templates.
+Apps: `apps/web` (Vite SPA), `apps/admin` (Next.js admin + serverless API), and
+`apps/landing-page` (Next.js). Each reads its own env file.
 
 ---
 
@@ -43,7 +43,7 @@ git push origin main      # → Vercel Production deploy
 
 ## 2. Schema source of truth (READ THIS)
 
-The relational schema is owned by **Prisma** (`apps/api/prisma/migrations`,
+The relational schema is owned by **Prisma** (`apps/admin/prisma/migrations`,
 tracked in the `_prisma_migrations` table). The `supabase/migrations` folder
 holds the **same schema as a CLI baseline** plus the **RLS/policy layer** that
 Prisma does not model (`current_club_id()`, row-level policies, grants).
@@ -53,8 +53,7 @@ Pick **one** schema mechanism per database and stick to it:
 - **Dev** was built by Prisma. Keep evolving it with Prisma
   (`prisma migrate dev`). Do **not** `supabase db push` to dev — it would try to
   re-create tables that already exist.
-- **Prod** (`fkyexcddvogkngbbrefz`) is **empty**. You may provision it **either**
-  way — but only one:
+- For a fresh database, provision it **either** way — but only one:
   - **Path A — Supabase CLI (matches this SOP's commands):** `supabase db push`
     applies `supabase/migrations/*` in order: `…_baseline_schema.sql` (extensions
     + all tables), then `…_security_lockdown.sql` (RLS + policies).
@@ -72,7 +71,7 @@ CLI can carry it to prod). The simplest way to keep them in sync is to generate
 the Supabase migration from Prisma:
 
 ```bash
-# from apps/api — emit the delta for a new Supabase migration
+# from apps/admin — emit the delta for a new Supabase migration
 pnpm exec prisma migrate diff \
   --from-url "$DEV_DATABASE_URL_BEFORE" \
   --to-schema-datamodel prisma/schema.prisma \
@@ -157,10 +156,9 @@ WHERE n.nspname='public' AND t.relkind='r' AND t.relrowsecurity=false;
 
 ## 5. Vercel — branch deployments
 
-Two Vercel projects (one per Next.js app: `apps/admin`, `apps/landing-page`),
-each with the monorepo root and the app's directory set as the Root Directory.
-`apps/web` (Vite) deploys as a static build; `apps/api` (Fastify) is **not** a
-Vercel app — host it on a long-running Node platform (Railway/Fly/Render).
+Three Vercel projects deploy `apps/admin`, `apps/landing-page`, and `apps/web`.
+The admin project also serves every `/api/*` Route Handler. There is no Railway
+or separate long-running API deployment.
 
 **Git integration (per Vercel project):**
 - Production Branch = `main`. A push to `main` → **Production** deploy.
@@ -176,9 +174,9 @@ Vercel app — host it on a long-running Node platform (Railway/Fly/Render).
 
 **Cutover checklist for the first prod release:**
 1. Prod Supabase provisioned (`supabase db push`) and lockdown verified (§4).
-2. Prod env vars set in each Vercel project (Production scope) and the api host —
-   including a fresh `ADMIN_PASSWORD` and `ADMIN_SESSION_SECRET` (the admin edge
-   middleware fails closed without the secret + `ADMIN_USERNAME`).
+2. Prod env vars set in each Vercel project, including Supabase, Upstash,
+   Anthropic, and fresh `ADMIN_PASSWORD` / `ADMIN_SESSION_SECRET` values in the
+   admin/API project.
 3. Supabase Auth (prod project): add the prod `${APP_URL}/set-password` to the
    allowed redirect URLs; set the invite email template; disable public signups.
 4. Merge `dev → main` → Production deploy. Smoke-test login, a lead submit, and
@@ -192,5 +190,6 @@ Vercel app — host it on a long-running Node platform (Railway/Fly/Render).
   gitignored — never commit a filled-in copy.
 - Prod gets **fresh** secrets (DB password, admin password/secret, a dedicated
   Upstash database) — never the dev values.
+- Any token pasted into chat or logs must be rotated before use.
 - The service-role key is server-only; it must never appear in a `VITE_` or
   `NEXT_PUBLIC_` variable.

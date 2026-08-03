@@ -25,9 +25,9 @@ colima start --cpu 2 --memory 4
 docker run -d -p 8000:8000 --name tmkt-api transfermarkt-api:local
 
 # 3. Run the full 44-club sync against it
-cd apps/api
+cd apps/admin
 TRANSFERMARKT_API_URL=http://localhost:8000 TRANSFERMARKT_SEASON_ID=2025 \
-  node --import tsx --env-file=.env src/scripts/sync-templates.ts
+  node --import tsx --env-file=.env.local backend/scripts/sync-templates.ts
 
 # 4. Tear down when done
 docker rm -f tmkt-api && colima stop
@@ -100,11 +100,11 @@ The second call should return Aston Villa's squad JSON (Emiliano Martínez, …)
 
 ### 3. Run the sync worker
 ```bash
-cd apps/api
+cd apps/admin
 TRANSFERMARKT_API_URL=http://localhost:8000 TRANSFERMARKT_SEASON_ID=2025 \
-  node --import tsx --env-file=.env src/scripts/sync-templates.ts
+  node --import tsx --env-file=.env.local backend/scripts/sync-templates.ts
 ```
-- `--env-file=.env` supplies `DATABASE_URL` + Supabase keys (the worker writes to the live
+- `--env-file=.env.local` supplies `DATABASE_URL` + Supabase keys (the worker writes to the live
   `template_*` tables via the service-role client).
 - Expect: `done — 44 clubs synced, 0 failed, ~1318 roster items cached.`
 - Per club it makes: **1** API call (squad) + **1** API call (logo) + **1** HTML fetch
@@ -122,7 +122,7 @@ colima stop             # shut down the VM (frees CPU/RAM); image is kept for ne
 
 ## Sync worker environment variables
 
-All optional; sensible defaults in [apps/api/src/scripts/sync-templates.ts](apps/api/src/scripts/sync-templates.ts).
+All optional; sensible defaults in [apps/admin/backend/scripts/sync-templates.ts](apps/admin/backend/scripts/sync-templates.ts).
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -161,9 +161,9 @@ Onboarding (`POST /onboarding/complete`) clones these into a tenant's live `play
 
 ### Quick verification query
 ```bash
-cd apps/api
-node --import tsx --env-file=.env -e '
-import { supabase } from "./src/lib/supabase.js"
+cd apps/admin
+node --import tsx --env-file=.env.local -e '
+import { supabase } from "./backend/lib/supabase.js"
 const c = (b) => b.then(r => r.count)
 console.log("clubs   ", await c(supabase.from("template_clubs").select("id",{count:"exact",head:true})))
 console.log("items   ", await c(supabase.from("template_roster_items").select("id",{count:"exact",head:true})))
@@ -191,6 +191,6 @@ process.exit(0)
 
 The scrapers/mappers are pure and unit-tested (no network):
 ```bash
-pnpm --filter @headroom/api test:scripts       # mappers + coach + squad-number parsers
-pnpm --filter @headroom/api test:onboarding    # DB-backed hydration over the cached library
+pnpm --filter @85percent/admin test               # mappers + coach + squad-number parsers
+pnpm --filter @85percent/admin test:onboarding    # DB-backed hydration over the cached library
 ```

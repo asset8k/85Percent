@@ -11,7 +11,7 @@
  * the conversation auto-compacts (older turns summarised) when it nears a
  * conservative token budget, surfaced as a live "context" bar. Streaming,
  * markdown rendering, smooth stick-to-bottom scrolling. Inference is proxied
- * through Fastify /api/chat with the Supabase bearer token; the engine is never
+ * through the serverless /api/chat route with the Supabase bearer token; the engine is never
  * called here.
  */
 

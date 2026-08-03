@@ -5,7 +5,7 @@
   "installCommand": "cd ../.. && pnpm install --frozen-lockfile --filter @85percent/web...",
   "buildCommand": "cd ../.. && pnpm --filter @85percent/web... run build",
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://api-production-92f50.up.railway.app/:path*" },
+    { "source": "/api/:path*", "destination": "https://admin.85percent.pro/api/:path*" },
     { "source": "/((?!assets/).*)", "destination": "/index.html" }
   ]
 }

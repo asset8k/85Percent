@@ -1,213 +1,173 @@
-# 85Percent — Football Financial Compliance Platform
+# 85Percent - Football Financial Compliance Platform
 
-A B2B SaaS platform for professional football clubs to instantly simulate the financial and regulatory impact of player transfers before they happen.
+85Percent is a B2B SaaS platform for professional football clubs to model Squad
+Cost Ratio (SCR), roster contracts, transfer scenarios, Premier League SSR, and
+the regulatory impact of football decisions before they happen.
 
-> **85Percent** is named for the Squad Cost Ratio's 85% Green ceiling — the share of football revenue a club may spend on its squad. The platform keeps clubs the right side of that line.
+## Current Architecture
 
----
+The repository is a pnpm 11 + Turborepo monorepo with three Vercel applications:
 
-## Project Status
+- `apps/web`: React 18 + Vite main product, local port 5173.
+- `apps/admin`: Next.js 14 admin panel and all serverless API Route Handlers,
+  local port 4000.
+- `apps/landing-page`: Next.js 14 public site, local port 3100.
 
-**MVP 2.0** — Relational roster, multi-action scenarios, Premier League SSR module, RBAC + audit, PDF/Excel exports, and **template-driven onboarding** (pre-fill a club's 25-man squad from a cached roster library).
+Shared packages:
 
----
+- `packages/engine`: pure SCR, amortisation, levy, points, and SSR calculations.
+- `packages/shared`: types, Zod schemas, money helpers, and chat context.
+- `packages/brand`: shared brand assets.
 
-## Quick Start
+The former Railway/Fastify `apps/api` package is retired. The exact API contract
+is now served from `apps/admin/app/api/[...path]/route.ts`; backend handlers live
+under `apps/admin/backend` and the Prisma history lives under
+`apps/admin/prisma`.
 
-### Prerequisites
+## Prerequisites
 
-- Node.js ≥ 20
-- pnpm ≥ 9
+- Node.js 20 or newer
+- pnpm 9 or newer; the repository pins pnpm 11.2.2
+- A Supabase project
+- An Upstash Redis database for distributed rate limiting
 
-### Install
+## Install
 
 ```bash
 pnpm install
 ```
 
-### Environment Setup
+## Environment Setup
 
-**API** — copy `apps/api/.env.example` to `apps/api/.env` and fill in:
-- `DATABASE_URL` — your Supabase PostgreSQL connection string
-- `SUPABASE_URL` — your Supabase project URL
-- `SUPABASE_SERVICE_ROLE_KEY` — service role key (from Supabase dashboard)
+Real environment files are gitignored. Never commit their values.
 
-Optional (only used by the template sync worker — see [Roster Templates & Onboarding](#roster-templates--onboarding)):
-- `TRANSFERMARKT_API_URL` — base URL of a [felipeall/transfermarkt-api](https://github.com/felipeall/transfermarkt-api) instance (default `http://localhost:8000`)
-- `TRANSFERMARKT_SEASON_ID` — season start year, e.g. `2025` for 2025‑26 (default: derived from today)
-- `TRANSFERMARKT_SYNC_DELAY_MS` — delay between club requests (default `3000`)
-- `TRANSFERMARKT_TIMEOUT_MS` — per‑request timeout (default `20000`)
-- `TRANSFERMARKT_PLAYER_DELAY_MS` — delay between the per‑player profile requests used to fetch shirt numbers (default `500`)
-- `TRANSFERMARKT_FETCH_SHIRT_NUMBERS` — set to `0` to skip shirt‑number enrichment (much faster; numbers left null)
+### Main web app
 
-**Web** — copy `apps/web/.env.example` to `apps/web/.env.local` and fill in:
-- `VITE_SUPABASE_URL` — your Supabase project URL
-- `VITE_SUPABASE_ANON_KEY` — anon key (from Supabase dashboard)
+Copy `apps/web/.env.example` to `apps/web/.env.local`:
 
-**Admin panel** — copy `apps/admin/.env.example` to `apps/admin/.env` and fill in:
-- `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` — same values as `apps/api/.env`
-- `ADMIN_USERNAME` / `ADMIN_PASSWORD` — the single admin login (separate from platform users)
-- `ADMIN_SESSION_SECRET` — random string for signing the session cookie (e.g. `openssl rand -hex 32`)
+```text
+VITE_SUPABASE_URL=
+VITE_SUPABASE_ANON_KEY=
+```
 
-### Supabase Setup
+### Admin and serverless API
 
-1. Create a Supabase project at supabase.com
-2. Copy your project URL and keys into the env files above
-3. Run Prisma migrations:
-   ```bash
-   pnpm --filter @85percent/api exec prisma migrate dev
-   ```
-4. Apply Row Level Security policies (see `prisma/rls.sql` — to be added)
-5. Seed an initial club and admin user via Supabase dashboard → Authentication → Users
+Copy `apps/admin/.env.example` to `apps/admin/.env.local`. The important groups are:
 
-### Development
+- Supabase: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+  `SUPABASE_ANON_KEY`, and optional Prisma CLI `DATABASE_URL`.
+- Admin login: `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`.
+- API rate limiting: `UPSTASH_REDIS_REST_URL`,
+  `UPSTASH_REDIS_REST_TOKEN`.
+- AI: `ANTHROPIC_API_KEY` and optional `ANTHROPIC_MODEL`.
+- Jobs/integrations: `INTERNAL_JOB_SECRET`, optional
+  `FOOTBALL_DATA_API_KEY`, and optional Transfermarkt settings.
+- Invite redirect: `APP_URL`, normally `http://localhost:5173` locally.
+
+### Landing page
+
+Copy `apps/landing-page/.env.example` to
+`apps/landing-page/.env.local`:
+
+```text
+NEXT_PUBLIC_SUPABASE_URL=
+SUPABASE_ANON_KEY=
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
+```
+
+The lead form uses an Upstash sliding window of three submissions per hour per
+IP. The serverless product API also uses Upstash for distributed global and
+endpoint-specific limits.
+
+## Local Development
+
+Start the complete stack:
 
 ```bash
 pnpm dev
 ```
 
-This runs all apps in parallel via Turborepo:
-- **Web app** at http://localhost:5173
-- **API** at http://localhost:3001
-- **Admin panel** at http://localhost:4000
+Local URLs:
 
-> The admin panel boots only if `apps/admin/.env` exists (see [Environment Setup](#environment-setup)). If it's missing, the admin process exits on startup while the web app and API keep running. To run just the admin panel: `pnpm --filter @85percent/admin dev`.
+- Main app: `http://localhost:5173`
+- Admin and API: `http://localhost:4000`
+- API health: `http://localhost:4000/api/health`
+- Landing: `http://localhost:3100`
 
-### Tests
+Vite proxies `/api/*` to port 4000 without stripping `/api`. In production,
+`apps/web/vercel.json` rewrites `/api/*` to the admin Vercel project, preserving
+same-origin browser requests.
+
+Run individual applications when needed:
 
 ```bash
+pnpm --filter @85percent/admin dev
+pnpm --filter @85percent/web dev
+pnpm --filter @85percent/landing-page dev
+```
+
+## Tests And Builds
+
+```bash
+pnpm typecheck
 pnpm test
-```
-
-Engine unit tests: 110+ tests covering SCR, the 5-year amortisation cap, contract-ledger transitions, and manager SCR inclusion.
-
-Other test suites:
-
-```bash
-# Pure Transfermarkt mapping helpers (node:test)
-pnpm --filter @85percent/api test:scripts
-
-# Onboarding hydration logic, exercised against the live DB-filled templates
-pnpm --filter @85percent/api test:onboarding
-```
-
-### Build
-
-```bash
 pnpm build
 ```
 
----
-
-## Architecture
-
-```
-Headroom/
-├── apps/
-│   ├── web/          # React 18 + Vite + TypeScript frontend (localhost:5173)
-│   ├── api/          # Fastify + Node.js backend (localhost:3001)
-│   ├── admin/        # Standalone server-rendered admin panel (localhost:4000)
-│   └── landing-page/ # Public marketing site (independently deployable)
-├── packages/
-│   ├── shared/       # Shared types, Zod schemas, money utilities
-│   ├── engine/       # Pure SCR calculation engine (no side effects)
-│   └── ui/           # (reserved for shared UI components)
-├── prisma/
-│   └── schema.prisma # Database schema (PostgreSQL)
-└── docs/             # Planning & reference docs (PLAN, BUILD_LOG, CONTEXT, DOCKER, mvp_2.0_plan)
-```
-
-### Key Design Rules
-
-1. **Engine is pure** — `/packages/engine` contains only pure functions. No database calls, no API calls, no side effects.
-2. **Money is always integers** — all monetary values stored as pence (BigInt in DB, number in TS). Display conversion at the presentation layer only.
-3. **Every simulation is saved** — full audit trail, never deleted.
-4. **Legal disclaimer on every page** — "85Percent is a decision-support tool. It does not constitute legal or financial advice."
-5. **League config is data-driven** — all thresholds live in `LeagueConfig` objects, not if-statements.
-
----
-
-## Roster Templates & Onboarding
-
-To make onboarding friction-free, a new club can **pre-fill its entire 25-man squad** from a cached roster library instead of typing every player in by hand. The library is built by a controlled background worker; user onboarding then reads only our local cache, so the product is insulated from the third-party scraper's downtime or Cloudflare rate-limiting.
-
-### How it works
-
-```
-felipeall/transfermarkt-api          (unofficial scraper, self/externally hosted)
-        │   monthly background sync (service role)
-        ▼
-template_clubs / template_roster_items   (local Postgres dictionary, RLS-locked)
-        │   POST /api/onboarding/complete  (CFO, one-time, empty club only)
-        ▼
-players / contracts / managers / manager_contracts   (the tenant's live roster)
-```
-
-- **`template_clubs`** — one row per club (`name`, `league`, `logoUrl`).
-- **`template_roster_items`** — one row per player/manager (`position`, `dateOfBirth`, `nationality`, `estimatedTransferFee`, `contractStart/End`, `isManager`).
-
-Both tables are club-agnostic and read **only** by the API (service role). They have RLS enabled with no client policy, so no anon/user key can touch them.
-
-### The background sync worker
-
-`apps/api/src/scripts/sync-templates.ts` populates the dictionary:
-
-1. Fetches the club list for the two English competitions — **GB1** (Premier League) and **GB2** (EFL Championship) — whose union is exactly the 44 clubs.
-2. For each club, pulls its profile (crest + best-effort head coach) and squad, maps every row into our template shape (pure helpers in `transfermarkt-mappers.ts`), and replaces that club's cached rows.
-3. The bulk squad endpoint omits shirt numbers, so for each player it makes one extra call to the player profile (`shirtNumber`) — paced by its own delay and individually error-bounded (a failed lookup just leaves the number null).
-
-Safety nets, as required for an unofficial scraper:
-- a generous, configurable delay between **every** request (anti-Cloudflare; default 3 s);
-- a per-request timeout;
-- a per-club `try/catch` error boundary — one broken selector or timeout logs a warning and the batch continues; it never crashes wholesale.
-
-> **Note:** Transfermarkt does not reliably expose wages, so every hydrated contract is created with `annual_wage = 0`. The Roster page surfaces those zero-wage rows as validation errors (red cells + a banner) so the CFO is prompted to enter real payroll before relying on the Squad Cost Ratio. It also does not reliably expose head coaches, so manager rows are usually empty. Shirt numbers **are** scraped (from each player's profile) and carried through onboarding into `players.squad_number`.
-
-### Running the sync
-
-You need a reachable `transfermarkt-api` instance (run it locally via Docker, or point at a hosted one):
+Additional database-backed onboarding verification:
 
 ```bash
-# Fill the template dictionary (monthly cadence recommended)
-TRANSFERMARKT_API_URL=https://<your-transfermarkt-api-host> \
-TRANSFERMARKT_SEASON_ID=2025 \
-pnpm --filter @85percent/api sync:templates
+pnpm --filter @85percent/admin test:onboarding
 ```
 
-A successful run logs each club and a final summary, e.g. `done — 44 clubs synced, 0 failed, 1218 roster items cached.`
+The root `pnpm test` now runs both the pure calculation engine tests and the
+migrated API script/unit tests owned by `apps/admin`.
 
-### Onboarding endpoints
+## Database And Schema
 
-- `GET  /api/onboarding/clubs?league=premier-league|efl-championship` — searchable club list from the local cache.
-- `POST /api/onboarding/complete` `{ templateClubId }` — **CFO-only**; clones the cached squad into the caller's live roster and adopts the club identity. Guarded to run only on an empty roster (409 otherwise).
+- Normal Prisma history: `apps/admin/prisma/migrations`.
+- Prisma schema: `apps/admin/prisma/schema.prisma`.
+- Supabase bootstrap/security migrations: `supabase/migrations`.
+- Runtime database access uses server-only Supabase clients.
+- The service-role client bypasses RLS, so every tenant query must explicitly
+  constrain `club_id` and, where appropriate, `user_id`.
 
-The wizard lives at `/onboarding` in the web app (also reachable from the empty Roster state).
+Do not run the Prisma history and the aggregate Supabase baseline against the
+same already-provisioned database. See `docs/DEPLOYMENT_SOP.md`.
 
----
+## Roster Templates And Maintenance Jobs
 
-## Admin Panel
+Template onboarding reads `template_clubs` and `template_roster_items`, then
+hydrates a tenant's players, contracts, manager, and manager contracts.
 
-A standalone, server-rendered control panel in `apps/admin/` — separate from the platform (its own port and its own session login), but pointed at the same Supabase project via the service-role key, so it can be deployed independently later.
+Local template refresh with a Transfermarkt API running on port 8000:
 
 ```bash
-pnpm --filter @85percent/admin dev    # → http://localhost:4000  (also started by `pnpm dev`)
+pnpm --filter @85percent/admin sync:templates
 ```
 
-It provides:
+League snapshot refresh:
 
-- **Users** — list every account; edit name/email, reset password, delete an account (basic CRUD via the Supabase auth-admin API).
-- **AI chat balance** — view each user's remaining credit and **top up** (add USD) or set it exactly.
-- **Maintenance jobs** — trigger the two manual scripts and see a full run history (who, start/finish, status, log):
-  - **Club & player update** → runs `pnpm --filter @85percent/api sync:templates` (Transfermarkt → onboarding templates).
-  - **League table update** → runs `pnpm --filter @85percent/api update:league`, which fetches standings into `league_table_snapshots` and publishes them as the active table that `GET /api/league-table` serves (falling back to a live fetch, then the bundled seed).
+```bash
+pnpm --filter @85percent/admin update:league
+```
 
-Login is a single admin defined in `apps/admin/.env` (`ADMIN_USERNAME` / `ADMIN_PASSWORD`), exchanged for a signed cookie. The DB tables it uses (`admin_jobs`, `league_table_snapshots`, the `admin_topup_balance` RPC) live in `apps/api/prisma/admin.sql`.
-
----
+The admin UI triggers the same jobs through
+`POST /api/internal/jobs/:type`. On Vercel, work is scheduled with
+`@vercel/functions` `waitUntil` and the API Route Handler has a 300-second
+maximum duration. The full Transfermarkt sync must use a production-reachable
+HTTPS `TRANSFERMARKT_API_URL`; `localhost:8000` is local-only.
 
 ## Deployment
 
-- **Frontend**: Vercel (connect GitHub repo → auto-deploy)
-- **API**: Railway (connect GitHub repo → set env vars → deploy)
-- **Admin panel**: deploy `apps/admin` as its own service (Node) with its env vars
-- **Database**: Supabase (managed PostgreSQL with RLS)
+All application compute is hosted by Vercel:
+
+- `85percent.pro`: landing Vercel project.
+- `app.85percent.pro`: Vite web Vercel project.
+- `admin.85percent.pro`: admin plus serverless API Vercel project.
+- Supabase: managed database, Auth, RLS, pgvector, and RPCs.
+- Upstash: distributed rate limiting.
+
+Railway, the old API Dockerfile, and the separate `api.85percent.pro` service are
+no longer part of the architecture.

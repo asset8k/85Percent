@@ -12,7 +12,7 @@
 --   and every row in every table. With RLS off, a table is world-readable.
 --
 -- HOW THE APP STILL WORKS AFTER THIS
---   The API server (apps/api) connects as the `postgres` role and/or with the
+--   The API Route Handlers (apps/admin) connects as the `postgres` role and/or with the
 --   service-role key. Both BYPASS RLS (service_role has BYPASSRLS; the table
 --   owner is exempt under ENABLE — not FORCE). So the trusted server keeps full
 --   access and does its own tenant checks; these policies only fence off the
@@ -25,7 +25,7 @@
 --   current_club_id() resolves the caller's club from their auth.uid(). Every
 --   tenant table is fenced to "your club only".
 --
--- This mirrors apps/api/prisma/rls.sql + the demo_requests migration, gathered
+-- This mirrors apps/admin/prisma/rls.sql + the demo_requests migration, gathered
 -- into one paste-and-run file for the production cutover.
 -- ============================================================================
 
@@ -177,7 +177,7 @@ CREATE POLICY "audit_logs: own club only" ON public.audit_logs
 
 -- ============================================================================
 -- RAG / AI Co-pilot + admin/reference tables. These are created by raw SQL
--- (apps/api/prisma/rag.sql etc.), NOT prisma/schema.prisma, so they sit outside
+-- (apps/admin/prisma/rag.sql etc.), NOT prisma/schema.prisma, so they sit outside
 -- the tenant policy set above. Posture mirrors dev exactly.
 -- ============================================================================
 ALTER TABLE public.chat_sessions          ENABLE ROW LEVEL SECURITY;

@@ -11,7 +11,7 @@
 -- migration (RLS + policies + current_club_id()).
 --
 -- NOTE ON SOURCE OF TRUTH: the relational schema is owned by Prisma
--- (apps/api/prisma). This baseline exists so the Supabase CLI can bootstrap a
+-- (apps/admin/prisma). This baseline exists so the Supabase CLI can bootstrap a
 -- brand-new EMPTY project (the prod project) in one `supabase db push`. For an
 -- existing Prisma-migrated DB (like dev), DO NOT run this — use
 -- `prisma migrate deploy`. See DEPLOYMENT_SOP.md.
