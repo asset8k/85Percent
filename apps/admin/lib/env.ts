@@ -33,11 +33,13 @@ export const env = {
   get sessionSecret(): string {
     return required('ADMIN_SESSION_SECRET')
   },
-  // Base URL of the Fastify API. The admin panel POSTs here to trigger the
-  // maintenance jobs (the API runs them; this serverless panel cannot spawn a
-  // subprocess). Defaults to the local API dev server.
+  // Base URL of this app's own API Route Handlers. Vercel supplies VERCEL_URL;
+  // local development uses the admin Next.js server on port 4000.
   get apiBaseUrl(): string {
-    return process.env['API_BASE_URL']?.trim().replace(/\/+$/, '') || 'http://localhost:3001'
+    const explicit = process.env['API_BASE_URL']?.trim().replace(/\/+$/, '')
+    if (explicit) return explicit
+    const vercelUrl = process.env['VERCEL_URL']?.trim().replace(/\/+$/, '')
+    return vercelUrl ? `https://${vercelUrl}/api` : 'http://localhost:4000/api'
   },
   // Shared secret authenticating the admin → API job-trigger call. Must match
   // INTERNAL_JOB_SECRET on the API. Required (no default) so a job can't be

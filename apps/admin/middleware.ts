@@ -77,10 +77,9 @@ export async function middleware(req: NextRequest) {
 }
 
 /**
- * Guard everything except the login page and framework/static assets. /login must
- * stay open so the sign-in page and its Server Action are reachable while logged
- * out; static and image optimiser paths never carry protected data.
+ * Guard admin pages, but leave `/api` to the API's own Supabase bearer-token or
+ * internal-secret checks. The login page and framework assets also stay open.
  */
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|icon.svg|login).*)'],
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|icon.svg|login).*)'],
 }

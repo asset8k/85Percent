@@ -5,12 +5,9 @@ import { env } from './env'
 /**
  * jobs — trigger the maintenance scripts and read their history.
  *
- * The scripts run on the Fastify API (a long-running host), NOT here: this panel
- * deploys to a serverless platform where spawning `pnpm` is impossible. To start
- * a job we POST to the API's protected `/internal/jobs/:type` endpoint (shared
- * secret); the API creates the `admin_jobs` row and runs the script in the
- * background. History is read straight from `admin_jobs` (this module's
- * list/get), which the panel can do directly via the service-role client.
+ * The scripts run through this app's protected serverless API. The Route Handler
+ * creates the job row and uses Vercel's request-lifetime background mechanism;
+ * history is still read directly through the service-role Supabase client.
  */
 
 export type JobType = 'sync_templates' | 'league_table'

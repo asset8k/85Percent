@@ -1,66 +1,64 @@
-# 85Percent — Environments (dev vs prod)
+# 85Percent Environments
 
-The decision, once and for all: **develop against DEV data locally, and only ever
-touch PROD data on the production domain.** There is no hosted "staging" in
-between — local *is* the dev environment.
+Local development uses development data. Production domains use production
+data. There is no separate long-running API host.
 
-| | **Development** | **Production** |
+| | Development | Production |
 |---|---|---|
-| Where | your machine (`pnpm dev`) | `app.85percent.pro` / `admin.85percent.pro` / `85percent.pro` |
-| Supabase | dev `deebcfzsgdwnmeoqphgm` (Frankfurt) | prod `fkyexcddvogkngbbrefz` (Frankfurt) |
-| Web API calls | Vite proxy → local Fastify (`localhost:3001`) | `vercel.json` rewrite → Railway (`api.85percent.pro` / current Railway URL) |
-| Config source | each app's local `.env` / `.env.local` (gitignored) | Vercel **Production** env + Railway service vars |
-| Git branch | `dev` (work happens here) | `main` (auto-deploys) |
+| Git branch | `dev` | `main` |
+| Main web | `localhost:5173` | `app.85percent.pro` |
+| Admin + API | `localhost:4000` | `admin.85percent.pro` |
+| Landing | `localhost:3100` | `85percent.pro` |
+| Web API path | Vite proxy to `:4000/api/*` | Vercel rewrite to admin `/api/*` |
+| Database | development Supabase | production Supabase |
+| Rate limits | development Upstash | production Upstash |
 
-## Why local = dev automatically
+## Local Configuration
 
-- The local `.env` files (`apps/api/.env`, `apps/web/.env.local`, `apps/admin/.env`,
-  `apps/landing-page/.env.local`) all point at the **dev** Supabase project. They
-  are gitignored, so prod secrets never live on your machine.
-- When you run `pnpm dev`, the web app (Vite, `:5173`) proxies `/api` to your
-  **local** Fastify (`:3001`) — *not* to Railway. That local API reads the dev
-  `DATABASE_URL`/Supabase keys. So the whole local stack is dev end to end.
-- The `vercel.json` rewrite that points the web app at the Railway (prod) API
-  only applies to **Vercel deployments**, never to local Vite dev.
+The local files are gitignored:
 
-> Auth consistency rule: a web build's `VITE_SUPABASE_*` keys and the API it
-> talks to must be the **same** Supabase project — a JWT minted by one project
-> won't validate against another. Local uses dev for both; prod uses prod for
-> both. This is the main reason we don't run a half-hosted preview (see below).
+- `apps/web/.env.local`
+- `apps/admin/.env.local`
+- `apps/landing-page/.env.local`
 
-## Why there is no hosted staging / preview
+The admin file owns all backend credentials because the API Route Handlers run
+inside that Next.js project.
 
-The web app's API URL is baked into `apps/web/vercel.json` (points at prod
-Railway). A Vercel *preview* build would therefore mix dev auth with the prod
-API — broken and confusing — and we have no separate dev API host. So:
+`pnpm dev` starts three applications. Main-app requests remain same-origin at
+`/api`; Vite proxies them to `http://localhost:4000` without removing the
+`/api` prefix.
 
-- All three Vercel projects are set to **deploy the production branch only**
-  (Ignored Build Step: build iff `VERCEL_ENV=production`). Pushing `dev` does
-  **not** create a preview deployment.
-- Railway deploys only the `main` branch.
+The web browser Supabase variables and the admin API Supabase variables must
+always point to the same project. A JWT minted by one Supabase project cannot be
+validated by another.
 
-If we ever want a real hosted staging environment, it needs its own API host +
-dev-scoped env on all projects + a non-hardcoded API URL. Out of scope today.
+## Vercel Configuration
 
-## Day-to-day workflow
+There are three Vercel projects: landing, web, and admin. The admin project owns
+both its private control-panel pages and the platform API Route Handlers.
 
-```
-# develop + test locally against DEV data
+Use separate Preview and Production environment values:
+
+- Preview/development values target development Supabase and Upstash.
+- Production values target production Supabase and a production Upstash DB.
+- Never expose service-role, Anthropic, admin-session, or Upstash tokens through
+  `VITE_` or `NEXT_PUBLIC_` names.
+
+The web Vercel rewrite sends `/api/:path*` to
+`https://admin.85percent.pro/api/:path*`. Preview deployments need an equivalent
+preview-aware destination before they can be considered isolated staging.
+
+## Branch Workflow
+
+```bash
 git checkout dev
-pnpm dev                      # web:5173, api:3001, admin:4000, landing:3100 → dev Supabase
-# … commit on dev …
+pnpm dev
+pnpm typecheck
+pnpm test
+pnpm build
 
-# ship to PRODUCTION (prod data, the live domains)
-git checkout main && git merge --no-ff dev && git push origin main
-#   → Vercel (3 apps) + Railway (API) auto-deploy to production
+# after local verification and review, promote dev to main manually
 ```
 
-You never run prod data locally, and `dev`-branch work never reaches a live
-URL until it's merged to `main`.
-
-## Schema changes (the one manual step)
-
-Supabase is **not** connected to GitHub on purpose — a code push must never
-auto-alter the production database. Apply schema/RLS changes deliberately:
-author on dev, then carry to prod via `supabase db push` (or the SQL editor).
-See [DEPLOYMENT_SOP.md](DEPLOYMENT_SOP.md) §2.
+This repository does not automatically alter Supabase when code deploys. Apply
+schema and RLS migrations deliberately as described in `DEPLOYMENT_SOP.md`.
