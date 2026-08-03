@@ -62,8 +62,11 @@ export class AnthropicAdapter implements LLMService {
         // compatible with the frontend AI SDK `useChat` consumer.
         return result.toDataStreamResponse({
           getErrorMessage: (error) => {
-            const message = error instanceof Error ? error.message : String(error)
-            return `The Analyst hit an error: ${message}`
+            // Streaming errors are delivered to the browser after HTTP headers
+            // have been sent. Keep provider diagnostics in platform logs rather
+            // than exposing key, model, or upstream details to end users.
+            void error
+            return 'The Analyst could not complete this response. Please try again.'
           },
         })
       },

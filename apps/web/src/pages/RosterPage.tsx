@@ -225,27 +225,26 @@ export function RosterPage() {
         </div>
         {tab === 'squad' && (
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              onClick={() => exportAmortisationXLSX({
+            {can.mutateRoster && (
+              <>
+                <Button variant="secondary" onClick={() => setCsvOpen(true)}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 16V3" /><path d="m7 8 5-5 5 5" /><path d="M5 21h14" />
+                  </svg>
+                  {t('roster.importRoster')}
+                </Button>
+                <Button onClick={() => setManualOpen(true)}>{t('roster.addPlayer')}</Button>
+              </>
+            )}
+            <RosterUtilitiesMenu
+              disabled={active.length === 0}
+              onExport={() => exportAmortisationXLSX({
                 clubName: clubName ?? '85Percent FC',
                 season: financials?.season ?? seasonKey(useSeasonStore.getState().startYear),
                 players: active,
                 currency: useClubStore.getState().baseCurrency,
               })}
-              disabled={active.length === 0}
-              title={t('roster.exportExcelTitle')}
-            >
-              {t('roster.exportExcel')}
-            </Button>
-            {can.mutateRoster && (
-              <>
-                <Button variant="secondary" onClick={() => setCsvOpen(true)}>
-                  {t('roster.uploadCsv')}
-                </Button>
-                <Button onClick={() => setManualOpen(true)}>{t('roster.addPlayer')}</Button>
-              </>
-            )}
+            />
           </div>
         )}
       </div>
@@ -445,6 +444,44 @@ export function RosterPage() {
           />
         )}
       </AnimatePresence>
+    </div>
+  )
+}
+
+function RosterUtilitiesMenu({ disabled, onExport }: { disabled: boolean; onExport: () => void }) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() => setOpen((value) => !value)}
+        aria-label={t('roster.moreActions')}
+        title={t('roster.moreActions')}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <circle cx="5" cy="12" r="1.75" /><circle cx="12" cy="12" r="1.75" /><circle cx="19" cy="12" r="1.75" />
+        </svg>
+      </Button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 mt-1 z-20 min-w-[170px] rounded-lg border border-slate-200 bg-white p-1 shadow-md">
+            <button
+              onClick={() => { onExport(); setOpen(false) }}
+              disabled={disabled}
+              title={t('roster.exportExcelTitle')}
+              className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 3v13" /><path d="m7 11 5 5 5-5" /><path d="M5 21h14" />
+              </svg>
+              {t('roster.exportExcel')}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }

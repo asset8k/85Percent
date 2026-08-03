@@ -328,8 +328,9 @@ export async function chatRoutes(app: ApiApp) {
         return reply.send(llm.streamChat({ system, messages, onFinish }).toResponse())
       } catch (err) {
         request.log.error({ err }, 'chat: failed to start stream')
-        const message = err instanceof Error ? err.message : 'Analyst unavailable'
-        return reply.status(500).send({ error: message })
+        // Provider and environment details are useful in server logs, but must
+        // never be returned to the browser (for example, missing-key messages).
+        return reply.status(503).send({ error: 'Analyst temporarily unavailable' })
       }
     },
   )
