@@ -77,6 +77,22 @@ function timeAgo(ts: number, t: TFunction): string {
   return d === 1 ? t('ai.time.yesterday') : t('ai.time.days', { n: d })
 }
 
+type ChatFailure = 'auth' | 'balance' | 'rateLimit' | 'network' | 'unavailable'
+
+function chatFailureMessage(failure: ChatFailure, t: TFunction): string {
+  return t(`ai.errors.${failure}`)
+}
+
+function classifyChatError(error: Error): ChatFailure {
+  switch (error.message) {
+    case 'chat:auth': return 'auth'
+    case 'chat:balance': return 'balance'
+    case 'chat:rate-limit': return 'rateLimit'
+    case 'chat:network': return 'network'
+    default: return 'unavailable'
+  }
+}
+
 // ── source chip — deep-links to the in-app Rules reference (not the website) ─
 function SourceChip() {
   const { t } = useTranslation()
@@ -104,6 +120,8 @@ function MessageList({
   onExample,
   compacted,
   depleted,
+  error,
+  onRetry,
 }: {
   messages: Message[]
   isLoading: boolean
@@ -111,6 +129,8 @@ function MessageList({
   compacted: boolean
   /** Balance spent — example prompts are non-actionable until topped up. */
   depleted: boolean
+  error: string | null
+  onRetry: () => void
 }) {
   const { t } = useTranslation()
   const ref = useRef<HTMLDivElement>(null)
@@ -225,6 +245,24 @@ function MessageList({
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300 [animation-delay:-0.1s]" />
                   <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-300" />
                 </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {error && !depleted && (
+          <div className="flex justify-start">
+            <div className="flex max-w-[92%] gap-2.5">
+              <AnalystAvatar compact className="mt-0.5" />
+              <div className="rounded-2xl rounded-tl-md border border-amber-200 bg-amber-50 px-3.5 py-3 text-[13px] text-amber-900">
+                <p className="font-medium">{t('ai.errorTitle')}</p>
+                <p className="mt-1 leading-relaxed text-amber-800">{error}</p>
+                <button
+                  onClick={onRetry}
+                  className="mt-2 text-[12px] font-semibold text-violet-700 hover:text-violet-800 hover:underline"
+                >
+                  {t('ai.retry')}
+                </button>
               </div>
             </div>
           </div>
@@ -559,6 +597,7 @@ export function CopilotChat() {
   // the backend returns 402 mid-session, before the next /me refresh lands.
   const [balanceUsd, setBalanceUsd] = useState<number | null>(null)
   const [serverDepleted, setServerDepleted] = useState(false)
+  const [chatError, setChatError] = useState<string | null>(null)
 
   const refreshBalance = useCallback(() => {
     void api.me
@@ -570,28 +609,42 @@ export function CopilotChat() {
       .catch(() => {})
   }, [])
 
-  // Chat transport — attaches the auth token AND watches for the 402 the backend
-  // returns when the balance is spent, latching the depleted state immediately
-  // (independent of the AI SDK's error plumbing).
+  // Chat transport — classify failed HTTP requests before the AI SDK consumes
+  // them, so the conversation can show an actionable, non-technical message.
   const chatFetch = useCallback<typeof fetch>(async (input, init) => {
-    const res = await authedFetch(input, init)
+    let res: Response
+    try {
+      res = await authedFetch(input, init)
+    } catch {
+      throw new Error('chat:network')
+    }
     if (res.status === 402) {
       setServerDepleted(true)
       setBalanceUsd(0)
+      throw new Error('chat:balance')
     }
+    if (res.status === 401 || res.status === 403) throw new Error('chat:auth')
+    if (res.status === 429) throw new Error('chat:rate-limit')
+    if (!res.ok) throw new Error('chat:unavailable')
     return res
   }, [])
 
-  const { messages, input, handleInputChange, handleSubmit, append, setMessages, stop, isLoading } =
+  const { messages, input, handleInputChange, handleSubmit, append, setMessages, stop, reload, isLoading } =
     useChat({
       api: '/api/chat',
       fetch: chatFetch,
+      keepLastMessageOnError: true,
       // When a turn completes the backend has persisted it and debited the
       // balance — refresh the sidebar (new/updated session + title) and the
       // remaining credit readout.
       onFinish: () => {
+        setChatError(null)
         void refreshSessions()
         refreshBalance()
+      },
+      onError: (error) => {
+        const failure = classifyChatError(error)
+        if (failure !== 'balance') setChatError(chatFailureMessage(failure, t))
       },
     })
 
@@ -644,6 +697,7 @@ export function CopilotChat() {
   // Depends ONLY on activeId so it never clobbers a live stream.
   useEffect(() => {
     let cancelled = false
+    setChatError(null)
     if (!activeId) {
       setMessages([])
       setActiveSummary(null)
@@ -708,13 +762,20 @@ export function CopilotChat() {
 
   const submit = () => {
     if (!input.trim() || depleted) return
+    setChatError(null)
     useCopilot.getState().ensureActiveSession()
     handleSubmit(undefined, sendOpts())
   }
   const onExample = (text: string) => {
     if (depleted) return
+    setChatError(null)
     useCopilot.getState().ensureActiveSession()
     void append({ role: 'user', content: text }, sendOpts())
+  }
+  const retry = () => {
+    if (depleted) return
+    setChatError(null)
+    void reload(sendOpts())
   }
   const handleNew = () => {
     stop()
@@ -748,6 +809,8 @@ export function CopilotChat() {
         onExample={onExample}
         compacted={!!activeSummary}
         depleted={depleted}
+        error={chatError}
+        onRetry={retry}
       />
       <Composer
         input={input}

@@ -95,6 +95,12 @@ function newDraft(actionType: ScenarioActionType): DraftAction {
   return { id: freshId(), actionType, playerId: null }
 }
 
+function actionHasFinancialInput(action: DraftAction): boolean {
+  return Object.entries(action).some(([key, value]) =>
+    key !== 'id' && key !== 'actionType' && key !== 'playerId' && typeof value === 'number' && Number.isFinite(value),
+  )
+}
+
 // Action-type display labels are translated at render via `scenarios.actionLabel.<type>`.
 const ACTION_COLOR: Record<ScenarioActionType, string> = {
   buy:      'text-violet-700 border-violet-200 bg-violet-50',
@@ -210,17 +216,31 @@ export function ScenariosPage() {
     return { ...financials, currentSquadCosts: baselineSquadCostsPence }
   }, [financials, baselineSquadCostsPence])
 
+  // For the "before" baseline, exclude the scenario being edited so it does
+  // not double-count its existing actions while the draft is being changed.
+  const baselineScenarios = useMemo(
+    () => editingScenarioId
+      ? scenarios.filter((s) => s.id !== editingScenarioId && s.isIncluded)
+      : scenarios.filter((s) => s.isIncluded),
+    [editingScenarioId, scenarios],
+  )
+
   // Dry-run the draft against the active baseline.
   const dryRun = useMemo(() => {
     if (!liveFinancials || draftActions.length === 0) return null
-    // For the "before" baseline, exclude the scenario being edited (so it
-    // doesn't double-count its own old actions when editing in place)
-    const baselineScenarios = editingScenarioId
-      ? scenarios.filter((s) => s.id !== editingScenarioId && s.isIncluded)
-      : scenarios.filter((s) => s.isIncluded)
     const engineActions = draftActions.map(draftToEngine)
     return computeDryRun(liveFinancials, baselineScenarios, engineActions)
-  }, [liveFinancials, scenarios, editingScenarioId, draftActions])
+  }, [liveFinancials, baselineScenarios, draftActions])
+
+  // A concise impact per transaction helps users understand a compound plan
+  // before they need to interpret the aggregate compliance gauge.
+  const actionImpacts = useMemo(() => {
+    if (!liveFinancials) return new Map<string, ReturnType<typeof computeDryRun>>()
+    return new Map(draftActions.map((action) => [
+      action.id,
+      computeDryRun(liveFinancials, baselineScenarios, [draftToEngine(action)]),
+    ]))
+  }, [liveFinancials, baselineScenarios, draftActions])
 
   // Phase 4 trigger — serialize the current → projected SCR and the proposed
   // transactions, then open the Co-pilot for an immediate breakdown.
@@ -321,10 +341,12 @@ export function ScenariosPage() {
       // Reload the full detail so we have ids + actionCount
       const detail = await api.scenarios.get(result.id)
       upsertScenario(detail)
-      // Reset builder
-      setDraftName('')
-      setDraftActions([])
-      setEditingScenarioId(null)
+      // Keep the saved scenario open. Clearing the builder here made the save
+      // feel destructive and hid the next decision: whether to apply it.
+      setDraftName(detail.name)
+      setDraftActions(detail.actions.map(actionToDraft))
+      setEditingScenarioId(detail.id)
+      toast.success(t('scenarios.saveSuccess'))
     } catch (e) {
       setError(e instanceof Error ? e.message : t('scenarios.failSave'))
     } finally {
@@ -436,7 +458,7 @@ export function ScenariosPage() {
 
           {/* Name + save bar */}
           <Card className="p-5">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <input
                 value={draftName}
                 onChange={(e) => setDraftName(e.target.value)}
@@ -451,41 +473,15 @@ export function ScenariosPage() {
                 {saving ? <Spinner size={14} /> : null}
                 {saving ? t('common.saving') : editingScenarioId ? t('scenarios.saveChanges') : t('scenarios.saveScenario')}
               </Button>
-              {editingScenarioId && (
-                <Button variant="ghost" onClick={handleNewScenario}>{t('scenarios.new')}</Button>
-              )}
+              <ScenarioWorkspaceStatus
+                scenario={editingScenarioId ? scenarios.find((s) => s.id === editingScenarioId) ?? null : null}
+              />
             </div>
           </Card>
 
-          {/* Live projection */}
-          {dryRun && (
-            <Card className="p-6">
-              <ProjectionPanel
-                dryRun={dryRun}
-                financials={liveFinancials}
-                // Plan-status context — drives the header pill + inline switch.
-                // When editing a saved scenario we know its current inclusion;
-                // for a fresh draft we surface a 'Draft — save to include' chip.
-                editingScenario={
-                  editingScenarioId
-                    ? scenarios.find((s) => s.id === editingScenarioId) ?? null
-                    : null
-                }
-                canToggle={can.toggleActiveBaseline}
-                onToggleInclude={handleToggleInclude}
-                onAskCopilot={handleAskCopilotScenario}
-                otherIncludedCount={
-                  scenarios.filter(
-                    (s) => s.isIncluded && s.id !== editingScenarioId,
-                  ).length
-                }
-              />
-            </Card>
-          )}
-
           {/* Action list */}
           <Card className="p-5">
-            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+            <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
               <div className="flex items-center gap-3">
                 <span className="inline-block w-1 h-5 rounded-full bg-violet-600" />
                 <div>
@@ -495,15 +491,19 @@ export function ScenariosPage() {
                   </p>
                 </div>
               </div>
-              <ActionAdder onAdd={handleAddAction} />
+              <div className="flex items-center gap-3 ml-auto">
+                {dryRun && <LiveImpactSummary dryRun={dryRun} />}
+                <ActionAdder onAdd={handleAddAction} />
+              </div>
             </div>
 
             {draftActions.length === 0 ? (
-              <div className="border-2 border-dashed border-slate-200 rounded-xl p-10 text-center">
+              <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center">
                 <p className="text-[14px] text-slate-700 font-medium">{t('scenarios.noActions')}</p>
                 <p className="text-[12px] text-slate-500 mt-1.5">
                   {t('scenarios.noActionsSub')}
                 </p>
+                <QuickActionChoices onAdd={handleAddAction} />
               </div>
             ) : (
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -515,6 +515,7 @@ export function ScenariosPage() {
                         action={action}
                         index={idx}
                         roster={players}
+                        impact={actionImpacts.get(action.id)}
                         onUpdate={(patch) => handleUpdateAction(action.id, patch)}
                         onRemove={() => handleRemoveAction(action.id)}
                       />
@@ -524,6 +525,22 @@ export function ScenariosPage() {
               </DndContext>
             )}
           </Card>
+
+          {/* Live projection */}
+          {dryRun && (
+            <Card id="live-projection" className="p-6 scroll-mt-5">
+              <ProjectionPanel
+                dryRun={dryRun}
+                financials={liveFinancials}
+                onAskCopilot={handleAskCopilotScenario}
+                otherIncludedCount={
+                  scenarios.filter(
+                    (s) => s.isIncluded && s.id !== editingScenarioId,
+                  ).length
+                }
+              />
+            </Card>
+          )}
         </div>
       </div>
 
@@ -538,6 +555,33 @@ export function ScenariosPage() {
         )}
       </AnimatePresence>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Current workspace state — kept beside save so the next decision is explicit.
+// ---------------------------------------------------------------------------
+function ScenarioWorkspaceStatus({
+  scenario,
+}: {
+  scenario: ScenarioDetail | null
+}) {
+  const { t } = useTranslation()
+  if (!scenario) {
+    return <span className="text-[12px] font-medium text-slate-500">{t('scenarios.workspace.draft')}</span>
+  }
+
+  if (scenario.isIncluded) {
+    return (
+      <div className="inline-flex items-center gap-2 text-[12px] font-medium text-violet-700" aria-label={t('scenarios.workspace.applied')}>
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-violet-600" />
+        {t('scenarios.workspace.applied')}
+      </div>
+    )
+  }
+
+  return (
+    <span className="text-[12px] font-medium text-slate-500">{t('scenarios.workspace.saved')}</span>
   )
 }
 
@@ -696,6 +740,10 @@ function ScenarioListItem({
 function ActionAdder({ onAdd }: { onAdd: (t: ScenarioActionType) => void }) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
+  const groups: Array<{ label: string; actions: ScenarioActionType[] }> = [
+    { label: t('scenarios.transactionGroups.recruit'), actions: ['buy', 'loan_in'] },
+    { label: t('scenarios.transactionGroups.exit'), actions: ['sell', 'loan_out', 'release'] },
+  ]
   return (
     <div className="relative">
       <Button variant="outline" onClick={() => setOpen((v) => !v)}>
@@ -707,15 +755,22 @@ function ActionAdder({ onAdd }: { onAdd: (t: ScenarioActionType) => void }) {
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-md p-1 min-w-[180px]">
-            {(['buy', 'sell', 'loan_in', 'loan_out', 'release'] as ScenarioActionType[]).map((at) => (
-              <button
-                key={at}
-                onClick={() => { onAdd(at); setOpen(false) }}
-                className="w-full text-left px-3 py-2 text-[13px] text-slate-700 hover:bg-violet-50 hover:text-violet-700 rounded"
-              >
-                {t(`scenarios.actionLabel.${at}`)}
-              </button>
+          <div className="absolute right-0 mt-1 z-20 bg-white border border-slate-200 rounded-lg shadow-md p-1.5 min-w-[190px]">
+            {groups.map((group, index) => (
+              <div key={group.label} className={index > 0 ? 'mt-1.5 pt-1.5 border-t border-slate-100' : ''}>
+                <div className="px-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                  {group.label}
+                </div>
+                {group.actions.map((at) => (
+                  <button
+                    key={at}
+                    onClick={() => { onAdd(at); setOpen(false) }}
+                    className="w-full text-left px-2.5 py-2 text-[13px] text-slate-700 hover:bg-violet-50 hover:text-violet-700 rounded"
+                  >
+                    {t(`scenarios.actionLabel.${at}`)}
+                  </button>
+                ))}
+              </div>
             ))}
           </div>
         </>
@@ -724,19 +779,65 @@ function ActionAdder({ onAdd }: { onAdd: (t: ScenarioActionType) => void }) {
   )
 }
 
+function QuickActionChoices({ onAdd }: { onAdd: (t: ScenarioActionType) => void }) {
+  const { t } = useTranslation()
+  const actions: ScenarioActionType[] = ['buy', 'sell', 'loan_in', 'loan_out', 'release']
+  return (
+    <div className="mt-5 flex flex-wrap justify-center gap-2">
+      {actions.map((action) => (
+        <button
+          key={action}
+          onClick={() => onAdd(action)}
+          className={cn(
+            'rounded-lg border px-3 py-2 text-[12px] font-medium transition-colors',
+            ACTION_COLOR[action],
+            'hover:brightness-95',
+          )}
+        >
+          {t(`scenarios.actionLabel.${action}`)}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function LiveImpactSummary({ dryRun }: { dryRun: ReturnType<typeof computeDryRun> }) {
+  const { t } = useTranslation()
+  const projectedPct = dryRun.after.ratio * 100
+  const deltaPp = (dryRun.after.ratio - dryRun.before.ratio) * 100
+  const statusTone = dryRun.after.status === 'green'
+    ? 'text-green-700 bg-green-50 border-green-200'
+    : dryRun.after.status === 'amber'
+      ? 'text-amber-700 bg-amber-50 border-amber-200'
+      : 'text-red-700 bg-red-50 border-red-200'
+  return (
+    <div className="hidden lg:flex sticky top-4 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] shadow-sm">
+      <span className="font-semibold text-slate-900 num">{projectedPct.toFixed(1)}% SCR</span>
+      <span className={cn('font-medium num', deltaPp <= 0 ? 'text-green-700' : 'text-red-700')}>
+        {deltaPp > 0 ? '+' : ''}{deltaPp.toFixed(1)}%
+      </span>
+      <span className={cn('rounded-full border px-1.5 py-0.5 font-medium', statusTone)}>
+        {dryRun.after.status === 'green' ? t('common.status.compliant') : dryRun.after.status === 'amber' ? t('common.status.levyZone') : t('common.status.pointsRisk')}
+      </span>
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Sortable action row — the meat of the builder
 // ---------------------------------------------------------------------------
 function SortableActionRow({
-  action, index, roster, onUpdate, onRemove,
+  action, index, roster, impact, onUpdate, onRemove,
 }: {
   action: DraftAction
   index: number
   roster: PlayerWithContract[]
+  impact: ReturnType<typeof computeDryRun> | undefined
   onUpdate: (patch: Partial<DraftAction>) => void
   onRemove: () => void
 }) {
   const { t } = useTranslation()
+  const { format: fmtMoney } = useWorkspaceCurrency()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: action.id })
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -772,6 +873,17 @@ function SortableActionRow({
         )}>
           {index + 1}. {t(`scenarios.actionLabel.${action.actionType}`)}
         </span>
+        {impact && actionHasFinancialInput(action) && (
+          <span className={cn(
+            'text-[11px] font-medium num',
+            impact.after.ratio <= impact.before.ratio ? 'text-green-700' : 'text-red-700',
+          )}>
+            {t('scenarios.actionImpact', {
+              delta: `${impact.after.ratio > impact.before.ratio ? '+' : ''}${((impact.after.ratio - impact.before.ratio) * 100).toFixed(1)}%`,
+              costs: signedPence(impact.after.baselineSquadCosts - impact.before.baselineSquadCosts, fmtMoney),
+            })}
+          </span>
+        )}
         <div className="flex-1" />
         <button
           onClick={onRemove}
@@ -830,24 +942,33 @@ function ActionFields({
 
   if (action.actionType === 'buy') {
     return (
-      <div className="grid grid-cols-2 gap-4">
-        <Field label={t('scenarios.fields.transferFee')}>
-          <PoundInput value={action.transferFeePounds ?? NaN} onChange={(n) => onUpdate({ transferFeePounds: n })} />
-        </Field>
-        <Field label={t('scenarios.fields.contractLength')}>
-          <NumericInput
-            value={action.contractLengthYears ?? NaN}
-            onChange={(n) => onUpdate({ contractLengthYears: n })}
-            className={inputBase}
-            placeholder="4"
-          />
-        </Field>
-        <Field label={t('scenarios.fields.weeklyWage')}>
-          <PoundInput value={action.weeklyWagePounds ?? NaN} onChange={(n) => onUpdate({ weeklyWagePounds: n })} />
-        </Field>
-        <Field label={t('scenarios.fields.agentFee')}>
-          <PoundInput value={action.agentFeePounds ?? NaN} onChange={(n) => onUpdate({ agentFeePounds: n })} />
-        </Field>
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <Field label={t('scenarios.fields.transferFee')}>
+            <PoundInput value={action.transferFeePounds ?? NaN} onChange={(n) => onUpdate({ transferFeePounds: n })} />
+          </Field>
+          <Field label={t('scenarios.fields.contractLength')}>
+            <NumericInput
+              value={action.contractLengthYears ?? NaN}
+              onChange={(n) => onUpdate({ contractLengthYears: n })}
+              className={inputBase}
+              placeholder="4"
+            />
+          </Field>
+          <Field label={t('scenarios.fields.weeklyWage')}>
+            <PoundInput value={action.weeklyWagePounds ?? NaN} onChange={(n) => onUpdate({ weeklyWagePounds: n })} />
+          </Field>
+        </div>
+        <details className="group">
+          <summary className="cursor-pointer text-[12px] font-medium text-slate-500 hover:text-slate-700">
+            {t('scenarios.fields.additionalCosts')}
+          </summary>
+          <div className="mt-3 max-w-[calc(50%-0.5rem)]">
+            <Field label={t('scenarios.fields.agentFee')}>
+              <PoundInput value={action.agentFeePounds ?? NaN} onChange={(n) => onUpdate({ agentFeePounds: n })} />
+            </Field>
+          </div>
+        </details>
       </div>
     )
   }
@@ -964,18 +1085,11 @@ function PlayerPicker({
 function ProjectionPanel({
   dryRun,
   financials,
-  editingScenario,
-  canToggle,
-  onToggleInclude,
   onAskCopilot,
   otherIncludedCount,
 }: {
   dryRun: ReturnType<typeof computeDryRun>
   financials: ClubFinancialsResponse
-  /** The currently-loaded saved scenario, if any. Null for fresh drafts. */
-  editingScenario: ScenarioDetail | null
-  canToggle: boolean
-  onToggleInclude: (id: string, next: boolean) => void
   /** Opens the Compliance Analyst with this projection serialized as context. */
   onAskCopilot: () => void
   /** Number of OTHER included scenarios feeding the baseline tile. */
@@ -992,10 +1106,6 @@ function ProjectionPanel({
   const redPct = after.adjustedRevenue > 0 ? (thresholds.redPence / after.adjustedRevenue) * 100 : 85
 
   const status = after.status
-  // Three-state plan status: included | excluded | draft (not saved yet).
-  const planState: 'included' | 'excluded' | 'draft' =
-    !editingScenario ? 'draft' : editingScenario.isIncluded ? 'included' : 'excluded'
-
   const colorMap = {
     green: 'text-green-700 bg-green-50 border-green-200',
     amber: 'text-amber-700 bg-amber-50 border-amber-200',
@@ -1022,19 +1132,12 @@ function ProjectionPanel({
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <CopilotTriggerButton onClick={onAskCopilot} />
-          <PlanStatusChip
-            state={planState}
-            canToggle={canToggle}
-            onToggle={(next) => {
-              if (editingScenario) onToggleInclude(editingScenario.id, next)
-            }}
-          />
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 mb-5">
-        {/* Active Baseline tile — neutral white card, always */}
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
+        {/* Baseline stays compact; the projected outcome is the decision focus. */}
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
           <div className="meta-label">{t('scenarios.projection.activeBaseline')}</div>
           <div className="mt-2">
             <AnimatedNumber
@@ -1050,15 +1153,11 @@ function ProjectionPanel({
           <div className="text-[11px] text-slate-500 mt-1.5">{baselineSubtitle}</div>
         </div>
 
-        {/* With this plan tile — violet ring when this scenario is currently
-            in the active plan (i.e. this number is what's driving the top-bar
-            SCR), neutral when it's hypothetical. Status border color (green/
-            amber/red) still indicates SCR compliance on the left edge. */}
+        {/* The projected result carries the compliance tone and decision copy. */}
         <div
           className={cn(
             'rounded-xl border p-5 border-l-4 relative',
             colorMap[status],
-            planState === 'included' && 'ring-2 ring-violet-400 ring-offset-2 ring-offset-white',
           )}
         >
           <div className="meta-label">{t('scenarios.projection.withThisPlan')}</div>
@@ -1070,6 +1169,12 @@ function ProjectionPanel({
               className="num text-[28px] font-semibold leading-none"
             />
           </div>
+          <div className={cn(
+            'mt-1 text-[11px] font-medium num',
+            projectedPct <= currentPct ? 'text-green-700' : 'text-red-700',
+          )}>
+            {projectedPct > currentPct ? '+' : ''}{(projectedPct - currentPct).toFixed(1)}% {t('scenarios.projection.vsBaseline')}
+          </div>
           <div className="text-[11px] text-slate-500 mt-2 num">
             {t('scenarios.projection.costs')} <AnimatedNumber value={after.baselineSquadCosts} format={fmtMoneyNum} />
           </div>
@@ -1077,24 +1182,6 @@ function ProjectionPanel({
             <StatusBadge status={status}>
               {status === 'green' ? t('common.status.compliant') : status === 'amber' ? t('common.status.levyZone') : t('common.status.pointsRisk')}
             </StatusBadge>
-            {planState === 'included' && (
-              <span className="inline-flex items-center gap-1 text-[10.5px] font-medium text-violet-700">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M20 6 9 17l-5-5" />
-                </svg>
-                {t('scenarios.projection.drivingScr')}
-              </span>
-            )}
-            {planState === 'excluded' && (
-              <span className="text-[10.5px] text-slate-500">
-                {t('scenarios.projection.hypothetical')}
-              </span>
-            )}
-            {planState === 'draft' && (
-              <span className="text-[10.5px] text-slate-500">
-                {t('scenarios.projection.draftHint')}
-              </span>
-            )}
           </div>
         </div>
       </div>
@@ -1105,64 +1192,6 @@ function ProjectionPanel({
         greenPct={greenPct}
         redPct={redPct}
       />
-    </div>
-  )
-}
-
-// Status chip + inline switch above the projection tiles. Communicates which
-// of three states the loaded scenario sits in, and lets the user flip the
-// include state from here without scrolling back to the saved-scenarios rail.
-function PlanStatusChip({
-  state,
-  canToggle,
-  onToggle,
-}: {
-  state: 'included' | 'excluded' | 'draft'
-  canToggle: boolean
-  onToggle: (next: boolean) => void
-}) {
-  const { t } = useTranslation()
-  if (state === 'included') {
-    return (
-      <div className="inline-flex items-center gap-2.5 rounded-full bg-violet-50 border border-violet-200 pl-3 pr-2 py-1">
-        <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-violet-700">
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-violet-600" />
-          {t('scenarios.chip.inPlan')}
-        </span>
-        <Switch
-          checked={true}
-          onChange={onToggle}
-          disabled={!canToggle}
-          size="sm"
-          tooltip={canToggle ? t('scenarios.removeFromPlan') : undefined}
-          aria-label={t('scenarios.removeFromPlan')}
-        />
-      </div>
-    )
-  }
-  if (state === 'excluded') {
-    return (
-      <div className="inline-flex items-center gap-2.5 rounded-full bg-slate-50 border border-slate-200 pl-3 pr-2 py-1">
-        <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-slate-600">
-          <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-400" />
-          {t('scenarios.chip.notInPlan')}
-        </span>
-        <Switch
-          checked={false}
-          onChange={onToggle}
-          disabled={!canToggle}
-          size="sm"
-          tooltip={canToggle ? t('scenarios.chip.includeTooltip') : undefined}
-          aria-label={t('scenarios.includeInPlan')}
-        />
-      </div>
-    )
-  }
-  // Draft state — no switch (nothing to toggle until saved)
-  return (
-    <div className="inline-flex items-center gap-2 rounded-full bg-slate-50 border border-slate-200 px-3 py-1.5">
-      <span className="inline-block w-1.5 h-1.5 rounded-full bg-slate-400" />
-      <span className="text-[12px] font-medium text-slate-600">{t('scenarios.chip.draft')}</span>
     </div>
   )
 }
@@ -1263,7 +1292,7 @@ function CompareModal({
                   v === 0 ? 'text-slate-900' : (v > 0) === worseWhenPositive ? 'text-red-700' : 'text-green-700'
                 return (
                   <div className="grid grid-cols-3 gap-4">
-                    <Stat label={t('scenarios.compare.dScr')} value={`${dScr >= 0 ? '+' : ''}${dScr.toFixed(2)} pp`} tone={tone(true, dScr)} />
+                    <Stat label={t('scenarios.compare.dScr')} value={`${dScr >= 0 ? '+' : ''}${dScr.toFixed(2)}%`} tone={tone(true, dScr)} />
                     <Stat label={t('scenarios.compare.dCosts')} value={signedPence(dCosts, fmtMoney)} tone={tone(true, dCosts)} />
                     <Stat label={t('scenarios.compare.dRevenue')} value={signedPence(dRev, fmtMoney)} tone={tone(false, dRev)} />
                   </div>
@@ -1331,7 +1360,7 @@ function CompareColumn({
             <span className="text-slate-400">{t('scenarios.compare.vsBaseline')}</span>
             <span className={cn('num inline-flex items-center gap-0.5 font-medium', worse ? 'text-red-700' : 'text-green-700')}>
               <DeltaArrow up={worse} />
-              {worse ? '+' : ''}{delta.toFixed(2)} pp
+              {worse ? '+' : ''}{delta.toFixed(2)}%
             </span>
           </div>
           <div className="mt-4 space-y-1.5 border-t border-slate-100 pt-3">
