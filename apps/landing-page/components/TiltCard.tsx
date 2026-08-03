@@ -1,20 +1,14 @@
-'use client'
-
-import Tilt from 'react-parallax-tilt'
-import { useReducedMotion } from 'framer-motion'
-
 /**
- * TiltCard — a restrained 3D parallax tilt for showcase panels, with a faint glare
- * sweep so a surface catches the light as the pointer crosses it (the "exquisite"
- * touch). Angles are kept small and the transition slow, in keeping with the heavy/
- * no-bounce doctrine. Disabled under reduced-motion or when `enable` is false.
+ * A stable card wrapper. The former pointer-driven 3D implementation continuously
+ * recalculated transforms and glare while the cursor moved, which was costly on
+ * Safari and offered no value on touch devices.
  */
 export function TiltCard({
   children,
   className,
-  max = 6,
-  glare = true,
-  enable = true,
+  max: _max,
+  glare: _glare,
+  enable: _enable,
 }: {
   children: React.ReactNode
   className?: string
@@ -22,25 +16,5 @@ export function TiltCard({
   glare?: boolean
   enable?: boolean
 }) {
-  const reduce = useReducedMotion()
-  const on = enable && !reduce
-
-  return (
-    <Tilt
-      tiltEnable={on}
-      tiltMaxAngleX={max}
-      tiltMaxAngleY={max}
-      perspective={1100}
-      transitionSpeed={1600}
-      scale={1.01}
-      glareEnable={on && glare}
-      glareMaxOpacity={0.12}
-      glareColor="#ffffff"
-      glarePosition="all"
-      glareBorderRadius="16px"
-      className={className}
-    >
-      {children}
-    </Tilt>
-  )
+  return <div className={className}>{children}</div>
 }

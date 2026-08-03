@@ -46,7 +46,6 @@ export function Footer() {
               variant="primary"
               size="lg"
               source="footer"
-              pulse
               magnetic
             />
           </div>

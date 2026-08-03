@@ -1,7 +1,6 @@
 'use client'
 
 import { MotionConfig } from 'framer-motion'
-import { SmoothScroll } from '@/components/SmoothScroll'
 
 /**
  * Client providers for the marketing site.
@@ -15,7 +14,6 @@ import { SmoothScroll } from '@/components/SmoothScroll'
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <MotionConfig reducedMotion="user">
-      <SmoothScroll />
       {children}
     </MotionConfig>
   )

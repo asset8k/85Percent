@@ -107,17 +107,16 @@ export function ScrGauge({
           the dial: a bright radial tick, a pulsing marker on the arc, and a bold
           read of the number itself. */}
       <line x1={limInner.x} y1={limInner.y} x2={limOuter.x} y2={limOuter.y} stroke="#ffffff" strokeOpacity="0.92" strokeWidth="3.5" strokeLinecap="round" />
-      {/* Pulsing halo — always rendered (stable initial, so SSR matches), animation
-          gated by reduced-motion at the `animate` level, not by conditional render. */}
-      <motion.circle
+      {/* Static halo marks the regulatory limit without retaining an infinite
+          animation after the chart has settled. */}
+      <circle
         cx={limOn.x}
         cy={limOn.y}
         fill="none"
         stroke="#C4B5FD"
         strokeWidth="2"
-        initial={{ r: 6, opacity: 0 }}
-        animate={reduce ? { r: 6, opacity: 0 } : { r: [6, 18], opacity: [0.7, 0] }}
-        transition={reduce ? undefined : { duration: 2.2, repeat: Infinity, ease: 'easeOut' }}
+        r="10"
+        opacity="0.28"
       />
       <circle cx={limOn.x} cy={limOn.y} r="5.5" fill="#FFFFFF" />
       <circle cx={limOn.x} cy={limOn.y} r="5.5" fill="none" stroke="#8B5CF6" strokeWidth="2" />

@@ -79,7 +79,7 @@ export function RequestAccessButton({
   }
 
   const surface = gradientShift
-    ? 'cta-gradient-shift text-white shadow-[0_8px_24px_-8px_rgba(109,40,217,0.7)] hover:brightness-110'
+    ? 'bg-violet-tip text-white shadow-[0_8px_24px_-8px_rgba(109,40,217,0.7)] hover:brightness-110'
     : VARIANTS[variant]
 
   const btn = (

@@ -27,6 +27,10 @@ const fraunces = Fraunces({
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://85percent.com'),
+  icons: {
+    icon: [{ url: '/favicon-85percent-v3.svg', type: 'image/svg+xml' }],
+    shortcut: ['/favicon-85percent-v3.svg'],
+  },
   title: {
     default: '85Percent · The Squad Cost Engine',
     template: '%s · 85Percent',
