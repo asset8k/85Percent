@@ -40,6 +40,14 @@ export function accessLabel(me: Pick<AppMe, 'title'> & Permissions): string {
   return 'Read-only'
 }
 
+/** Short access label for constrained chrome. The full role remains available
+ * through the profile button's accessible label. */
+export function compactAccessLabel(me: Pick<AppMe, 'title'> & Permissions): string {
+  if (me.isWorkspaceAdmin) return 'Admin'
+  if (me.canEditRoster || me.canEditScenarios) return 'Editor'
+  return 'Read-only'
+}
+
 function readCachedMe(): AppMe | null {
   try {
     const raw = localStorage.getItem(ME_CACHE_KEY)

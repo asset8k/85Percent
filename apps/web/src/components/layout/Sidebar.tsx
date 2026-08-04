@@ -7,110 +7,42 @@ import { cn } from '@/lib/utils'
 import { useScrollLock } from '@/lib/useScrollLock'
 import { Wordmark } from '@/components/ui/Wordmark'
 import { useClubStore } from '@/stores/club'
-import { useAuthStore } from '@/stores/auth'
 import { useCan } from '@/lib/role'
 import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
+import { resolveProductCapabilities, visibleNavigation, type NavigationItemId } from '@/lib/navigation'
+import { Skeleton } from '@/components/ui/skeleton'
 
-const navItems = [
-  {
-    to: '/dashboard',
-    labelKey: 'nav.dashboard',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M4 18V8" /><path d="M10 18V4" /><path d="M16 18V11" /><path d="M3 21h18" />
-      </svg>
-    ),
-  },
-  {
-    to: '/roster',
-    labelKey: 'nav.roster',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-        <circle cx="9" cy="7" r="4" />
-        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-      </svg>
-    ),
-  },
-  {
-    to: '/scenarios',
-    labelKey: 'nav.scenarios',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 2v20" /><path d="M5 9l7-7 7 7" /><path d="M19 15l-7 7-7-7" />
-      </svg>
-    ),
-  },
-  {
-    to: '/league-table',
-    labelKey: 'nav.leagueTable',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M3 5h18" /><path d="M3 12h18" /><path d="M3 19h18" />
-        <path d="M8 5v14" />
-      </svg>
-    ),
-  },
-  {
-    to: '/calendar',
-    labelKey: 'nav.calendar',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="5" width="18" height="16" rx="1.5" /><path d="M3 10h18" /><path d="M8 3v4" /><path d="M16 3v4" />
-      </svg>
-    ),
-  },
-  {
-    to: '/rules',
-    labelKey: 'nav.rules',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
-      </svg>
-    ),
-  },
-  {
-    to: '/financials',
-    labelKey: 'nav.financials',
-    cfoOnly: true,
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M18 7c0-5.333-8-5.333-8 0" /><path d="M10 7v14" /><path d="M6 21h12" /><path d="M6 13h10" />
-      </svg>
-    ),
-  },
-  {
-    to: '/ssr',
-    labelKey: 'nav.ssrTests',
-    plOnly: true,
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 2l9 4v6c0 5-3.5 9-9 10-5.5-1-9-5-9-10V6l9-4z" />
-        <path d="M9 12l2 2 4-4" />
-      </svg>
-    ),
-  },
-]
-
-const SettingsIcon = (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="3" />
-    <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1A2 2 0 1 1 4.4 17l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8L4.2 7A2 2 0 1 1 7 4.2l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
-  </svg>
-)
-
-const LogoutIcon = (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" />
-  </svg>
-)
+const navIcons: Record<NavigationItemId, React.ReactNode> = {
+  dashboard: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M4 18V8" /><path d="M10 18V4" /><path d="M16 18V11" /><path d="M3 21h18" /></svg>
+  ),
+  roster: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+  ),
+  scenarios: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20" /><path d="M5 9l7-7 7 7" /><path d="M19 15l-7 7-7-7" /></svg>
+  ),
+  leagueTable: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M3 5h18" /><path d="M3 12h18" /><path d="M3 19h18" /><path d="M8 5v14" /></svg>
+  ),
+  calendar: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="16" rx="1.5" /><path d="M3 10h18" /><path d="M8 3v4" /><path d="M16 3v4" /></svg>
+  ),
+  rules: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>
+  ),
+  financials: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M18 7c0-5.333-8-5.333-8 0" /><path d="M10 7v14" /><path d="M6 21h12" /><path d="M6 13h10" /></svg>
+  ),
+  ssrTests: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l9 4v6c0 5-3.5 9-9 10-5.5-1-9-5-9-10V6l9-4z" /><path d="M9 12l2 2 4-4" /></svg>
+  ),
+}
 
 export function Sidebar() {
   const { t } = useTranslation()
-  const { clubId, clubName, leagueId, clubLogoUrl } = useClubStore()
-  const { signOut } = useAuthStore()
+  const { bootstrapStatus, clubId, clubName, leagueId, clubLogoUrl } = useClubStore()
   const navigate = useNavigate()
   const can = useCan()
   const [changeOpen, setChangeOpen] = useState(false)
@@ -132,15 +64,12 @@ export function Sidebar() {
   }, [clubId, can.switchLeague])
   const showClubNudge = squadEmpty === true && can.switchLeague && !nudgeDismissed && !changeOpen
 
-  const visibleNavItems = navItems.filter((item) => {
-    // PL-only items are hidden for non-PL clubs (the API also enforces this)
-    if ((item as { plOnly?: boolean }).plOnly && leagueId !== 'premier-league') return false
-    // CFO-only items (Financials) are hidden for other roles (API enforces too)
-    if ((item as { cfoOnly?: boolean }).cfoOnly && !can.editClubFinancials) return false
-    return true
-  })
+  const capabilities = resolveProductCapabilities(leagueId ?? '', can)
+  const visibleNavItems = visibleNavigation(capabilities)
 
   const leagueLabel = leagueId === 'premier-league' ? t('chrome.leaguePremier') : t('chrome.leagueChampionship')
+
+  if (bootstrapStatus !== 'ready') return <SidebarLoading />
 
   // Club crest (or initials fallback) — reused in the clickable + static rows.
   const clubAvatar = clubLogoUrl ? (
@@ -175,7 +104,7 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 py-4 flex flex-col gap-0.5 overflow-y-auto">
-        {visibleNavItems.map(({ to, labelKey, icon }) => (
+        {visibleNavItems.map(({ id, to, labelKey }) => (
           <NavLink
             key={to}
             to={to}
@@ -194,7 +123,7 @@ export function Sidebar() {
                   <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r bg-violet-600" />
                 )}
                 <span className={cn(isActive ? 'text-violet-600' : 'text-slate-400 group-hover:text-slate-600')}>
-                  {icon}
+                  {navIcons[id]}
                 </span>
                 <span>{t(labelKey)}</span>
               </>
@@ -203,7 +132,7 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* Workspace + sign out */}
+      {/* Workspace */}
       <div className="relative px-5 py-4 border-t border-slate-100">
         {/* First-run coachmark — points down at the workspace switcher. */}
         <AnimatePresence>
@@ -253,7 +182,7 @@ export function Sidebar() {
             onClick={() => setChangeOpen(true)}
             title={t('chrome.changeClub')}
             className={cn(
-              'group flex w-full items-center gap-2.5 mb-3 -mx-1 px-1 py-1 rounded-lg text-left hover:bg-slate-50 transition-colors',
+              'group flex w-full items-center gap-2.5 -mx-1 px-1 py-1 rounded-lg text-left hover:bg-slate-50 transition-colors',
               showClubNudge && 'ring-2 ring-violet-400 ring-offset-1 bg-violet-50/60',
             )}
           >
@@ -267,7 +196,7 @@ export function Sidebar() {
             </svg>
           </button>
         ) : (
-          <div className="flex items-center gap-2.5 mb-3">
+          <div className="flex items-center gap-2.5">
             {clubAvatar}
             <div className="min-w-0">
               <div className="text-[13px] font-medium text-slate-900 truncate">{clubName ?? t('chrome.yourClub')}</div>
@@ -275,25 +204,6 @@ export function Sidebar() {
             </div>
           </div>
         )}
-        <NavLink
-          to="/setup"
-          className={({ isActive }) =>
-            cn(
-              'flex w-full items-center gap-2 text-[13px] transition-colors py-1',
-              isActive ? 'text-violet-700 font-medium' : 'text-slate-400 hover:text-slate-700',
-            )
-          }
-        >
-          {SettingsIcon}
-          <span>{t('chrome.settings')}</span>
-        </NavLink>
-        <button
-          onClick={signOut}
-          className="flex w-full items-center gap-2 text-[13px] text-slate-400 hover:text-slate-700 transition-colors py-1"
-        >
-          {LogoutIcon}
-          <span>{t('chrome.signOut')}</span>
-        </button>
       </div>
 
       {createPortal(
@@ -346,6 +256,34 @@ export function Sidebar() {
         </AnimatePresence>,
         document.body,
       )}
+    </aside>
+  )
+}
+
+function SidebarLoading() {
+  return (
+    <aside className="w-[240px] flex-shrink-0 h-screen border-r border-slate-200 bg-white flex flex-col sticky top-0" aria-busy="true" aria-label="Loading workspace navigation">
+      <div className="h-16 flex items-center px-5 border-b border-slate-100">
+        <Wordmark size={31.5} markScale={1.25} gap={6} />
+      </div>
+      <nav className="flex-1 py-4 space-y-1" aria-hidden="true">
+        {Array.from({ length: 8 }).map((_, index) => (
+          <div key={index} className="flex items-center gap-3 px-5 py-2.5">
+            <Skeleton className="h-[18px] w-[18px]" />
+            <Skeleton className="h-3.5" style={{ width: index === 3 ? 96 : 72 }} />
+          </div>
+        ))}
+      </nav>
+      <div className="px-5 py-4 border-t border-slate-100" aria-hidden="true">
+        <Skeleton className="h-3 w-20 mb-3" />
+        <div className="flex items-center gap-2.5">
+          <Skeleton className="h-7 w-7 rounded-md" />
+          <div className="space-y-1.5">
+            <Skeleton className="h-3 w-28" />
+            <Skeleton className="h-3 w-20" />
+          </div>
+        </div>
+      </div>
     </aside>
   )
 }

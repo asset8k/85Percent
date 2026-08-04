@@ -14,6 +14,10 @@ import { LeagueTablePage } from '@/pages/LeagueTablePage'
 import { ClubSetupPage } from '@/pages/ClubSetupPage'
 import { FinancialsPage } from '@/pages/FinancialsPage'
 import { OnboardingPage } from '@/pages/OnboardingPage'
+import { useClubStore } from '@/stores/club'
+import { useCan } from '@/lib/role'
+import { resolveProductCapabilities } from '@/lib/navigation'
+import { FormPageSkeleton } from '@/components/ui/page-skeletons'
 
 export function App() {
   return (
@@ -39,7 +43,7 @@ export function App() {
           <Route path="/roster" element={<RosterPage />} />
           <Route path="/onboarding" element={<OnboardingPage />} />
           <Route path="/scenarios" element={<ScenariosPage />} />
-          <Route path="/ssr" element={<SSRPage />} />
+          <Route path="/ssr" element={<SsrRoute><SSRPage /></SsrRoute>} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/rules" element={<RulesPage />} />
           <Route path="/league-table" element={<LeagueTablePage />} />
@@ -56,4 +60,14 @@ export function App() {
       </Routes>
     </BrowserRouter>
   )
+}
+
+function SsrRoute({ children }: { children: React.ReactNode }) {
+  const bootstrapStatus = useClubStore((state) => state.bootstrapStatus)
+  const leagueId = useClubStore((state) => state.leagueId)
+  const can = useCan()
+  if (bootstrapStatus !== 'ready') return <FormPageSkeleton />
+  const capabilities = resolveProductCapabilities(leagueId ?? '', can)
+
+  return capabilities.ssrTests ? <>{children}</> : <Navigate to="/dashboard" replace />
 }

@@ -11,7 +11,6 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation, Trans } from 'react-i18next'
-import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import {
@@ -20,7 +19,6 @@ import {
   useSsrEquityQuery,
   queryKeys,
 } from '@/lib/queries'
-import { useClubStore } from '@/stores/club'
 import { useSeasonStore, seasonKey } from '@/stores/season'
 import { activeLocale, formatNumber } from '@/lib/locale'
 import { Card } from '@/components/ui/card'
@@ -46,26 +44,7 @@ const TABS: Array<{ id: Tab; labelKey: string; testNo: number }> = [
 
 export function SSRPage() {
   const { t } = useTranslation()
-  const { leagueId } = useClubStore()
   const [tab, setTab] = useState<Tab>('working-capital')
-
-  // Gate the page client-side too — even though the API enforces it
-  if (leagueId && leagueId !== 'premier-league') {
-    return (
-      <div>
-        <PageHeader />
-        <Card className="p-12 text-center">
-          <p className="text-[15px] font-medium text-slate-900">{t('ssr.plOnly.title')}</p>
-          <p className="text-[13px] text-slate-500 mt-2 max-w-md mx-auto">
-            {t('ssr.plOnly.body')}
-          </p>
-          <Link to="/financials" className="inline-block mt-5">
-            <Button>{t('dashboard.setup.cta')}</Button>
-          </Link>
-        </Card>
-      </div>
-    )
-  }
 
   return (
     <div>

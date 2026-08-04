@@ -25,11 +25,17 @@ export const useAuthStore = create<AuthState>()(
         // Reset all per-club state so a different user signing in on the same browser
         // does not briefly see (or rehydrate from) the previous user's data.
         useClubStore.setState({
+          bootstrapStatus: 'idle',
           clubId: null,
           clubName: null,
           leagueId: null,
+          clubLogoUrl: null,
           financials: null,
+          financialsLoaded: false,
+          financialsStatus: 'idle',
           scenarios: [],
+          scenariosLoaded: false,
+          scenariosStatus: 'idle',
         })
       },
     }),
