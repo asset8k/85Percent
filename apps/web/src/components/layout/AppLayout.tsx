@@ -7,17 +7,21 @@ import { Sidebar } from './Sidebar'
 import { NotificationBell } from './NotificationBell'
 import { useClubStore } from '@/stores/club'
 import { useSeasonStore, seasonLabel } from '@/stores/season'
-import { useMe, accessLabel } from '@/lib/role'
+import { useMe, accessLabel, compactAccessLabel } from '@/lib/role'
 import { useAuthStore } from '@/stores/auth'
 import { StatusBadge } from '@/components/ui/badge'
 import { AnimatedNumber } from '@/components/ui/animated-number'
 import { ProgressBar } from '@/components/ui/progress-bar'
+import { Skeleton } from '@/components/ui/skeleton'
 import { ToastHost } from '@/components/ui/toast'
 import { CopilotChat, CopilotLauncher } from '@/components/ai/CopilotChat'
-import { api, type ClubFinancialsResponse, type ScenarioDetail } from '@/lib/api'
+import type { ClubFinancialsResponse, ScenarioDetail } from '@/lib/api'
 import { computeActiveBaseline, type ActiveBaseline } from '@/lib/scr'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import type { ComplianceStatus } from '@85percent/shared'
+import { useScenarioDetailsQuery } from '@/lib/queries'
+
+type ScrWidgetState = 'loading' | 'ready' | 'notConfigured' | 'error'
 
 // Maps the first path segment to its i18n key for the breadcrumb title.
 const routeLabelKey: Record<string, string> = {
@@ -28,6 +32,7 @@ const routeLabelKey: Record<string, string> = {
   '/calendar':  'nav.calendar',
   '/rules':     'nav.rules',
   '/financials':'nav.financials',
+  '/ssr':       'nav.ssrTests',
   '/setup':     'chrome.settings',
 }
 
@@ -42,10 +47,22 @@ function initialsOf(name: string): string {
 
 export function AppLayout() {
   const { t } = useTranslation()
-  const { clubName, financials, scenarios, scenariosLoaded, setScenarios, setScenariosLoaded } = useClubStore()
+  const {
+    bootstrapStatus,
+    clubName,
+    financials,
+    financialsStatus,
+    scenarios,
+    scenariosStatus,
+    setScenarios,
+    setScenariosLoading,
+    setScenariosError,
+    retryFinancials,
+  } = useClubStore()
   const seasonStartYear = useSeasonStore((s) => s.startYear)
   const location = useLocation()
   const reduceMotion = useReducedMotion()
+  const scenariosQuery = useScenarioDetailsQuery()
 
   // Current user identity for the top-right account chip.
   const me = useMe()
@@ -55,38 +72,26 @@ export function AppLayout() {
     me?.email?.split('@')[0] ||
     authEmail?.split('@')[0] ||
     'Account'
-  const displayRole = me ? accessLabel(me) : ''
+  const displayRole = me ? compactAccessLabel(me) : ''
+  const fullRole = me ? accessLabel(me) : ''
 
   const firstSegment = '/' + location.pathname.split('/')[1]
   const pageTitleKey = routeLabelKey[firstSegment]
   const pageTitle = pageTitleKey ? t(pageTitleKey) : firstSegment.replace('/', '')
 
-  // Bootstrap scenarios into the store. Refresh when financials change after a save.
+  // Scenario details use the same TanStack Query entry as ScenariosPage. This
+  // lets their request run in parallel with season financials and prevents the
+  // top bar from issuing a second list + detail request sequence.
   useEffect(() => {
-    if (!financials) return
-    let cancelled = false
-    // Only gate the SCR pill (show the loading placeholder) on the genuine FIRST
-    // load, when we have no scenarios yet and a number would otherwise render
-    // pre-scenario and then jump. On later refreshes the scenarios already in the
-    // store give a correct baseline, so we reload silently in the background and
-    // let the figure animate in place — no skeleton flash on every reload.
-    if (!useClubStore.getState().scenariosLoaded) setScenariosLoaded(false)
-
-    async function load() {
-      try {
-        const list = await api.scenarios.list(1, 100)
-        // For Active Baseline math we need each scenario's actions — fetch in parallel.
-        const details = await Promise.all(list.scenarios.map((s) => api.scenarios.get(s.id)))
-        if (!cancelled) setScenarios(details) // also flips scenariosLoaded → true
-      } catch {
-        // Silent — proceed with whatever we have rather than holding forever.
-        if (!cancelled) setScenariosLoaded(true)
-      }
+    if (financialsStatus !== 'ready' || !financials) return
+    if (scenariosQuery.isPending) {
+      setScenariosLoading()
+    } else if (scenariosQuery.isError) {
+      setScenariosError()
+    } else if (scenariosQuery.data) {
+      setScenarios(scenariosQuery.data)
     }
-
-    load()
-    return () => { cancelled = true }
-  }, [financials, setScenarios, setScenariosLoaded])
+  }, [financials, financialsStatus, scenariosQuery.data, scenariosQuery.isError, scenariosQuery.isPending, setScenarios, setScenariosError, setScenariosLoading])
 
   const baseline = useMemo(() => {
     if (!financials) return null
@@ -99,6 +104,16 @@ export function AppLayout() {
   const statusText = scrStatus === 'green' ? t('common.status.compliant') : scrStatus === 'amber' ? t('common.status.levyZone') : t('common.status.pointsRisk')
 
   const stackedOn = baseline ? baseline.includedCount > 0 : false
+  const shellLoading = bootstrapStatus !== 'ready'
+  const scrWidgetState: ScrWidgetState = shellLoading || financialsStatus === 'idle' || financialsStatus === 'loading'
+    ? 'loading'
+    : financialsStatus === 'error' || scenariosStatus === 'error'
+      ? 'error'
+      : financialsStatus === 'ready' && financials === null
+        ? 'notConfigured'
+        : financialsStatus === 'ready' && scenariosStatus === 'ready' && baseline
+          ? 'ready'
+          : 'loading'
 
   return (
     <div className="min-h-screen flex bg-white text-slate-900">
@@ -110,17 +125,24 @@ export function AppLayout() {
       <div className="flex-1 flex flex-col min-w-0">
         <header className="h-16 sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-200 flex items-center gap-4 px-8">
           <div className="flex-1 flex items-center gap-2 text-[13px] text-slate-500 min-w-0">
-            <span className="text-slate-700 font-medium">{clubName ?? '85Percent'}</span>
-            <span className="text-slate-300 select-none">/</span>
-            <span className="capitalize">{pageTitle}</span>
+            {shellLoading ? (
+              <>
+                <Skeleton className="h-3.5 w-32" />
+                <span className="text-slate-300 select-none">/</span>
+                <Skeleton className="h-3.5 w-20" />
+              </>
+            ) : (
+              <>
+                <span className="text-slate-700 font-medium">{clubName}</span>
+                <span className="text-slate-300 select-none">/</span>
+                <span className="capitalize">{pageTitle}</span>
+              </>
+            )}
           </div>
 
-          {financials && !scenariosLoaded ? (
-            // Financials are in, but the included scenarios that feed the Active
-            // Baseline are still loading — show a placeholder rather than a number
-            // that would jump once they land.
+          {scrWidgetState === 'loading' ? (
             <SCRLoadingPill />
-          ) : scrPct !== null && financials && baseline ? (
+          ) : scrWidgetState === 'ready' && scrPct !== null && financials && baseline ? (
             <SCRBadgePill
               scrPct={scrPct}
               scrStatus={scrStatus}
@@ -131,9 +153,7 @@ export function AppLayout() {
               baseline={baseline}
               scenarios={scenarios}
             />
-          ) : (
-            // No financials configured for this season yet — keep the slot
-            // occupied with a clear call to action rather than an empty gap.
+          ) : scrWidgetState === 'notConfigured' ? (
             <Link
               to="/financials"
               className="flex items-center gap-3 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-200 hover:border-slate-300 whitespace-nowrap transition-colors"
@@ -148,21 +168,22 @@ export function AppLayout() {
                 </svg>
               </span>
             </Link>
+          ) : (
+            <SCRErrorPill onRetry={() => {
+              retryFinancials()
+              void scenariosQuery.refetch()
+            }} />
           )}
 
           <div className="flex-1 flex items-center justify-end gap-2.5 min-w-0">
-            <NotificationBell />
-            <div className="text-right leading-tight min-w-0">
-              <div className="text-[13px] text-slate-900 font-medium truncate max-w-[180px]">{displayName}</div>
-              {displayRole && <div className="text-[11px] text-slate-400 truncate max-w-[180px]">{displayRole}</div>}
-            </div>
-            <span
-              className="inline-flex items-center justify-center rounded-full bg-violet-600 text-white font-medium flex-shrink-0"
-              style={{ width: 32, height: 32, fontSize: 11, letterSpacing: 0.4 }}
-              title={displayName}
-            >
-              {initialsOf(displayName)}
-            </span>
+            {shellLoading ? <HeaderAccountSkeleton /> : <>
+              <NotificationBell />
+              <ProfileMenu
+                displayName={displayName}
+                displayRole={displayRole}
+                fullRole={fullRole}
+              />
+            </>}
           </div>
         </header>
 
@@ -196,6 +217,143 @@ export function AppLayout() {
       </div>
     </div>
   )
+}
+
+function HeaderAccountSkeleton() {
+  return (
+    <div className="flex items-center gap-2.5" aria-hidden="true">
+      <Skeleton className="h-10 w-10 rounded-full" />
+      <div className="space-y-1.5 w-[132px]">
+        <Skeleton className="h-3 w-24 ml-auto" />
+        <Skeleton className="h-3 w-12 ml-auto" />
+      </div>
+      <Skeleton className="h-8 w-8 rounded-full" />
+    </div>
+  )
+}
+
+function ProfileMenu({
+  displayName,
+  displayRole,
+  fullRole,
+}: {
+  displayName: string
+  displayRole: string
+  fullRole: string
+}) {
+  const { t } = useTranslation()
+  const { signOut } = useAuthStore()
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+  const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const itemRefs = useRef<Array<HTMLAnchorElement | HTMLButtonElement | null>>([])
+
+  useEffect(() => {
+    if (!open) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setOpen(false)
+      triggerRef.current?.focus()
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open])
+
+  const moveFocus = (direction: 1 | -1) => {
+    const current = itemRefs.current.findIndex((item) => item === document.activeElement)
+    const next = current === -1
+      ? (direction === 1 ? 0 : itemRefs.current.length - 1)
+      : (current + direction + itemRefs.current.length) % itemRefs.current.length
+    itemRefs.current[next]?.focus()
+  }
+
+  return (
+    <div ref={menuRef} className="relative min-w-0">
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls="profile-actions-menu"
+        aria-label={`${displayName}, ${fullRole || displayRole}. Account actions`}
+        onClick={() => setOpen((value) => !value)}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault()
+            setOpen(true)
+            requestAnimationFrame(() => moveFocus(event.key === 'ArrowDown' ? 1 : -1))
+          }
+        }}
+        className="group flex max-w-[240px] items-center gap-2.5 rounded-lg px-1.5 py-1 text-left transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500"
+      >
+        <div className="text-right leading-tight min-w-0">
+          <div className="text-[13px] text-slate-900 font-medium truncate max-w-[160px]">{displayName}</div>
+          {displayRole && <div className="text-[11px] text-slate-400 truncate max-w-[160px]">{displayRole}</div>}
+        </div>
+        <span
+          className="inline-flex items-center justify-center rounded-full bg-violet-600 text-white font-medium flex-shrink-0"
+          style={{ width: 32, height: 32, fontSize: 11, letterSpacing: 0.4 }}
+          aria-hidden="true"
+        >
+          {initialsOf(displayName)}
+        </span>
+      </button>
+
+      {open && (
+        <div
+          id="profile-actions-menu"
+          role="menu"
+          aria-label="Account actions"
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+              event.preventDefault()
+              moveFocus(event.key === 'ArrowDown' ? 1 : -1)
+            }
+          }}
+          className="absolute right-0 top-full z-30 mt-2 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white p-1 shadow-lg shadow-slate-900/10"
+        >
+          <Link
+            ref={(element) => { itemRefs.current[0] = element }}
+            to="/setup"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2 rounded-md px-2.5 py-2 text-[13px] text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:bg-violet-50 focus-visible:text-violet-800"
+          >
+            <SettingsMenuIcon />
+            {t('chrome.settings')}
+          </Link>
+          <button
+            ref={(element) => { itemRefs.current[1] = element }}
+            type="button"
+            role="menuitem"
+            onClick={async () => {
+              setOpen(false)
+              await signOut()
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[13px] text-slate-600 hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:bg-violet-50 focus-visible:text-violet-800"
+          >
+            <SignOutMenuIcon />
+            {t('chrome.signOut')}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SettingsMenuIcon() {
+  return <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1A2 2 0 1 1 4.4 17l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8L4.2 7A2 2 0 1 1 7 4.2l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>
+}
+
+function SignOutMenuIcon() {
+  return <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></svg>
 }
 
 // ---------------------------------------------------------------------------
@@ -233,9 +391,26 @@ function SCRLoadingPill() {
   return (
     <div className="flex items-center gap-3 px-3 py-1.5 rounded-full bg-slate-50 border border-slate-200 whitespace-nowrap">
       <span className="meta-label text-slate-500">{t('chrome.topbar.currentScr')}</span>
-      <span className="h-3.5 w-12 rounded bg-slate-200 animate-pulse" />
+      <Skeleton className="h-3.5 w-12" />
       <span className="w-px h-3.5 bg-slate-200" />
-      <span className="h-3.5 w-16 rounded bg-slate-200 animate-pulse" />
+      <Skeleton className="h-3.5 w-16" />
+    </div>
+  )
+}
+
+function SCRErrorPill({ onRetry }: { onRetry: () => void }) {
+  const { t } = useTranslation()
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-50 border border-red-200 whitespace-nowrap">
+      <span className="meta-label text-red-700">{t('chrome.topbar.currentScr')}</span>
+      <span className="text-[12px] text-red-700">Unavailable</span>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="text-[12px] font-medium text-violet-700 hover:text-violet-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 rounded"
+      >
+        Retry
+      </button>
     </div>
   )
 }
