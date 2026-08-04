@@ -342,6 +342,37 @@ html.safari .hero-dashboard {
   }
 }
 
+/* The mobile navigation is a body-level portal, deliberately outside the
+   animated header and hero stacking contexts. It has no transparency, blur or
+   decorative pseudo-elements, so it remains stable in iOS Safari and Chromium. */
+.mobile-navigation-drawer {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  overscroll-behavior: contain;
+}
+.mobile-navigation-bar {
+  min-height: 4rem;
+}
+body.mobile-menu-open main,
+body.mobile-menu-open footer,
+body.mobile-menu-open > header {
+  pointer-events: none;
+}
+body.mobile-menu-open .hero-intro-overlay,
+body.mobile-menu-open .hero-header-reveal,
+body.mobile-menu-open .hero-copy-reveal,
+body.mobile-menu-open .hero-heading-reveal,
+body.mobile-menu-open .hero-dashboard {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mobile-navigation-drawer {
+    transition: none !important;
+  }
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    HERO ENTRANCE — cinematic GSAP sequence (pitch etch → chrome pass → morph →
    glass dashboard → headline wipe). All scoped under .hero-entrance so the
