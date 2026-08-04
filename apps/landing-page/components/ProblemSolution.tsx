@@ -48,7 +48,7 @@ export function ProblemSolution() {
               matching the carousel panels (glare sweep + scale, no bounce). */}
           <Reveal delay={0.1}>
             <TiltCard max={8} className="[transform-style:preserve-3d]">
-            <div className="rounded-2xl border border-border bg-surface p-8 shadow-[0_1px_0_rgba(0,0,0,0.04),0_24px_48px_-32px_rgba(109,40,217,0.25)] transition-shadow duration-500 hover:shadow-[0_1px_0_rgba(0,0,0,0.04),0_40px_80px_-40px_rgba(109,40,217,0.4)]">
+            <div className="rounded-2xl border border-border bg-surface p-6 shadow-[0_1px_0_rgba(0,0,0,0.04),0_24px_48px_-32px_rgba(109,40,217,0.25)] transition-shadow duration-500 hover:shadow-[0_1px_0_rgba(0,0,0,0.04),0_40px_80px_-40px_rgba(109,40,217,0.4)] sm:p-8">
               <div className="flex items-baseline gap-3">
                 <CountUp
                   to={85}
@@ -63,12 +63,12 @@ export function ProblemSolution() {
                   { k: 'Transfer fee amortisation', v: 'included' },
                   { k: 'Agent & intermediary fees', v: 'included' },
                 ].map((row) => (
-                  <div key={row.k} className="flex items-center justify-between">
+                  <div key={row.k} className="flex flex-col gap-1 min-[375px]:flex-row min-[375px]:items-center min-[375px]:justify-between min-[375px]:gap-4">
                     <span className="text-sm text-foreground">{row.k}</span>
                     <span className="meta-label text-primary">{row.v}</span>
                   </div>
                 ))}
-                <div className="flex items-center justify-between border-t border-border pt-4">
+                <div className="flex flex-col gap-1 border-t border-border pt-4 min-[375px]:flex-row min-[375px]:items-center min-[375px]:justify-between">
                   <span className="text-sm font-medium text-foreground">
                     ÷ Football revenue
                   </span>

@@ -24,7 +24,7 @@ export function CapabilityCard({
   return (
     <TiltCard className="h-full" enable={isActive} max={5}>
     <motion.div
-      className="flex h-full flex-col rounded-2xl border bg-white p-8 sm:p-10"
+      className="flex h-full flex-col rounded-2xl border bg-white p-6 sm:p-10"
       initial={false}
       animate={{
         // Literal rgba (not CSS vars) so framer can interpolate the colour.
@@ -48,7 +48,7 @@ export function CapabilityCard({
         <Icon size={22} strokeWidth={1.75} />
       </motion.span>
 
-      <h3 className="mt-7 font-display text-2xl font-semibold tracking-[-0.01em] text-foreground">
+      <h3 className="mt-6 font-display text-2xl font-semibold tracking-[-0.01em] text-foreground">
         {capability.title}
       </h3>
 

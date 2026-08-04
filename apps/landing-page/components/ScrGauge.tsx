@@ -74,6 +74,7 @@ export function ScrGauge({
   return (
     <svg
       viewBox="0 0 560 360"
+      preserveAspectRatio="xMidYMid meet"
       className={className}
       role="img"
       aria-label={`Squad Cost Ratio gauge reading ${pct} percent, limit ${Math.round(limit * 100)} percent.`}

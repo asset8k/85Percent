@@ -32,7 +32,7 @@ function Bar({
 
   return (
     <div>
-      <div className="mb-1.5 flex items-baseline justify-between">
+      <div className="mb-1.5 flex min-w-0 items-baseline justify-between gap-3">
         <span className="meta-label text-white/45">{label}</span>
         <span className={`num text-sm ${readout}`}>{Math.round(pct)}%</span>
       </div>
@@ -66,6 +66,7 @@ export function ScrComparisonBars({
 }) {
   return (
     <div className="relative space-y-4 pt-5">
+      <span className="meta-label block text-white/40 sm:hidden">85% cap</span>
       <Bar label="Current SCR" pct={current * 100} tone="current" />
       <Bar
         label="Projected SCR"
@@ -75,12 +76,12 @@ export function ScrComparisonBars({
 
       {/* Cap marker — a dashed vertical line at 85% spanning the bar stack. */}
       <div
-        className="pointer-events-none absolute bottom-1 top-6 w-px border-l border-dashed border-white/35"
+        className="pointer-events-none absolute bottom-1 top-6 hidden w-px border-l border-dashed border-white/35 sm:block"
         style={{ left: `${CAP}%` }}
         aria-hidden
       />
       <div
-        className="pointer-events-none absolute top-0 -translate-x-1/2 whitespace-nowrap"
+        className="pointer-events-none absolute top-0 hidden -translate-x-1/2 whitespace-nowrap sm:block"
         style={{ left: `${CAP}%` }}
         aria-hidden
       >

@@ -97,15 +97,16 @@ export function AiAnalystChat() {
             className="overflow-hidden rounded-2xl border border-border bg-charcoal text-charcoal-foreground shadow-[0_1px_0_rgba(0,0,0,0.04),0_40px_80px_-40px_rgba(11,16,32,0.5)]"
           >
             {/* Window chrome */}
-            <div className="flex items-center justify-between border-b border-white/10 px-5 py-3">
-              <span className="flex items-center gap-2 text-sm font-medium text-white/85">
+            <div className="flex min-w-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-5">
+              <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-white/85">
                 <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-violet-tip text-white">
                   <SparkIcon size={14} />
                 </span>
                 AI Analyst
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] text-white/45">
-                RAG-grounded · Deterministic
+              <span className="shrink-0 rounded-full bg-white/5 px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-white/45">
+                <span className="min-[375px]:hidden">RAG</span>
+                <span className="hidden min-[375px]:inline">RAG-grounded · Deterministic</span>
               </span>
             </div>
 
@@ -120,13 +121,13 @@ export function AiAnalystChat() {
             */}
             <div className="relative">
               {/* Ghost: reserves the resolved height. visibility:hidden keeps layout. */}
-              <div aria-hidden className="invisible space-y-4 p-5">
+              <div aria-hidden className="invisible space-y-4 p-4 sm:p-5">
                 <QuestionBubble text={QUESTION} />
                 <AnswerBlock text={ANSWER} showCard />
               </div>
 
               {/* Live, animated exchange */}
-              <div className="absolute inset-0 space-y-4 p-5">
+              <div className="absolute inset-0 space-y-4 p-4 sm:p-5">
                 {/* Director's question */}
                 <QuestionBubble
                   text={ask.shown}
@@ -161,9 +162,9 @@ export function AiAnalystChat() {
             </div>
 
             {/* Inert composer — sells the affordance without faking input. */}
-            <div className="border-t border-white/10 px-5 py-3">
+            <div className="border-t border-white/10 px-4 py-3 sm:px-5">
               <div className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-2.5">
-                <span className="text-sm text-white/35">Ask about your headroom, a transfer, a renewal…</span>
+                <span className="min-w-0 text-sm leading-snug text-white/35">Ask about your headroom, a transfer, a renewal…</span>
                 <CornerDownLeft size={15} className="shrink-0 text-white/30" />
               </div>
             </div>
@@ -178,7 +179,7 @@ export function AiAnalystChat() {
 function QuestionBubble({ text, caret }: { text: string; caret?: boolean }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[85%] rounded-2xl rounded-br-md bg-violet-tip px-4 py-2.5 text-sm leading-relaxed text-white">
+      <div className="max-w-[85%] break-words rounded-2xl rounded-br-md bg-violet-tip px-4 py-2.5 text-sm leading-relaxed text-white">
         {text}
         {caret && <Caret />}
       </div>
@@ -201,10 +202,10 @@ function AnswerBlock({
   showCard?: boolean
 }) {
   return (
-    <div className="flex items-start gap-2.5">
+    <div className="flex min-w-0 items-start gap-2.5">
       <AvatarDot />
-      <div className="max-w-[88%]">
-        <div className="rounded-2xl rounded-tl-md bg-white/[0.06] px-4 py-2.5 text-sm leading-relaxed text-white/90">
+      <div className="min-w-0 max-w-[88%]">
+        <div className="break-words rounded-2xl rounded-tl-md bg-white/[0.06] px-4 py-2.5 text-sm leading-relaxed text-white/90">
           {text}
           {caret && <Caret />}
         </div>
@@ -218,11 +219,11 @@ function AnswerBlock({
               transition={{ duration: 0.6, ease: EASE_EXPO }}
               className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] p-4"
             >
-              <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+              <div className="grid grid-cols-1 gap-3 min-[375px]:grid-cols-2">
                 {FIGURES.map((f) => (
-                  <div key={f.k} className="flex items-center justify-between gap-3">
-                    <span className="meta-label text-white/40">{f.k}</span>
-                    <span className="num text-sm text-white/90">{f.v}</span>
+                  <div key={f.k} className="min-w-0">
+                    <span className="meta-label block text-white/40">{f.k}</span>
+                    <span className="num mt-1 block text-sm text-white/90">{f.v}</span>
                   </div>
                 ))}
               </div>

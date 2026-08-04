@@ -114,8 +114,8 @@ export function CommandCenter() {
             transition={{ duration: 0.5, ease: EASE_EXPO }}
           >
             {/* Panel header */}
-            <div className="mb-6 flex items-center justify-between gap-4">
-              <div>
+            <div className="mb-6 flex flex-col gap-3 min-[375px]:flex-row min-[375px]:items-center min-[375px]:justify-between">
+              <div className="min-w-0">
                 <div className="text-sm font-medium text-white/85">Your club</div>
                 <div className="meta-label text-white/40">2025/26 · Premier League</div>
               </div>
@@ -142,7 +142,7 @@ export function CommandCenter() {
               {/* Gauge + headline stats */}
               <div className="lg:col-span-5">
                 <ScrGauge value={projected} className="w-full" />
-                <div className="mt-1 grid grid-cols-3 gap-2.5 text-center">
+                <div className="mx-auto mt-1 grid w-full max-w-md grid-cols-1 gap-2.5 text-center min-[375px]:grid-cols-3">
                   <Stat label="Current" value="78%" />
                   <Stat label="Projected" value={`${projectedPct}%`} tone={breach ? 'red' : 'violet'} />
                   <Stat
@@ -157,7 +157,7 @@ export function CommandCenter() {
               <div className="lg:col-span-7">
                 <ScrComparisonBars current={CURRENT} projected={projected} breach={breach} />
                 <div className="mt-7 border-t border-white/10 pt-5">
-                  <div className="mb-1 flex items-center justify-between">
+                  <div className="mb-2 flex flex-col gap-1 min-[375px]:flex-row min-[375px]:items-center min-[375px]:justify-between">
                     <span className="meta-label text-white/45">SCR across the window</span>
                     <span className="meta-label text-white/30">Jun → deadline day</span>
                   </div>
@@ -170,7 +170,7 @@ export function CommandCenter() {
             <div className="mt-8 border-t border-white/10 pt-7">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <span className="meta-label text-white/45">Model a move</span>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   <span className="num mr-1 text-xs text-white/40">{active.size} in plan</span>
                   <button
                     type="button"
@@ -204,7 +204,7 @@ export function CommandCenter() {
                           : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.05]'
                       }`}
                     >
-                      <span className="flex items-center gap-3">
+                      <span className="flex min-w-0 items-center gap-3">
                         <span
                           className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors ${
                             on ? 'bg-violet-tip text-white' : 'bg-white/10 text-white/50'
@@ -213,8 +213,8 @@ export function CommandCenter() {
                           {on ? <Check size={15} /> : <Plus size={15} />}
                         </span>
                         <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium text-white">{m.label}</span>
-                          <span className="block truncate text-xs text-white/45">{m.detail}</span>
+                          <span className="block break-words text-sm font-medium text-white">{m.label}</span>
+                          <span className="block break-words text-xs text-white/45">{m.detail}</span>
                         </span>
                       </span>
                       <span

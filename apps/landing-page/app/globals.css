@@ -4,6 +4,7 @@
 
 @layer base {
   :root {
+    --landing-header-offset: calc(5.25rem + env(safe-area-inset-top));
     /* surfaces */
     --background: 0 0% 100%; /* white */
     --surface-1: 210 40% 98%; /* slate-50 alt sections */
@@ -42,6 +43,9 @@
     font-family: var(--font-inter), Inter, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+  }
+  main section[id] {
+    scroll-margin-top: var(--landing-header-offset);
   }
   body {
     background-color: hsl(var(--background));
@@ -355,6 +359,23 @@ html.safari .hero-dashboard {
 }
 .mobile-navigation-bar {
   min-height: 4rem;
+}
+@media (max-width: 767px) {
+  .hero-header-reveal {
+    padding-top: max(0.75rem, env(safe-area-inset-top));
+  }
+  .hero-header-reveal .mobile-header-surface-dark {
+    background-color: rgb(24 16 44) !important;
+    border-color: rgb(82 57 129) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  .hero-header-reveal .mobile-header-surface-light {
+    background-color: rgb(255 255 255) !important;
+    border-color: hsl(var(--border)) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
 }
 body.mobile-menu-open main,
 body.mobile-menu-open footer,

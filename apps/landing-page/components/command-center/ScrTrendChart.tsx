@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { useReducedMotion } from 'framer-motion'
 import {
   Area,
@@ -42,6 +43,14 @@ export function ScrTrendChart({
   limitPct?: number
 }) {
   const reduce = useReducedMotion()
+  const [compact, setCompact] = useState(false)
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 639px)')
+    const update = () => setCompact(query.matches)
+    update()
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
+  }, [])
   const last = data[data.length - 1] ?? { m: '', scr: projectedPct }
   const dotColor = breach ? '#F87171' : '#B98AF0'
 
@@ -51,9 +60,9 @@ export function ScrTrendChart({
   const ticks = Array.from({ length: (yMax - 60) / 10 + 1 }, (_, i) => 60 + i * 10)
 
   return (
-    <div className="h-[200px] w-full">
+    <div className="h-[170px] w-full sm:h-[200px]">
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: -18 }}>
+        <AreaChart data={data} margin={{ top: 8, right: compact ? 4 : 12, bottom: 0, left: compact ? 0 : -18 }}>
           <defs>
             <linearGradient id="scrTrendFill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#8B5CF6" stopOpacity={0.38} />
@@ -72,12 +81,14 @@ export function ScrTrendChart({
 
           <XAxis
             dataKey="m"
-            tick={{ fill: 'rgba(255,255,255,0.42)', fontSize: 11 }}
+            tick={{ fill: 'rgba(255,255,255,0.42)', fontSize: compact ? 10 : 11 }}
             tickLine={false}
             axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
             dy={4}
+            interval={compact ? 'preserveStartEnd' : 0}
           />
           <YAxis
+            hide={compact}
             domain={[60, yMax]}
             ticks={ticks}
             tick={{ fill: 'rgba(255,255,255,0.35)', fontSize: 11 }}
@@ -96,7 +107,7 @@ export function ScrTrendChart({
               value: `${limitPct}% cap`,
               position: 'insideTopRight',
               fill: '#FCA5A5',
-              fontSize: 11,
+              fontSize: compact ? 10 : 11,
             }}
           />
 

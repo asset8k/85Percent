@@ -107,12 +107,12 @@ export function Footer() {
                 key={label}
                 href={href}
                 {...(ext ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-                className="group inline-flex items-center gap-2.5 text-sm text-white/60 transition-colors hover:text-white"
+                className="group inline-flex min-w-0 items-center gap-2.5 text-sm text-white/60 transition-colors hover:text-white"
               >
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-white/70 transition-colors group-hover:border-violet-mid/50 group-hover:bg-violet-tip group-hover:text-white">
                   <Icon size={15} />
                 </span>
-                {label}
+                <span className="break-all">{label}</span>
               </a>
             ))}
           </div>

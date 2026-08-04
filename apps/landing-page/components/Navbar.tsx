@@ -203,7 +203,9 @@ export function Navbar({ forceSolid = false }: { forceSolid?: boolean }) {
     <>
       <header className="hero-header-reveal fixed inset-x-0 top-0 z-50 px-4 pt-3 sm:px-6 sm:pt-4">
       <motion.nav
-        className="relative mx-auto flex h-14 max-w-content items-center justify-between rounded-2xl border pl-5 pr-2.5"
+        className={`relative mx-auto flex h-14 max-w-content items-center justify-between rounded-2xl border pl-5 pr-2.5 ${
+          dark ? 'mobile-header-surface-dark' : 'mobile-header-surface-light'
+        }`}
         initial={false}
         animate={surface}
         transition={{ duration: 0.45, ease: EASE_EXPO }}
