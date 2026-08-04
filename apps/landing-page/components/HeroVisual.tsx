@@ -32,7 +32,7 @@ export function HeroVisual() {
       />
       <TiltCard className="relative rounded-2xl border border-white/10 bg-white/[0.04] p-6 shadow-[0_40px_80px_-32px_rgba(0,0,0,0.7)] backdrop-blur-sm sm:p-8">
         {/* Card header — reads like a product panel */}
-        <div className="mb-2 flex items-center justify-between">
+        <div className="mb-2 flex flex-col gap-2 min-[375px]:flex-row min-[375px]:items-center min-[375px]:justify-between">
           <span className="meta-label text-white/50">Squad Cost Ratio</span>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1 text-[11px] text-white/60">
             <span className="h-1.5 w-1.5 rounded-full bg-[hsl(142_70%_45%)]" />
@@ -40,10 +40,10 @@ export function HeroVisual() {
           </span>
         </div>
 
-        <ScrGauge value={0.81} className="w-full" />
+        <ScrGauge value={0.81} className="mx-auto w-full max-w-[420px]" />
 
         {/* Footnote row — the figures that sum to the 81% reading */}
-        <div className="mt-1 grid grid-cols-3 gap-3 text-center">
+        <div className="mt-1 grid grid-cols-1 gap-3 text-center min-[375px]:grid-cols-3">
           {[
             { k: 'Wages', v: '62%' },
             { k: 'Amortisation', v: '19%' },

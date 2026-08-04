@@ -58,7 +58,7 @@ export function PlatformFeatures() {
               <motion.div
                 key={f.title}
                 variants={fadeUp}
-                className="group relative overflow-hidden bg-background p-7 transition-colors duration-300 hover:bg-surface"
+                className="group relative min-w-0 overflow-hidden bg-background p-6 transition-colors duration-300 hover:bg-surface sm:p-7"
               >
                 {/* Violet top-accent that draws in on hover (no layout shift). */}
                 <span className="absolute inset-x-0 top-0 h-0.5 origin-left scale-x-0 bg-violet-tip transition-transform duration-500 ease-out group-hover:scale-x-100" />
@@ -112,7 +112,7 @@ function DeadlineCountdown({ active }: { active: boolean }) {
   const pad = (n: number) => String(n).padStart(2, '0')
 
   return (
-    <div className="mt-4 inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2">
+    <div className="mt-4 inline-flex max-w-full flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2">
       <span className="h-1.5 w-1.5 rounded-full bg-violet-core" />
       <span className="num text-sm text-foreground">
         {d}d {pad(h)}h {pad(m)}m {pad(s)}s
@@ -133,9 +133,9 @@ function NotificationToast() {
   const a = ALERTS[0]
   return (
     <div className="mt-4 h-10 overflow-hidden">
-      <div className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2">
+      <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2">
         <span className={`h-1.5 w-1.5 rounded-full ${a.tone}`} />
-        <span className="text-sm text-foreground">{a.text}</span>
+        <span className="min-w-0 text-sm leading-snug text-foreground">{a.text}</span>
       </div>
     </div>
   )

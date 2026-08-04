@@ -60,9 +60,9 @@ export function Hero() {
 
         <div className="hero-dashboard relative w-full">
           <div className="pointer-events-none absolute -inset-6 rounded-[2rem] bg-violet-core/15 blur-3xl" aria-hidden />
-          <div className="relative z-10 grid grid-cols-2 gap-3.5">
-            <section className="hero-panel col-span-2">
-              <div className="flex items-center gap-5 p-5 sm:p-6">
+          <div className="relative z-10 grid grid-cols-1 gap-3.5 min-[375px]:grid-cols-2">
+            <section className="hero-panel col-span-1 min-[375px]:col-span-2">
+              <div className="flex flex-col gap-4 p-5 min-[375px]:flex-row min-[375px]:items-center min-[375px]:gap-5 sm:p-6">
                 <div className="relative h-[104px] w-[104px] shrink-0">
                   <svg width="104" height="104" viewBox="0 0 104 104" aria-label="81 percent squad cost ratio">
                     <defs>
@@ -99,7 +99,7 @@ export function Hero() {
             <Metric label="Wages" value="62%" detail="Share of revenue" width="62%" />
             <Metric label="Amortisation" value="19%" detail="Transfer fees, 5-year basis" width="19%" />
 
-            <section className="hero-panel col-span-2 p-5">
+            <section className="hero-panel col-span-1 p-5 min-[375px]:col-span-2">
               <div className="flex items-center justify-between">
                 <p className="meta-label text-white/50">Squad Cost Ratio · this window</p>
                 <span className="inline-flex items-center gap-1.5 text-[11px] text-emerald-300"><i className="h-1.5 w-1.5 rounded-full bg-emerald-300" />Live</span>

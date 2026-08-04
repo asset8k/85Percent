@@ -78,7 +78,7 @@ export function LeagueTable({ pointsDeducted }: { pointsDeducted: number }) {
             <span className={`num w-5 text-right text-xs ${i < 4 ? 'text-violet-soft' : 'text-white/40'}`}>
               {i + 1}
             </span>
-            <span className={`flex-1 truncate ${row.you ? 'font-semibold text-white' : 'text-white/70'}`}>
+            <span className={`min-w-0 flex-1 break-words ${row.you ? 'font-semibold text-white' : 'text-white/70'}`}>
               {row.name}
               {row.you && i >= 4 && (
                 <span className="ml-2 hidden text-[10px] uppercase tracking-wide text-[#FCA5A5] sm:inline">
