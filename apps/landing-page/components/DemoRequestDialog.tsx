@@ -46,11 +46,11 @@ export function DemoRequestDialog({
     openerRef.current = document.activeElement
     const prevOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    const t = window.setTimeout(() => firstFieldRef.current?.focus(), 60)
+    const t = window.setTimeout(() => firstFieldRef.current?.focus({ preventScroll: true }), 60)
     return () => {
       window.clearTimeout(t)
       document.body.style.overflow = prevOverflow
-      if (openerRef.current instanceof HTMLElement) openerRef.current.focus()
+      if (openerRef.current instanceof HTMLElement) openerRef.current.focus({ preventScroll: true })
     }
   }, [open])
 
@@ -82,10 +82,10 @@ export function DemoRequestDialog({
     const last = focusables[focusables.length - 1]!
     if (e.shiftKey && document.activeElement === first) {
       e.preventDefault()
-      last.focus()
+      last.focus({ preventScroll: true })
     } else if (!e.shiftKey && document.activeElement === last) {
       e.preventDefault()
-      first.focus()
+      first.focus({ preventScroll: true })
     }
   }
 

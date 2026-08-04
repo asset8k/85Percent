@@ -350,6 +350,7 @@ html.safari .hero-dashboard {
   min-height: 100dvh;
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
+  overflow: hidden;
   overscroll-behavior: contain;
 }
 .mobile-navigation-bar {
@@ -359,6 +360,10 @@ body.mobile-menu-open main,
 body.mobile-menu-open footer,
 body.mobile-menu-open > header {
   pointer-events: none;
+}
+html.mobile-menu-open,
+body.mobile-menu-open {
+  overscroll-behavior: none;
 }
 body.mobile-menu-open .hero-intro-overlay,
 body.mobile-menu-open .hero-header-reveal,

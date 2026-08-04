@@ -44,7 +44,6 @@ export function RequestAccessButton({
   pulse = false,
   magnetic = false,
   gradientShift = false,
-  onOpen,
 }: {
   variant?: Variant
   size?: keyof typeof SIZES
@@ -54,7 +53,6 @@ export function RequestAccessButton({
   pulse?: boolean
   magnetic?: boolean
   gradientShift?: boolean
-  onOpen?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const reduce = useReducedMotion()
@@ -87,10 +85,7 @@ export function RequestAccessButton({
   const btn = (
     <button
       type="button"
-      onClick={() => {
-        onOpen?.()
-        setOpen(true)
-      }}
+      onClick={() => setOpen(true)}
       className={`relative z-10 inline-flex items-center justify-center rounded-md font-medium transition-all duration-200 ease-gentle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${surface} ${SIZES[size]} ${className}`}
     >
       {label}
