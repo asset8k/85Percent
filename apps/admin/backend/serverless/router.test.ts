@@ -6,7 +6,7 @@ describe('serverless API registry', () => {
   it('registers every migrated endpoint exactly once', async () => {
     const routes = (await getApiRouter()).routeManifest()
     const keys = routes.map(({ method, path }) => `${method} ${path}`)
-    assert.equal(routes.length, 73)
+    assert.equal(routes.length, 72)
     assert.equal(new Set(keys).size, routes.length)
     assert.ok(keys.includes('GET /health'))
     assert.ok(keys.includes('POST /chat'))

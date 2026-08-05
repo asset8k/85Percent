@@ -4,7 +4,7 @@
 -- Full relational schema, generated from the live DEV database
 -- (`prisma migrate diff --from-empty --to-url <dev> --script`), so it is an
 -- exact mirror of what Prisma + the raw RAG SQL have provisioned in dev —
--- including the AI/RAG tables (documents, chat_*, admin_jobs) that live outside
+-- including the AI/RAG tables (documents and chat_*) that live outside
 -- prisma/schema.prisma.
 --
 -- Apply order: this file FIRST (tables), then the *_security_lockdown.sql
@@ -36,20 +36,6 @@ CREATE TYPE "public"."TemplateLeague" AS ENUM ('PREMIER_LEAGUE', 'CHAMPIONSHIP')
 
 -- CreateEnum
 CREATE TYPE "public"."TemplatePosition" AS ENUM ('GK', 'DEF', 'MID', 'FWD');
-
--- CreateTable
-CREATE TABLE "public"."admin_jobs" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
-    "type" TEXT NOT NULL,
-    "status" TEXT NOT NULL DEFAULT 'running',
-    "triggered_by" TEXT,
-    "summary" TEXT,
-    "log" TEXT,
-    "started_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "finished_at" TIMESTAMPTZ(6),
-
-    CONSTRAINT "admin_jobs_pkey" PRIMARY KEY ("id")
-);
 
 -- CreateTable
 CREATE TABLE "public"."audit_logs" (
@@ -394,9 +380,6 @@ CREATE TABLE "public"."users" (
 );
 
 -- CreateIndex
-CREATE INDEX "admin_jobs_started_idx" ON "public"."admin_jobs"("started_at" DESC);
-
--- CreateIndex
 CREATE INDEX "chat_messages_session_idx" ON "public"."chat_messages"("session_id" ASC, "created_at" ASC);
 
 -- CreateIndex
@@ -536,4 +519,3 @@ ALTER TABLE "public"."template_roster_items" ADD CONSTRAINT "template_roster_ite
 
 -- AddForeignKey
 ALTER TABLE "public"."users" ADD CONSTRAINT "users_club_id_fkey" FOREIGN KEY ("club_id") REFERENCES "public"."clubs"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-

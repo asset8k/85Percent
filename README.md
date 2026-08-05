@@ -60,8 +60,8 @@ Copy `apps/admin/.env.example` to `apps/admin/.env.local`. The important groups 
 - API rate limiting: `UPSTASH_REDIS_REST_URL`,
   `UPSTASH_REDIS_REST_TOKEN`.
 - AI: `ANTHROPIC_API_KEY` and optional `ANTHROPIC_MODEL`.
-- Jobs/integrations: `INTERNAL_JOB_SECRET`, optional
-  `FOOTBALL_DATA_API_KEY`, and optional Transfermarkt settings.
+- Manual data imports: QStash credentials, `FOOTBALL_DATA_API_KEY`, and
+  Transfermarkt provider settings. See `docs/data-import-sync.md`.
 - Invite redirect: `APP_URL`, normally `http://localhost:5173` locally.
 
 ### Landing page
@@ -136,28 +136,22 @@ migrated API script/unit tests owned by `apps/admin`.
 Do not run the Prisma history and the aggregate Supabase baseline against the
 same already-provisioned database. See `docs/DEPLOYMENT_SOP.md`.
 
-## Roster Templates And Maintenance Jobs
+## Manual Football Data Sync
 
 Template onboarding reads `template_clubs` and `template_roster_items`, then
 hydrates a tenant's players, contracts, manager, and manager contracts.
 
-Local template refresh with a Transfermarkt API running on port 8000:
+Football data is refreshed manually from **Admin → Data Sync**. Squad imports
+create one durable QStash task per selected club; standings imports create one
+task per league. There are no cron or recurring import jobs. Each task writes
+progress to Supabase, retries independently, and is limited to one club rather
+than attempting a full 44-club refresh in one Vercel request.
 
-```bash
-pnpm --filter @85percent/admin sync:templates
-```
-
-League snapshot refresh:
-
-```bash
-pnpm --filter @85percent/admin update:league
-```
-
-The admin UI triggers the same jobs through
-`POST /api/internal/jobs/:type`. On Vercel, work is scheduled with
-`@vercel/functions` `waitUntil` and the API Route Handler has a 300-second
-maximum duration. The full Transfermarkt sync must use a production-reachable
-HTTPS `TRANSFERMARKT_API_URL`; `localhost:8000` is local-only.
+External providers may update public biographical and roster fields only.
+Wages, fees, book values, amortisation policies, contract phases, and other
+accounting data remain manually owned and are never overwritten by this sync.
+See [the data-import runbook](docs/data-import-sync.md) for setup, matching,
+review, retry, cancellation, and deployment details.
 
 ## Deployment
 

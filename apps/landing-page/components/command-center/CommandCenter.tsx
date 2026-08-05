@@ -117,7 +117,7 @@ export function CommandCenter() {
             <div className="mb-6 flex flex-col gap-3 min-[375px]:flex-row min-[375px]:items-center min-[375px]:justify-between">
               <div className="min-w-0">
                 <div className="text-sm font-medium text-white/85">Your club</div>
-                <div className="meta-label text-white/40">2025/26 · Premier League</div>
+                <div className="meta-label text-white/40">2026/27 · Premier League</div>
               </div>
               <AnimatePresence mode="wait" initial={false}>
                 <motion.span

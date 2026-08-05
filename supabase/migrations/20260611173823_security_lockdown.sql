@@ -183,7 +183,6 @@ CREATE POLICY "audit_logs: own club only" ON public.audit_logs
 ALTER TABLE public.chat_sessions          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_messages          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.documents              ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.admin_jobs             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.league_table_snapshots ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "chat_sessions: own club only"     ON public.chat_sessions;
@@ -207,8 +206,8 @@ CREATE POLICY "chat_messages: via session club" ON public.chat_messages
     WHERE s.id = chat_messages.session_id
       AND s.club_id = public.current_club_id()));
 
--- documents (RAG knowledge base), admin_jobs (job ledger), and
--- league_table_snapshots (league reference cache) are service-role-only:
+-- documents (RAG knowledge base) and league_table_snapshots (league reference
+-- cache) are service-role-only:
 -- RLS ON with NO policy → default-deny to anon/authenticated.
 
 -- ============================================================================

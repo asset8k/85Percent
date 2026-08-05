@@ -492,7 +492,7 @@
     "clubCount_other": "{{count}} clubs",
     "noCached": {
       "title": "Aucun club en cache pour l'instant",
-      "body": "La bibliothèque d'effectifs de cette ligue n'a pas été synchronisée. Lancez la synchronisation mensuelle des modèles, ou constituez votre effectif manuellement depuis la page Effectif.",
+      "body": "La bibliothèque d'effectifs de cette ligue n'a pas été synchronisée. Demandez à un administrateur de lancer Data Sync, ou constituez votre effectif manuellement depuis la page Effectif.",
       "cta": "Constituer manuellement"
     },
     "noMatch": "Aucun club ne correspond à « {{query}} »",

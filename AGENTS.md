@@ -1,6 +1,6 @@
 # 85Percent Project Context
 
-Last reviewed: 2026-08-02
+Last reviewed: 2026-08-05
 
 This file is durable repository context for Codex and other coding agents. Read it
 before changing the project. Do not treat old plans as current implementation.
@@ -139,8 +139,9 @@ unless a migration is intentionally implemented.
 - AI chat streams a Web `Response` directly from the Next.js Route Handler.
 - League data falls back from football-data.org to cached snapshots and then to
   bundled illustrative standings.
-- Template roster sync depends on an unofficial Transfermarkt integration and
-  HTML scraping. Treat it as an operationally fragile external dependency.
+- Manual template-roster sync uses a provider-neutral import service backed by
+  QStash tasks and Supabase run/task/change records. Its Transfermarkt adapter
+  remains unofficial and operationally fragile.
 
 ## Data Model
 
@@ -157,7 +158,8 @@ The Prisma schema is under `apps/admin/prisma/schema.prisma`. Main modeled table
 Operational tables/functions also exist outside the Prisma model:
 
 - `chat_sessions`, `chat_messages`, `documents`
-- `admin_jobs`, `league_table_snapshots`
+- `data_import_runs`, `data_import_tasks`, `data_import_changes`,
+  `external_source_mappings`, `league_table_snapshots`
 - `match_documents`, `admin_topup_balance`, `deduct_ai_balance`
 
 Schema workflows:
@@ -199,10 +201,11 @@ Branch intent:
 
 The admin panel uses a separate single-operator credential and HMAC-signed
 httpOnly session cookie. It accesses Supabase with the service role and can
-manage leads, provision users, modify AI balances, inspect users, and trigger
-API jobs. Job endpoints use `INTERNAL_JOB_SECRET`, return immediately, and use
-Vercel `waitUntil` for background work. Route duration is configured to 300
-seconds.
+manage leads, provision users, modify AI balances, inspect users, and manually
+trigger football-data imports. Production imports publish one signed QStash
+message per club or league task; Supabase is the durable source of progress,
+retries, cancellation, reconciliation changes, and review decisions. There are
+no recurring import jobs. Worker route duration is configured to 300 seconds.
 
 The landing page stores demo requests through a tightly scoped anonymous
 Supabase insert and rate-limits requests with Upstash. It contains legal pages
@@ -226,9 +229,10 @@ Confirm these before touching adjacent code:
   unbilled provider usage; concurrent requests may overspend a balance.
 - Local MiniLM model loading and the associated cold start/function bundle need
   production Vercel verification even though the production build passes.
-- Full template synchronization usually fits the 300-second function duration,
-  but Transfermarkt extension mode is expected to exceed it. Run that mode
-  locally or split it into smaller invocations before enabling it on Vercel.
+- Manual squad imports rely on an unofficial Transfermarkt adapter and HTML
+  parsing. Keep concurrency low, monitor provider terms/rate limits, and retry
+  only failed per-club tasks. Production requires a stable adapter endpoint
+  reachable from Vercel; it must not depend on a developer laptop.
 - The web Vercel rewrite hard-codes the production admin host, so preview web
   deployments can mix preview frontend code with the production API.
 - The landing metadata/site URL uses `85percent.com`, while deployment docs and

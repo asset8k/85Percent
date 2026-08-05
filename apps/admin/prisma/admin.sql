@@ -25,23 +25,6 @@ create index if not exists league_table_snapshots_active_idx
 
 alter table league_table_snapshots enable row level security;
 
--- ── admin job history ───────────────────────────────────────────────────────
--- One row per triggered job (club/player sync, league table update). Records who
--- ran it, when it started/finished, the outcome and a tail of the log.
-create table if not exists admin_jobs (
-  id           uuid        primary key default gen_random_uuid(),
-  type         text        not null,          -- 'sync_templates' | 'league_table'
-  status       text        not null default 'running', -- 'running' | 'success' | 'failed'
-  triggered_by text,                          -- admin username
-  summary      text,                          -- short result / error line
-  log          text,                          -- tail of stdout/stderr
-  started_at   timestamptz not null default now(),
-  finished_at  timestamptz
-);
-create index if not exists admin_jobs_started_idx on admin_jobs (started_at desc);
-
-alter table admin_jobs enable row level security;
-
 -- ── balance top-up ──────────────────────────────────────────────────────────
 -- Float-safe additive top-up of a user's AI credit. Arithmetic stays in NUMERIC
 -- and is rounded to 4 dp (no drift). Returns the new balance.

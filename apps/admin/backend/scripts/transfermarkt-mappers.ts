@@ -75,12 +75,46 @@ export function mapPosition(raw: string | null | undefined): TemplatePositionVal
   return null
 }
 
-// Parse Transfermarkt's date strings ("Mar 13, 1990", "Jun 30, 2027") or ISO
-// dates. Returns null for blanks, "-", or anything unparseable.
+const TRANSFERMARKT_MONTHS: Record<string, number> = {
+  jan: 0,
+  feb: 1,
+  mar: 2,
+  apr: 3,
+  may: 4,
+  jun: 5,
+  jul: 6,
+  aug: 7,
+  sep: 8,
+  oct: 9,
+  nov: 10,
+  dec: 11,
+}
+
+function utcCalendarDate(year: number, month: number, day: number): Date | null {
+  const date = new Date(Date.UTC(year, month, day))
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month
+    && date.getUTCDate() === day
+    ? date
+    : null
+}
+
+// Parse Transfermarkt's date-only strings as UTC calendar dates. Date.parse
+// treats some text formats as local time, which can shift stored dates by a day.
 export function parseTransfermarktDate(raw: string | null | undefined): Date | null {
   if (!raw) return null
   const cleaned = raw.trim()
   if (!cleaned || cleaned === '-') return null
+
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(cleaned)
+  if (iso) return utcCalendarDate(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]))
+
+  const text = /^([A-Za-z]{3,9})\.?\s+(\d{1,2}),\s*(\d{4})$/.exec(cleaned)
+  if (text) {
+    const month = TRANSFERMARKT_MONTHS[text[1]!.slice(0, 3).toLowerCase()]
+    return month == null ? null : utcCalendarDate(Number(text[3]), month, Number(text[2]))
+  }
+
   const ts = Date.parse(cleaned)
   if (Number.isNaN(ts)) return null
   return new Date(ts)

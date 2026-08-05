@@ -2,13 +2,15 @@
  * league-table-source — shared football-data.org fetch + bundled fallback for
  * real-world standings. Used by:
  *   • routes/league-table.ts  (serves the table; prefers a stored snapshot)
- *   • scripts/update-league-table.ts  (admin-triggered refresh → snapshot)
+ *   • Data Sync standings import (validated atomic snapshot publication)
  *
  * The football-data.org key (FOOTBALL_DATA_API_KEY) is read server-side only.
  */
 
 export type LeagueId = 'premier-league' | 'efl-championship'
 export const LEAGUE_IDS: LeagueId[] = ['premier-league', 'efl-championship']
+export const CURRENT_LEAGUE_SEASON_START_YEAR = 2026
+export const CURRENT_LEAGUE_SEASON = '2026-27'
 
 export interface LeagueTableRow {
   position: number
@@ -47,82 +49,82 @@ export const COMPETITION_LABEL: Record<LeagueId, string> = {
 }
 
 // ---------------------------------------------------------------------------
-// Bundled fallback — end of 2025-26 season standings.
-// `id` is the football-data.org team id, used to build the public crest URL.
+// Bundled fallback — the 2026-27 membership before a live table is available.
+// Results deliberately start at zero; serving final 2025-26 results as current
+// standings would be materially misleading.
 // ---------------------------------------------------------------------------
-type Seed = [team: string, short: string, id: number, won: number, drawn: number, gf: number, ga: number]
+type Seed = [team: string, short: string]
 
 const PL_SEED: Seed[] = [
-  ['Liverpool FC', 'Liverpool', 64, 26, 6, 86, 38],
-  ['Arsenal FC', 'Arsenal', 57, 25, 6, 78, 34],
-  ['Manchester City FC', 'Man City', 65, 23, 6, 80, 44],
-  ['Chelsea FC', 'Chelsea', 61, 21, 7, 74, 48],
-  ['Newcastle United FC', 'Newcastle', 67, 20, 6, 68, 50],
-  ['Aston Villa FC', 'Aston Villa', 58, 19, 7, 66, 52],
-  ['Nottingham Forest FC', "Nott'm Forest", 351, 17, 9, 58, 50],
-  ['Brighton & Hove Albion FC', 'Brighton', 397, 15, 12, 60, 55],
-  ['AFC Bournemouth', 'Bournemouth', 1044, 16, 8, 58, 56],
-  ['Brentford FC', 'Brentford', 402, 15, 8, 62, 60],
-  ['Crystal Palace FC', 'Crystal Palace', 354, 14, 9, 52, 52],
-  ['Fulham FC', 'Fulham', 63, 14, 8, 54, 58],
-  ['Everton FC', 'Everton', 62, 12, 11, 44, 50],
-  ['Tottenham Hotspur FC', 'Tottenham', 73, 12, 8, 60, 62],
-  ['Manchester United FC', 'Man United', 66, 11, 10, 50, 58],
-  ['West Ham United FC', 'West Ham', 563, 11, 7, 48, 66],
-  ['Wolverhampton Wanderers FC', 'Wolves', 76, 10, 8, 46, 68],
-  ['Sunderland AFC', 'Sunderland', 71, 9, 8, 40, 66],
-  ['Burnley FC', 'Burnley', 328, 7, 9, 34, 70],
-  ['Leeds United FC', 'Leeds', 341, 6, 8, 38, 75],
+  ['AFC Bournemouth', 'Bournemouth'],
+  ['Arsenal FC', 'Arsenal'],
+  ['Aston Villa', 'Aston Villa'],
+  ['Brentford FC', 'Brentford'],
+  ['Brighton & Hove Albion', 'Brighton'],
+  ['Chelsea FC', 'Chelsea'],
+  ['Coventry City', 'Coventry'],
+  ['Crystal Palace', 'Crystal Palace'],
+  ['Everton FC', 'Everton'],
+  ['Fulham FC', 'Fulham'],
+  ['Hull City', 'Hull City'],
+  ['Ipswich Town', 'Ipswich'],
+  ['Leeds United', 'Leeds'],
+  ['Liverpool FC', 'Liverpool'],
+  ['Manchester City', 'Man City'],
+  ['Manchester United', 'Man United'],
+  ['Newcastle United', 'Newcastle'],
+  ['Nottingham Forest', "Nott'm Forest"],
+  ['Sunderland AFC', 'Sunderland'],
+  ['Tottenham Hotspur', 'Tottenham'],
 ]
 
 const ELC_SEED: Seed[] = [
-  ['Leicester City FC', 'Leicester', 338, 28, 6, 82, 40],
-  ['Southampton FC', 'Southampton', 340, 26, 7, 78, 42],
-  ['Ipswich Town FC', 'Ipswich', 349, 25, 7, 76, 44],
-  ['West Bromwich Albion FC', 'West Brom', 74, 23, 9, 70, 45],
-  ['Middlesbrough FC', 'Middlesbrough', 343, 22, 9, 72, 50],
-  ['Coventry City FC', 'Coventry', 1076, 21, 9, 74, 55],
-  ['Norwich City FC', 'Norwich', 68, 20, 10, 68, 54],
-  ['Sheffield United FC', 'Sheffield Utd', 356, 19, 11, 62, 50],
-  ['Bristol City FC', 'Bristol City', 387, 18, 12, 60, 52],
-  ['Watford FC', 'Watford', 346, 18, 9, 64, 60],
-  ['Millwall FC', 'Millwall', 384, 16, 12, 56, 56],
-  ['Blackburn Rovers FC', 'Blackburn', 59, 15, 13, 54, 56],
-  ['Preston North End FC', 'Preston', 1081, 15, 11, 52, 58],
-  ['Swansea City AFC', 'Swansea', 72, 14, 12, 55, 60],
-  ['Hull City AFC', 'Hull City', 322, 13, 13, 50, 60],
-  ['Cardiff City FC', 'Cardiff', 715, 13, 11, 48, 62],
-  ['Queens Park Rangers FC', 'QPR', 69, 12, 12, 46, 60],
-  ['Stoke City FC', 'Stoke', 70, 12, 10, 44, 64],
-  ['Sheffield Wednesday FC', 'Sheffield Wed', 345, 11, 11, 42, 66],
-  ['Derby County FC', 'Derby', 342, 10, 12, 40, 64],
-  ['Portsmouth FC', 'Portsmouth', 325, 10, 10, 38, 68],
-  ['Oxford United FC', 'Oxford Utd', 1082, 9, 9, 36, 72],
-  ['Plymouth Argyle FC', 'Plymouth', 1138, 8, 8, 34, 78],
-  ['Luton Town FC', 'Luton', 389, 7, 7, 30, 82],
+  ['Birmingham City', 'Birmingham'],
+  ['Blackburn Rovers', 'Blackburn'],
+  ['Bolton Wanderers', 'Bolton'],
+  ['Bristol City', 'Bristol City'],
+  ['Burnley FC', 'Burnley'],
+  ['Cardiff City', 'Cardiff'],
+  ['Charlton Athletic', 'Charlton'],
+  ['Derby County', 'Derby'],
+  ['Lincoln City', 'Lincoln'],
+  ['Middlesbrough FC', 'Middlesbrough'],
+  ['Millwall FC', 'Millwall'],
+  ['Norwich City', 'Norwich'],
+  ['Portsmouth FC', 'Portsmouth'],
+  ['Preston North End', 'Preston'],
+  ['Queens Park Rangers', 'QPR'],
+  ['Sheffield United', 'Sheffield Utd'],
+  ['Southampton FC', 'Southampton'],
+  ['Stoke City', 'Stoke'],
+  ['Swansea City', 'Swansea'],
+  ['Watford FC', 'Watford'],
+  ['West Bromwich Albion', 'West Brom'],
+  ['West Ham United', 'West Ham'],
+  ['Wolverhampton Wanderers', 'Wolves'],
+  ['Wrexham AFC', 'Wrexham'],
 ]
 
 export function buildFallback(leagueId: LeagueId): LeagueTableResponse {
   const seed = leagueId === 'premier-league' ? PL_SEED : ELC_SEED
-  const gamesPerTeam = (seed.length - 1) * 2
-  const standings: LeagueTableRow[] = seed.map(([team, shortName, id, won, drawn, gf, ga], i) => ({
+  const standings: LeagueTableRow[] = seed.map(([team, shortName], i) => ({
     position: i + 1,
     team,
     shortName,
-    crest: `https://crests.football-data.org/${id}.png`,
-    played: gamesPerTeam,
-    won,
-    drawn,
-    lost: gamesPerTeam - won - drawn,
-    goalsFor: gf,
-    goalsAgainst: ga,
-    goalDifference: gf - ga,
-    points: won * 3 + drawn,
+    crest: null,
+    played: 0,
+    won: 0,
+    drawn: 0,
+    lost: 0,
+    goalsFor: 0,
+    goalsAgainst: 0,
+    goalDifference: 0,
+    points: 0,
   }))
   return {
     leagueId,
     competition: COMPETITION_LABEL[leagueId],
-    season: '2025-26',
+    season: CURRENT_LEAGUE_SEASON,
     source: 'fallback',
     fetchedAt: new Date().toISOString(),
     standings,
@@ -151,12 +153,16 @@ interface FDStandings {
   standings?: Array<{ type: string; table: FDRow[] }>
 }
 
-export async function fetchLive(leagueId: LeagueId, apiKey: string): Promise<LeagueTableResponse | null> {
+export async function fetchLive(
+  leagueId: LeagueId,
+  apiKey: string,
+  seasonStartYear = CURRENT_LEAGUE_SEASON_START_YEAR,
+): Promise<LeagueTableResponse | null> {
   const code = COMPETITION_CODE[leagueId]
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 6000)
   try {
-    const res = await fetch(`https://api.football-data.org/v4/competitions/${code}/standings`, {
+    const res = await fetch(`https://api.football-data.org/v4/competitions/${code}/standings?season=${seasonStartYear}`, {
       headers: { 'X-Auth-Token': apiKey },
       signal: controller.signal,
     })

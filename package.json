@@ -13,7 +13,14 @@
     "test": "turbo run test",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "clean": "turbo run clean && rm -rf node_modules"
+    "clean": "turbo run clean && rm -rf node_modules",
+    "data-sync:adapter:setup": "bash scripts/data-sync-adapter.sh setup",
+    "data-sync:adapter:start": "bash scripts/data-sync-adapter.sh start",
+    "data-sync:adapter:status": "bash scripts/data-sync-adapter.sh status",
+    "data-sync:adapter:stop": "bash scripts/data-sync-adapter.sh stop",
+    "data-sync:local": "bash scripts/data-sync-local.sh",
+    "data-sync:local:dev": "bash scripts/data-sync-local.sh dev",
+    "data-sync:local:prod": "bash scripts/data-sync-local.sh prod"
   },
   "devDependencies": {
     "turbo": "^2.5.3",

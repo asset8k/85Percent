@@ -492,7 +492,7 @@
     "clubCount_other": "{{count}} club",
     "noCached": {
       "title": "Ancora nessun club in cache",
-      "body": "La libreria delle rose di questo campionato non è stata sincronizzata. Esegui la sincronizzazione mensile dei modelli, oppure costruisci la rosa manualmente dalla pagina Rosa.",
+      "body": "La libreria delle rose di questo campionato non è stata sincronizzata. Chiedi a un amministratore di eseguire Data Sync oppure costruisci la rosa manualmente dalla pagina Rosa.",
       "cta": "Costruisci manualmente"
     },
     "noMatch": "Nessun club corrisponde a « {{query}} »",

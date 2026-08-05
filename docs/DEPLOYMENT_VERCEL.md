@@ -32,9 +32,10 @@ For each Vercel project:
 - Keep the tracked app-specific `vercel.json` install/build commands.
 - Production branch is `main`; use Preview values for non-production branches.
 
-The admin catch-all API Route Handler exports Node runtime, dynamic execution,
-and `maxDuration = 300`. Maintenance work scheduled with `waitUntil` shares
-that function duration and is cancelled by Vercel if it exceeds the limit.
+The admin catch-all API and the manual data-import callback use the Node runtime.
+The callback exports `maxDuration = 300`, but processes one club or one league
+only. QStash provides durable delivery; a complete multi-club run is never held
+open inside one Vercel request.
 
 ## Environment Variables
 
@@ -70,14 +71,22 @@ ADMIN_USERNAME=
 ADMIN_PASSWORD=
 ADMIN_SESSION_SECRET=
 APP_URL=https://app.85percent.pro
-INTERNAL_JOB_SECRET=
 UPSTASH_REDIS_REST_URL=
 UPSTASH_REDIS_REST_TOKEN=
+QSTASH_TOKEN=
+QSTASH_CURRENT_SIGNING_KEY=
+QSTASH_NEXT_SIGNING_KEY=
+DATA_IMPORT_CALLBACK_URL=https://admin.85percent.pro/api/data-imports/task
+DATA_IMPORT_MAX_CLUBS_PER_RUN=10
+DATA_IMPORT_MAX_CONCURRENT_TASKS=2
+DATA_IMPORT_MAX_TASK_ATTEMPTS=3
+DATA_IMPORT_REQUEST_TIMEOUT_MS=20000
+DATA_IMPORT_RETRY_BASE_MS=1500
 ANTHROPIC_API_KEY=
 ANTHROPIC_MODEL=claude-sonnet-4-6
 FOOTBALL_DATA_API_KEY=
 TRANSFERMARKT_API_URL=
-TRANSFERMARKT_SYNC_DELAY_MS=3000
+TRANSFERMARKT_WEB_URL=https://www.transfermarkt.com
 ```
 
 `DATABASE_URL` is needed only for Prisma CLI schema operations, not normal API
@@ -90,14 +99,16 @@ credentials must be configured independently in both Vercel projects.
 Every Vercel build runs `scripts/validate-vercel-env.mjs` before compiling the
 application. The build fails if a critical variable is missing, blank, still a
 placeholder, or if a production deployment points at the development Supabase
-project. Admin production builds also require the canonical web `APP_URL`.
+project. Admin builds also require QStash delivery/signing credentials and both
+football providers; production requires the canonical web `APP_URL`.
 Encrypted Vercel values cannot be read back through `vercel env pull`; verify
 their presence with `vercel env ls` and rely on the build validator to inspect
 the injected values without printing them.
 
 `TRANSFERMARKT_API_URL=http://localhost:8000` works only on a developer machine.
-Production template sync requires a reachable HTTPS endpoint and must finish
-inside the configured function duration.
+Production squad sync requires a reachable HTTPS Transfermarkt adapter endpoint.
+QStash calls the fixed server-side callback and signs every request; do not
+expose that callback through an unsigned proxy.
 
 ## DNS
 
@@ -125,15 +136,17 @@ is required by the application.
 4. Deploy web and verify its `/api/health` rewrite reaches admin.
 5. Deploy landing and submit a lead; verify the fourth request from one IP gets
    HTTP 429.
-6. Verify login, roster, scenarios, SSR, invitations, notifications, AI stream,
-   and both maintenance jobs against a non-production workspace.
-7. Remove the old Railway service and obsolete `api` DNS only after the Vercel
+6. Apply `20260805000003_manual_data_imports`, configure QStash, and verify one
+   squad and one standings import against a non-production project.
+7. Verify login, roster, scenarios, SSR, invitations, notifications, and AI stream.
+8. Remove the old Railway service and obsolete `api` DNS only after the Vercel
    API passes those checks.
 
 ## Security Checks
 
-- Admin page middleware deliberately excludes `/api`; each API endpoint applies
-  Supabase bearer-token auth or the internal job secret itself.
+- Admin page middleware deliberately excludes `/api`; admin import endpoints
+  verify the signed admin session and the worker callback verifies QStash's
+  current/next signing keys.
 - The service-role key is server-only and bypasses RLS. Tenant handlers must
   continue filtering every tenant-owned query by `club_id`.
 - Upstash is mandatory in production. The API returns 503 rather than running

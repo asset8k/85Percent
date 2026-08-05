@@ -492,7 +492,7 @@
     "clubCount_other": "{{count}} clubes",
     "noCached": {
       "title": "Aún no hay clubes en caché",
-      "body": "La biblioteca de plantillas de esta liga no se ha sincronizado. Ejecuta la sincronización mensual de plantillas o crea tu plantilla manualmente en la página Plantilla.",
+      "body": "La biblioteca de plantillas de esta liga no se ha sincronizado. Pide a un administrador que ejecute Data Sync o crea tu plantilla manualmente en la página Plantilla.",
       "cta": "Crear manualmente"
     },
     "noMatch": "Ningún club coincide con «{{query}}»",

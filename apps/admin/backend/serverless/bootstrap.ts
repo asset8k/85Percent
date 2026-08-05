@@ -10,7 +10,6 @@ import { authRoutes } from '../routes/auth'
 import { notificationRoutes } from '../routes/notifications'
 import { leagueTableRoutes } from '../routes/league-table'
 import { chatRoutes } from '../routes/chat'
-import { adminJobRoutes } from '../routes/admin-jobs'
 import { ServerlessApp } from './router'
 
 let routerPromise: Promise<ServerlessApp> | null = null
@@ -30,7 +29,6 @@ async function buildRouter(): Promise<ServerlessApp> {
   await router.register(notificationRoutes)
   await router.register(leagueTableRoutes)
   await router.register(chatRoutes)
-  await router.register(adminJobRoutes)
   app.get('/health', async () => ({ status: 'ok', ts: new Date().toISOString() }))
 
   return router

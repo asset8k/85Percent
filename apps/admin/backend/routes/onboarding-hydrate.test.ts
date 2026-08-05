@@ -252,7 +252,10 @@ describe('buildHydratedRoster (synthetic)', () => {
 const VALID_POSITIONS = new Set(['GK', 'DEF', 'MID', 'FWD'])
 
 async function loadTemplateClubs() {
-  const { data, error } = await supabase.from('template_clubs').select('id, name, league, logo_url')
+  const { data, error } = await supabase
+    .from('template_clubs')
+    .select('id, name, league, logo_url')
+    .eq('is_active', true)
   if (error) throw error
   return data ?? []
 }
@@ -269,7 +272,7 @@ describe('DB-backed hydration over the filled template library', () => {
   it('has 20 Premier League + 24 Championship clubs cached', async () => {
     const clubs = await loadTemplateClubs()
     if (clubs.length === 0) {
-      console.warn('  ⚠ no template data — run `pnpm --filter @85percent/admin sync:templates` first; skipping')
+      console.warn('  ⚠ no template data — run a manual Admin → Data Sync import first; skipping')
       return
     }
     const pl = clubs.filter((c) => c.league === 'PREMIER_LEAGUE').length
