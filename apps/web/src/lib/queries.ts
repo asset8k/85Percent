@@ -20,13 +20,15 @@
  * to `null`, mirroring the pages' prior `.catch(() => null)` behaviour — a missing
  * manager / unconfigured financials is a normal state, not a query error.
  */
-import { useQuery, keepPreviousData } from '@tanstack/react-query'
+import { useQuery, keepPreviousData, type QueryClient } from '@tanstack/react-query'
 import { api } from './api'
+import { seasonAsOfDate, useSeasonStore } from '@/stores/season'
 
 /** Centralised query keys — one source of truth so invalidation stays in sync. */
 export const queryKeys = {
-  roster: ['roster', 'active'] as const,
+  roster: (asOf: string) => ['roster', 'active', asOf] as const,
   rosterArchived: ['roster', 'archived'] as const,
+  playerPhases: (id: string, asOf: string) => ['roster', 'player-phases', id, asOf] as const,
   manager: ['roster', 'manager'] as const,
   scenarioDetails: ['scenarios', 'details'] as const,
   leagueTable: ['leagueTable'] as const,
@@ -40,11 +42,28 @@ export const queryKeys = {
   auditLog: (page: number, limit: number) => ['audit', page, limit] as const,
 }
 
-/** Active squad (with contracts). Season-independent, matching the prior load. */
+/**
+ * Roster writes affect more than the table: Dashboard derives the current SCR
+ * from this cache, Scenarios uses it as its player picker, Calendar uses its
+ * expiry dates, and SSR surfaces can consume the same financial baseline.
+ * Keep that fan-out in one place so individual mutation flows cannot forget a
+ * dependent module.
+ */
+export async function invalidateRosterDerivedQueries(queryClient: QueryClient): Promise<void> {
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: ['roster'] }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.scenarioDetails }),
+    queryClient.invalidateQueries({ queryKey: ['ssr'] }),
+  ])
+}
+
+/** Active squad resolved at the selected season's reporting date. */
 export function useRosterQuery() {
+  const seasonStartYear = useSeasonStore((state) => state.startYear)
+  const asOf = seasonAsOfDate(seasonStartYear).toISOString().slice(0, 10)
   return useQuery({
-    queryKey: queryKeys.roster,
-    queryFn: async () => (await api.roster.list()).players,
+    queryKey: queryKeys.roster(asOf),
+    queryFn: async () => (await api.roster.list(asOf)).players,
   })
 }
 
@@ -53,6 +72,17 @@ export function useArchivedRosterQuery() {
   return useQuery({
     queryKey: queryKeys.rosterArchived,
     queryFn: async () => (await api.roster.listArchived()).players,
+  })
+}
+
+/** A player ledger is loaded only for the open editor and shares the roster's valuation date. */
+export function usePlayerPhasesQuery(playerId: string | undefined, enabled = true) {
+  const seasonStartYear = useSeasonStore((state) => state.startYear)
+  const asOf = seasonAsOfDate(seasonStartYear).toISOString().slice(0, 10)
+  return useQuery({
+    queryKey: queryKeys.playerPhases(playerId ?? '', asOf),
+    queryFn: async () => (await api.roster.playerPhases(playerId!, asOf)).phases,
+    enabled: enabled && Boolean(playerId),
   })
 }
 

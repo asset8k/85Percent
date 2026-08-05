@@ -61,6 +61,7 @@ export const RosterRowSchema = z
     agent_fee_pounds:    z.number({ invalid_type_error: 'Agent fee must be a number' }).int().min(0, 'Agent fee cannot be negative'),
     contract_start: ISODateString,
     contract_end:   ISODateString,
+    amortisation_treatment: z.enum(['CONTINUE_CURRENT_SCHEDULE', 'SPREAD_REMAINING_BOOK_VALUE']).optional().default('CONTINUE_CURRENT_SCHEDULE'),
   })
   .refine((r) => new Date(r.contract_end) > new Date(r.contract_start), {
     message: 'Contract end must be after start',
@@ -111,7 +112,10 @@ export const ManualPlayerSchema = z
     // Carried Book Value override (pence). Non-null ⇒ engine amortises this
     // instead of the transfer fee. Null/omitted ⇒ standard fee amortisation.
     carriedBookValuePence: z.number().int().min(0).nullable().optional(),
-    annualWagePence:  z.number().int().positive(),
+    // Weekly wage is the public roster API input. Annual pence remains
+    // accepted for CSV/history compatibility while the server stores annual.
+    weeklyWagePence: z.number().int().positive().optional(),
+    annualWagePence: z.number().int().positive().optional(),
     agentFeePence:    z.number().int().min(0),
     startDate: ISODateString,
     endDate:   ISODateString,
@@ -119,6 +123,10 @@ export const ManualPlayerSchema = z
   .refine((r) => new Date(r.endDate) > new Date(r.startDate), {
     message: 'End date must be after start date',
     path: ['endDate'],
+  })
+  .refine((r) => (r.weeklyWagePence != null) !== (r.annualWagePence != null), {
+    message: 'Provide exactly one of weeklyWagePence or annualWagePence',
+    path: ['weeklyWagePence'],
   })
   .refine((r) => {
     const start = new Date(r.startDate)
@@ -148,7 +156,8 @@ export const ContractPatchSchema = z
     // Pass a number to set the Carried Book Value override, null to clear it
     // (revert to standard transfer-fee amortisation).
     carriedBookValuePence: z.number().int().min(0).nullable().optional(),
-    annualWagePence:  z.number().int().positive().optional(),
+    weeklyWagePence: z.number().int().positive().optional(),
+    annualWagePence: z.number().int().positive().optional(),
     agentFeePence:    z.number().int().min(0).optional(),
     startDate: ISODateString.optional(),
     endDate:   ISODateString.optional(),
@@ -156,8 +165,26 @@ export const ContractPatchSchema = z
   .refine((r) => Object.values(r).some((v) => v !== undefined), {
     message: 'At least one field must be provided',
   })
+  .refine((r) => !(r.weeklyWagePence != null && r.annualWagePence != null), {
+    message: 'Provide weeklyWagePence or annualWagePence, not both',
+    path: ['weeklyWagePence'],
+  })
 
 export type ContractPatchInput = z.infer<typeof ContractPatchSchema>
+
+/** Internal validation for the registration-value audit record. */
+export const RegistrationAssetCorrectionSchema = z.discriminatedUnion('basis', [
+  z.object({
+    basis: z.literal('ACQUISITION_COST'),
+    acquisitionFeePence: z.number().int().min(0),
+  }),
+  z.object({
+    basis: z.literal('CURRENT_BOOK_VALUE'),
+    currentBookValuePence: z.number().int().min(0),
+  }),
+])
+
+export type RegistrationAssetCorrectionInput = z.infer<typeof RegistrationAssetCorrectionSchema>
 
 // ---------------------------------------------------------------------------
 // Manager (Head Coach) + multi-phase contract extension
@@ -175,7 +202,8 @@ export type ContractPatchInput = z.infer<typeof ContractPatchSchema>
 // no contract data for — see onboarding-hydrate).
 const ManagerContractFields = {
   compensationFeePence: z.number().int().min(0),
-  annualWagePence: z.number().int().positive(),
+  weeklyWagePence: z.number().int().positive().optional(),
+  annualWagePence: z.number().int().positive().optional(),
   agentFeePence: z.number().int().min(0),
   startDate: ISODateString,
   endDate: ISODateString,
@@ -199,13 +227,21 @@ export const ManagerInputSchema = withContractWindowRules(
     name: z.string().trim().min(1).max(80),
     nationality: z.string().trim().max(60).nullable().optional(),
     ...ManagerContractFields,
+  }).refine((r) => (r.weeklyWagePence != null) !== (r.annualWagePence != null), {
+    message: 'Provide exactly one of weeklyWagePence or annualWagePence',
+    path: ['weeklyWagePence'],
   }),
 )
 
 export type ManagerInput = z.infer<typeof ManagerInputSchema>
 
 // Create the contract phase for an existing manager that has none yet.
-export const ManagerContractInputSchema = withContractWindowRules(z.object(ManagerContractFields))
+export const ManagerContractInputSchema = withContractWindowRules(
+  z.object(ManagerContractFields).refine((r) => (r.weeklyWagePence != null) !== (r.annualWagePence != null), {
+    message: 'Provide exactly one of weeklyWagePence or annualWagePence',
+    path: ['weeklyWagePence'],
+  }),
+)
 
 export type ManagerContractInput = z.infer<typeof ManagerContractInputSchema>
 
@@ -230,6 +266,7 @@ export type ManagerPatchInput = z.infer<typeof ManagerPatchSchema>
 export const PhasePatchSchema = z
   .object({
     feePence:        z.number().int().min(0).optional(),
+    weeklyWagePence: z.number().int().positive().optional(),
     annualWagePence: z.number().int().positive().optional(),
     agentFeePence:   z.number().int().min(0).optional(),
     startDate: ISODateString.optional(),
@@ -238,19 +275,30 @@ export const PhasePatchSchema = z
   .refine((r) => Object.values(r).some((v) => v !== undefined), {
     message: 'At least one field must be provided',
   })
+  .refine((r) => !(r.weeklyWagePence != null && r.annualWagePence != null), {
+    message: 'Provide weeklyWagePence or annualWagePence, not both',
+    path: ['weeklyWagePence'],
+  })
 
 export type PhasePatchInput = z.infer<typeof PhasePatchSchema>
 
-// Log a contract extension. Supersedes the current phase: the server computes
-// the carried book value of the existing deal on `effectiveDate` and uses it
-// as the new EXTENSION phase's principal. `newWeeklyWagePence` is stored as an
-// annual wage (× 52) to match the rest of the roster.
+// Log a contract extension. `extensionSignedDate` captures the accounting date
+// for any re-spread, separately from the future date at which the new wage
+// phase takes effect. Annual wage is canonical; the weekly field remains
+// accepted only for older API clients.
 export const ExtendContractSchema = z
   .object({
     effectiveDate: ISODateString,
+    extensionSignedDate: ISODateString.optional(),
     newEndDate:    ISODateString,
-    newWeeklyWagePence: z.number().int().positive(),
+    newAnnualWagePence: z.number().int().positive().optional(),
+    newWeeklyWagePence: z.number().int().positive().optional(),
     newAgentFeePence:   z.number().int().min(0),
+    amortisationTreatment: z.enum(['CONTINUE_CURRENT_SCHEDULE', 'SPREAD_REMAINING_BOOK_VALUE']).optional().default('CONTINUE_CURRENT_SCHEDULE'),
+  })
+  .refine((r) => (r.newAnnualWagePence != null) !== (r.newWeeklyWagePence != null), {
+    message: 'Provide exactly one of newAnnualWagePence or newWeeklyWagePence',
+    path: ['newAnnualWagePence'],
   })
   .refine((r) => new Date(r.newEndDate) > new Date(r.effectiveDate), {
     message: 'New end date must be after the effective date',

@@ -28,6 +28,7 @@ import { FormPageSkeleton } from '@/components/ui/page-skeletons'
 import { NumericInput } from '@/components/ui/numeric-input'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import { cn } from '@/lib/utils'
+import { formatPercentage, formatPercentagePointDelta } from '@/lib/percentage'
 import type {
   WorkingCapitalResponse,
   LiquidityResponse,
@@ -562,7 +563,7 @@ function EquityTab() {
         metric={
           preview ? (
             <span className={cn('num', preview.passing ? 'text-slate-900' : 'text-red-700')}>
-              {(preview.ratio * 100).toFixed(1)}%
+              {formatPercentage(preview.ratio)}
             </span>
           ) : (
             <span className="text-slate-300">—</span>
@@ -597,20 +598,20 @@ function EquityTab() {
                 domainMax={Math.max(1, preview.ratio * 1.1)}
                 thresholdLabel={t('ssr.equity.capLabel', { pct: `${(threshold * 100).toFixed(0)}%` })}
                 formatTick={fmtPctTick}
-                valueLabel={`${(preview.ratio * 100).toFixed(1)}%`}
+                valueLabel={formatPercentage(preview.ratio)}
               />
             </div>
 
             <div className="mt-6 pt-5 border-t border-slate-100 grid grid-cols-3 gap-5">
               <StatBlock
                 label={t('ssr.equity.sbRatio')}
-                value={(preview.ratio * 100).toFixed(1) + '%'}
+                value={formatPercentage(preview.ratio)}
                 valueClass={preview.passing ? 'text-slate-900' : 'text-red-700'}
                 sub={t('ssr.equity.sbRatioSub', { season: SEASON, pct: `${(threshold * 100).toFixed(0)}%` })}
               />
               <StatBlock
                 label={t('ssr.equity.sbMargin')}
-                value={`${preview.marginPp >= 0 ? '+' : ''}${preview.marginPp.toFixed(2)} pp`}
+                value={formatPercentagePointDelta(preview.marginPp, 2)}
                 valueClass={preview.marginPp >= 0 ? 'text-green-700' : 'text-red-700'}
                 sub={t('ssr.equity.sbMarginSub')}
               />

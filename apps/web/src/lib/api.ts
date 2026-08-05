@@ -5,6 +5,7 @@ import type {
   RosterStagingRow,
   ManualPlayerInput,
   ContractPatchInput,
+  RegistrationAssetCorrectionInput,
   ScenarioActionType,
   ManagerWithContract,
   ManagerInput,
@@ -16,6 +17,18 @@ import type {
 } from '@85percent/shared'
 
 const BASE = '/api'
+
+export class ApiError extends Error {
+  readonly code?: string
+  readonly diagnostic?: unknown
+
+  constructor(message: string, options: { code?: string; diagnostic?: unknown } = {}) {
+    super(message)
+    this.name = 'ApiError'
+    this.code = options.code
+    this.diagnostic = options.diagnostic
+  }
+}
 
 async function getAuthToken(): Promise<string> {
   const { data } = await supabase.auth.getSession()
@@ -37,8 +50,8 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     if (init?.body != null) headers['Content-Type'] = 'application/json'
     const res = await fetch(`${BASE}${path}`, { ...init, headers: { ...headers, ...init?.headers } })
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }))
-      throw new Error((err as { error: string }).error ?? `API error ${res.status}`)
+      const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string; code?: string; diagnostic?: unknown }
+      throw new ApiError(err.error ?? `API error ${res.status}`, { code: err.code, diagnostic: err.diagnostic })
     }
     return (await res.json()) as T
   } finally {
@@ -58,8 +71,8 @@ async function publicPost<T>(path: string, body: unknown): Promise<T> {
       body: JSON.stringify(body),
     })
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }))
-      throw new Error((err as { error?: string }).error ?? `API error ${res.status}`)
+      const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string; code?: string; diagnostic?: unknown }
+      throw new ApiError(err.error ?? `API error ${res.status}`, { code: err.code, diagnostic: err.diagnostic })
     }
     return (await res.json()) as T
   } finally {
@@ -449,7 +462,9 @@ export const api = {
       }),
   },
   roster: {
-    list: () => apiFetch<{ players: PlayerWithContract[] }>('/roster'),
+    list: (asOf?: string) => apiFetch<{ players: PlayerWithContract[] }>(
+      `/roster${asOf ? `?asOf=${encodeURIComponent(asOf)}` : ''}`,
+    ),
     listArchived: () => apiFetch<{ players: PlayerWithContract[] }>('/roster/archived'),
     parseCsv: (csvText: string) =>
       apiFetch<{
@@ -488,6 +503,11 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify(patch),
       }),
+    correctRegistrationAsset: (id: string, correction: RegistrationAssetCorrectionInput) =>
+      apiFetch<{ success: boolean }>(`/roster/player/${id}/registration-asset`, {
+        method: 'PATCH',
+        body: JSON.stringify(correction),
+      }),
     archivePlayer: (id: string) =>
       apiFetch<{ success: boolean; archivedAt: string }>(`/roster/player/${id}/archive`, {
         method: 'POST',
@@ -502,8 +522,8 @@ export const api = {
         method: 'DELETE',
       }),
     // Full contract ledger (all phases) for a player.
-    playerPhases: (id: string) =>
-      apiFetch<{ phases: ContractPhase[] }>(`/roster/player/${id}/phases`),
+    playerPhases: (id: string, asOf: string) =>
+      apiFetch<{ phases: ContractPhase[] }>(`/roster/player/${id}/phases?asOf=${encodeURIComponent(asOf)}`),
     // Log a contract extension — supersedes the current phase, carries book value.
     extendPlayer: (id: string, input: ExtendContractInput) =>
       apiFetch<{ contractId: string; carriedBookValuePence: number; bookValuePence: number }>(

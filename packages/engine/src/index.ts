@@ -26,6 +26,16 @@ export {
   type ScenarioProjection,
 } from './squadCosts.js'
 export {
+  calculateRegistrationCost,
+  resolveContractPhases,
+  type AmortisationTreatment,
+  type ContractPhaseInput,
+  type ContractPhaseStatus,
+  type RegistrationAssetInput,
+  type RegistrationCostResult,
+  type ResolvedContractPhase,
+} from './contractLifecycle.js'
+export {
   evaluateWorkingCapital,
   evaluateWorkingCapitalMonth,
   evaluateLiquidity,

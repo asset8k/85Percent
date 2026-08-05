@@ -14,6 +14,7 @@ import type { ScenarioActionInput } from '@85percent/engine'
 import { applyScenarioActions } from '@85percent/engine'
 import type { Currency } from '@85percent/shared'
 import { setExportCurrency } from './exportCurrency'
+import { formatPercentagePointDelta } from '../percentage'
 import {
   addHeader, addSectionHeader, addStatusPill, addComplianceGauge,
   finalizeFooters, pdfMoney, pdfPct, statusLabel, COLOR,
@@ -137,7 +138,7 @@ function renderScenarioPage(
   // Delta vs baseline + cost/revenue snapshot
   const deltaPp = (proj.ratio - baseline.ratio) * 100
   drawStat(doc, 14, y, 'Δ vs Active Baseline',
-    `${deltaPp >= 0 ? '+' : ''}${deltaPp.toFixed(2)} pp`,
+    formatPercentagePointDelta(deltaPp, 2),
     deltaPp >= 0 ? COLOR.red600 : COLOR.green600,
   )
   drawStat(doc, 14 + 70, y, 'Projected Costs', pdfMoney(proj.squadCostsPence))
@@ -213,7 +214,7 @@ function renderDeltaPage(
 
   // Three big stat blocks
   drawDelta(doc, 14, y, 'Δ SCR',
-    `${deltaSCR >= 0 ? '+' : ''}${deltaSCR.toFixed(2)} pp`,
+    formatPercentagePointDelta(deltaSCR, 2),
     deltaSCR > 0 ? COLOR.red600 : deltaSCR < 0 ? COLOR.green600 : COLOR.slate900,
   )
   drawDelta(doc, 14 + 65, y, 'Δ Squad Costs',
@@ -237,7 +238,7 @@ function renderDeltaPage(
       ['Name', input.scenarioA.name, input.scenarioB.name, ''],
       ['Action count', String(input.scenarioA.actions.length), String(input.scenarioB.actions.length),
         String(input.scenarioB.actions.length - input.scenarioA.actions.length)],
-      ['Projected SCR', pdfPct(projA.ratio), pdfPct(projB.ratio), `${deltaSCR.toFixed(2)} pp`],
+      ['Projected SCR', pdfPct(projA.ratio), pdfPct(projB.ratio), formatPercentagePointDelta(deltaSCR, 2)],
       ['Status', statusLabel(projA.status), statusLabel(projB.status), ''],
       ['Projected Squad Costs', pdfMoney(projA.squadCostsPence), pdfMoney(projB.squadCostsPence), pdfMoney(deltaCosts, { signed: true })],
       ['Projected Revenue', pdfMoney(projA.revenuePence), pdfMoney(projB.revenuePence), pdfMoney(deltaRev, { signed: true })],

@@ -28,6 +28,7 @@ import {
   RosterRowSchema,
   ManualPlayerSchema,
   ContractPatchSchema,
+  RegistrationAssetCorrectionSchema,
   ManagerInputSchema,
   ManagerContractInputSchema,
   ManagerPatchSchema,
@@ -38,7 +39,14 @@ import {
   type ManagerWithContract,
   type ContractPhase,
 } from '@85percent/shared'
-import { currentBookValuePence, calculateRemainingBookValue } from '@85percent/engine'
+import { currentBookValuePence, calculateRemainingBookValue, resolveContractPhases } from '@85percent/engine'
+import {
+  phaseStatusForRow,
+  resolvePlayerContract,
+  treatmentForRow,
+  type ContractRow,
+  type RegistrationAssetRow,
+} from '../services/player-registration'
 
 // Roster mutation requires the explicit canEditRoster grant (admins implicitly).
 function canMutateRoster(permissions: Permissions): boolean {
@@ -57,7 +65,7 @@ const EXPECTED_COLUMNS = [
 
 // Optional CSV columns — accepted when present, ignored otherwise.
 const OPTIONAL_COLUMNS = [
-  'squad_number', 'nationality', 'date_of_birth', 'joined_date', 'carried_book_value_pounds',
+  'squad_number', 'nationality', 'date_of_birth', 'joined_date', 'carried_book_value_pounds', 'amortisation_treatment',
 ] as const
 
 type CsvRow = Record<string, string | number | undefined>
@@ -109,6 +117,48 @@ function yearsBetween(startISO: string, endISO: string): number {
   return Math.round((ms / (365.25 * 24 * 60 * 60 * 1000)) * 100) / 100
 }
 
+type ExtensionFailure = {
+  status: number
+  code: string
+  message: string
+  diagnostic?: string
+}
+
+function extensionFailureFrom(err: unknown): ExtensionFailure {
+  const record = err && typeof err === 'object' ? err as { code?: unknown; message?: unknown } : {}
+  const databaseCode = typeof record.code === 'string' ? record.code : undefined
+  const databaseMessage = typeof record.message === 'string' ? record.message : undefined
+
+  if (databaseCode === '23505') {
+    return { status: 409, code: 'FUTURE_EXTENSION_EXISTS', message: 'A future extension already exists' }
+  }
+  // The route is deployed with a required extension accounting column. This
+  // makes an unapplied migration actionable instead of looking like a user
+  // input failure, without revealing database internals to the client.
+  if (databaseCode === '42703' || databaseCode === 'PGRST204') {
+    return {
+      status: 503,
+      code: 'EXTENSION_SCHEMA_NOT_READY',
+      message: 'Contract-extension setup is incomplete. Ask an administrator to apply the latest database migration.',
+      diagnostic: databaseCode,
+    }
+  }
+  return {
+    status: 500,
+    code: 'EXTENSION_FAILED',
+    message: 'We could not log this extension. Refresh and try again.',
+    diagnostic: databaseCode ?? databaseMessage,
+  }
+}
+
+function extensionFailurePayload(failure: ExtensionFailure) {
+  return {
+    error: failure.message,
+    code: failure.code,
+    ...(process.env.NODE_ENV !== 'production' && failure.diagnostic ? { diagnostic: failure.diagnostic } : {}),
+  }
+}
+
 // Build a fully-validated staging row from a CSV row dict.
 function buildStagingRow(rowIndex: number, rawRow: CsvRow): RosterStagingRow {
   const issues: string[] = []
@@ -133,6 +183,7 @@ function buildStagingRow(rowIndex: number, rawRow: CsvRow): RosterStagingRow {
     agent_fee_pounds:    parsePoundsCell(rawRow['agent_fee_pounds']),
     contract_start:      normaliseCell(rawRow['contract_start']),
     contract_end:        normaliseCell(rawRow['contract_end']),
+    amortisation_treatment: normaliseCell(rawRow['amortisation_treatment']) || undefined,
   }
 
   // Catch number parse failures with a friendlier message than Zod would give
@@ -190,6 +241,7 @@ function buildStagingRow(rowIndex: number, rawRow: CsvRow): RosterStagingRow {
           agentFeePence,
           startDate,
           endDate,
+          amortisationTreatment: r.amortisation_treatment,
           contractLengthYears,
           bookValuePence,
         },
@@ -203,38 +255,42 @@ function buildStagingRow(rowIndex: number, rawRow: CsvRow): RosterStagingRow {
 // Map a DB player+contract row pair into the wire-format PlayerWithContract.
 function buildPlayerResponse(
   player: Record<string, unknown>,
-  contract: Record<string, unknown> | null
+  contracts: ContractRow[],
+  asset: RegistrationAssetRow | null,
+  asOf: Date,
 ): PlayerWithContract {
-  const now = new Date()
+  const now = asOf
   let contractOut: PlayerWithContract['contract'] = null
   let monthsToExpiry: number | null = null
 
-  if (contract) {
-    const startDate = String(contract['start_date']).slice(0, 10)
-    const endDate   = String(contract['end_date']).slice(0, 10)
-    const startObj  = new Date(startDate + 'T00:00:00Z')
+  const resolved = resolvePlayerContract(contracts, asset, now)
+  if (resolved) {
+    const contract = resolved.row
+    const startDate = String(contract.start_date).slice(0, 10)
+    const endDate   = String(contract.end_date).slice(0, 10)
     const endObj    = new Date(endDate   + 'T00:00:00Z')
-    const transferFeePence = Number(contract['transfer_fee'])
-    const carriedBookValuePence =
-      contract['carried_book_value'] == null ? null : Number(contract['carried_book_value'])
-
-    // Live book value — ignore the stored snapshot (Phase 5 will refresh on
-    // schedule). The carried override, when present, replaces the transfer fee
-    // as the amortisation principal.
-    const liveBookValue = currentBookValuePence(transferFeePence, startObj, endObj, now, carriedBookValuePence)
 
     contractOut = {
-      id: String(contract['id']),
-      transferFeePence,
-      carriedBookValuePence,
-      annualWagePence: Number(contract['annual_wage']),
-      agentFeePence:   Number(contract['agent_fee']),
+      id: String(contract.id),
+      transferFeePence: resolved.transferFeePence,
+      acquisitionAgentFeePence: resolved.acquisitionAgentFeePence,
+      acquisitionDate: resolved.acquisitionDate,
+      carriedBookValuePence: resolved.carriedBookValuePence,
+      accountingBasis: resolved.accountingBasis,
+      annualWagePence: Number(contract.annual_wage),
+      agentFeePence:   Number(contract.agent_fee),
       startDate,
       endDate,
-      contractLengthYears: Number(contract['contract_length_years']),
-      bookValuePence: liveBookValue,
-      isActive: Boolean(contract['is_active']),
-      phaseType: contract['phase_type'] === 'EXTENSION' ? 'EXTENSION' : 'INITIAL',
+      contractLengthYears: Number(contract.contract_length_years),
+      bookValuePence: resolved.bookValuePence,
+      annualAmortisationPence: resolved.annualAmortisationPence,
+      annualisedAgentFeePence: resolved.annualisedAgentFeePence,
+      totalAnnualCostPence: resolved.totalAnnualCostPence,
+      phaseStatus: resolved.phaseStatus,
+      hasRegistrationAsset: resolved.hasRegistrationAsset,
+      amortisationTreatment: treatmentForRow(contract),
+      isActive: Boolean(contract.is_active),
+      phaseType: contract.phase_type === 'EXTENSION' ? 'EXTENSION' : 'INITIAL',
     }
 
     monthsToExpiry =
@@ -278,27 +334,62 @@ function monthsUntil(endISO: string): number {
 // ContractPhase. `feePence` is read from the table-specific fee column by the
 // caller (transfer_fee for players, compensation_fee for managers). Book value
 // is recomputed live (capped at 5 years) rather than trusting the stored snapshot.
-function buildPhase(row: Record<string, unknown>, feePence: number): ContractPhase {
+function buildPhase(row: ContractRow, allRows: ContractRow[], asOfDate: Date): ContractPhase {
   const startDate = String(row['start_date']).slice(0, 10)
   const endDate   = String(row['end_date']).slice(0, 10)
   const startObj  = new Date(startDate + 'T00:00:00Z')
   const endObj    = new Date(endDate   + 'T00:00:00Z')
   const carriedBookValuePence =
-    row['carried_book_value'] == null ? null : Number(row['carried_book_value'])
+    row.carried_book_value == null ? null : Number(row.carried_book_value)
+  return {
+    id: String(row.id),
+    phaseType: row.phase_type === 'EXTENSION' ? 'EXTENSION' : 'INITIAL',
+    isCurrent: phaseStatusForRow(row, allRows, asOfDate) === 'ACTIVE',
+    status: phaseStatusForRow(row, allRows, asOfDate),
+    amortisationTreatment: treatmentForRow(row),
+    feePence: Number(row.transfer_fee),
+    carriedBookValuePence,
+    annualWagePence: Number(row.annual_wage),
+    agentFeePence:   Number(row.agent_fee),
+    extensionSignedDate: row.extension_signed_date == null ? null : String(row.extension_signed_date).slice(0, 10),
+    startDate,
+    endDate,
+    contractLengthYears: Number(row.contract_length_years),
+    bookValuePence: currentBookValuePence(Number(row.transfer_fee), startObj, endObj, asOfDate, carriedBookValuePence),
+    supersededAt: row.superseded_at == null ? null : String(row.superseded_at),
+    createdAt: String(row.created_at ?? ''),
+  }
+}
+
+function buildManagerPhase(row: Record<string, unknown>, allRows: Record<string, unknown>[], asOfDate: Date): ContractPhase {
+  const startDate = String(row['start_date']).slice(0, 10)
+  const endDate = String(row['end_date']).slice(0, 10)
+  const feePence = Number(row['compensation_fee'])
+  const status = resolveContractPhases(allRows.map((phase) => ({
+    id: String(phase['id']),
+    startDate: String(phase['start_date']).slice(0, 10),
+    endDate: String(phase['end_date']).slice(0, 10),
+    annualWagePence: Number(phase['annual_wage']),
+    agentFeePence: Number(phase['agent_fee']),
+    isArchived: phase['is_active'] === false,
+  })), asOfDate).find((phase) => phase.id === String(row['id']))?.status ?? 'ARCHIVED'
   return {
     id: String(row['id']),
     phaseType: row['phase_type'] === 'EXTENSION' ? 'EXTENSION' : 'INITIAL',
-    isCurrent: Boolean(row['is_current']),
+    isCurrent: status === 'ACTIVE',
+    status,
+    amortisationTreatment: 'CONTINUE_CURRENT_SCHEDULE',
     feePence,
-    carriedBookValuePence,
+    carriedBookValuePence: null,
     annualWagePence: Number(row['annual_wage']),
-    agentFeePence:   Number(row['agent_fee']),
+    agentFeePence: Number(row['agent_fee']),
+    extensionSignedDate: null,
     startDate,
     endDate,
     contractLengthYears: Number(row['contract_length_years']),
-    bookValuePence: currentBookValuePence(feePence, startObj, endObj, new Date(), carriedBookValuePence),
+    bookValuePence: currentBookValuePence(feePence, new Date(`${startDate}T00:00:00Z`), new Date(`${endDate}T00:00:00Z`), asOfDate),
     supersededAt: row['superseded_at'] == null ? null : String(row['superseded_at']),
-    createdAt: String(row['created_at']),
+    createdAt: String(row['created_at'] ?? ''),
   }
 }
 
@@ -353,6 +444,7 @@ const CommitBody = z.object({
       agentFeePence:    z.number().int().min(0),
       startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       endDate:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      amortisationTreatment: z.enum(['CONTINUE_CURRENT_SCHEDULE', 'SPREAD_REMAINING_BOOK_VALUE']).optional().default('CONTINUE_CURRENT_SCHEDULE'),
     })
   ).min(1, 'No rows to commit').max(100, 'Too many rows (max 100)'),
 })
@@ -377,6 +469,16 @@ export async function rosterRoutes(app: ApiApp) {
 
   // ---------------------------------------------------------------------- GET /roster
   app.get('/roster', async (request, reply) => {
+    const asOfValue = (request.query as Record<string, string> | undefined)?.asOf
+    if (asOfValue && !/^\d{4}-\d{2}-\d{2}$/.test(asOfValue)) {
+      return reply.status(400).send({ error: 'asOf must be an ISO date (YYYY-MM-DD)' })
+    }
+    const asOf = asOfValue && /^\d{4}-\d{2}-\d{2}$/.test(asOfValue)
+      ? new Date(`${asOfValue}T00:00:00Z`)
+      : new Date()
+    if (Number.isNaN(asOf.getTime())) {
+      return reply.status(400).send({ error: 'asOf must be an ISO date (YYYY-MM-DD)' })
+    }
     try {
       const { data: players, error: playersErr } = await supabase
         .from('players')
@@ -388,12 +490,13 @@ export async function rosterRoutes(app: ApiApp) {
       if (playersErr) throw playersErr
 
       const playerIds = (players ?? []).map((p) => p.id as string)
-      let contractsByPlayer = new Map<string, Record<string, unknown>>()
+      let contractsByPlayer = new Map<string, ContractRow[]>()
+      let assetsByPlayer = new Map<string, RegistrationAssetRow>()
 
       if (playerIds.length > 0) {
         const { data: contracts, error: contractsErr } = await supabase
           .from('contracts')
-          .select('id, player_id, transfer_fee, carried_book_value, annual_wage, agent_fee, start_date, end_date, contract_length_years, book_value, is_active, phase_type')
+          .select('id, player_id, transfer_fee, carried_book_value, annual_wage, agent_fee, start_date, end_date, contract_length_years, book_value, is_active, phase_type, amortisation_treatment, extension_signed_date, created_at, superseded_at')
           .eq('club_id', request.clubId)
           .eq('is_active', true)
           .in('player_id', playerIds)
@@ -401,12 +504,28 @@ export async function rosterRoutes(app: ApiApp) {
         if (contractsErr) throw contractsErr
 
         for (const c of contracts ?? []) {
-          contractsByPlayer.set(c.player_id as string, c as Record<string, unknown>)
+          const row = c as ContractRow
+          const rows = contractsByPlayer.get(row.player_id) ?? []
+          rows.push(row)
+          contractsByPlayer.set(row.player_id, rows)
         }
+
+        const { data: assets, error: assetsErr } = await supabase
+          .from('player_registration_assets')
+          .select('player_id, acquisition_fee, acquisition_agent_fee, acquisition_date, carrying_value')
+          .eq('club_id', request.clubId)
+          .in('player_id', playerIds)
+        if (assetsErr) throw assetsErr
+        assetsByPlayer = new Map((assets ?? []).map((asset) => [String(asset.player_id), asset as RegistrationAssetRow]))
       }
 
       const out = (players ?? []).map((p) =>
-        buildPlayerResponse(p as Record<string, unknown>, contractsByPlayer.get(p.id as string) ?? null)
+        buildPlayerResponse(
+          p as Record<string, unknown>,
+          contractsByPlayer.get(p.id as string) ?? [],
+          assetsByPlayer.get(p.id as string) ?? null,
+          asOf,
+        )
       )
 
       return reply.send({ players: out })
@@ -435,7 +554,7 @@ export async function rosterRoutes(app: ApiApp) {
       if (playerIds.length > 0) {
         const { data: contracts } = await supabase
           .from('contracts')
-          .select('id, player_id, transfer_fee, annual_wage, agent_fee, start_date, end_date, contract_length_years, book_value, is_active')
+          .select('id, player_id, transfer_fee, annual_wage, agent_fee, start_date, end_date, contract_length_years, book_value, is_active, extension_signed_date')
           .eq('club_id', request.clubId)
           .in('player_id', playerIds)
           .order('created_at', { ascending: false })
@@ -449,7 +568,12 @@ export async function rosterRoutes(app: ApiApp) {
       }
 
       const out = (players ?? []).map((p) =>
-        buildPlayerResponse(p as Record<string, unknown>, contractsByPlayer.get(p.id as string) ?? null)
+        buildPlayerResponse(
+          p as Record<string, unknown>,
+          [contractsByPlayer.get(p.id as string) ?? null].filter(Boolean) as unknown as ContractRow[],
+          null,
+          new Date(),
+        )
       )
 
       return reply.send({ players: out })
@@ -535,6 +659,7 @@ export async function rosterRoutes(app: ApiApp) {
         agent_fee_pounds:    Math.floor(r.agentFeePence / 100),
         contract_start: r.startDate,
         contract_end:   r.endDate,
+        amortisation_treatment: r.amortisationTreatment,
       }
       const check = RosterRowSchema.safeParse(candidate)
       if (!check.success) {
@@ -585,6 +710,7 @@ export async function rosterRoutes(app: ApiApp) {
       const nowISO = new Date().toISOString()
       const playersToInsert: Array<Record<string, unknown>> = []
       const contractsToInsert: Array<Record<string, unknown>> = []
+      const assetsToInsert: Array<Record<string, unknown>> = []
 
       for (const r of accepted) {
         const playerId   = randomUUID()
@@ -621,6 +747,20 @@ export async function rosterRoutes(app: ApiApp) {
           contract_length_years: yearsBetween(r.startDate, r.endDate),
           book_value: bookVal,
           is_active: true,
+          amortisation_treatment: r.amortisationTreatment,
+          created_at: nowISO,
+          updated_at: nowISO,
+        })
+        assetsToInsert.push({
+          player_id: playerId,
+          club_id: request.clubId,
+          acquisition_fee: r.transferFeePence,
+          acquisition_agent_fee: r.agentFeePence,
+          // A carried value is a known balance at the imported contract's
+          // start, while an acquisition fee without a carrying override dates
+          // from the player's original registration.
+          acquisition_date: carried != null ? r.startDate : r.joinedDate ?? r.startDate,
+          carrying_value: carried,
           created_at: nowISO,
           updated_at: nowISO,
         })
@@ -640,6 +780,12 @@ export async function rosterRoutes(app: ApiApp) {
           .delete()
           .in('id', playersToInsert.map((p) => p['id'] as string))
         throw cErr
+      }
+      const { error: assetErr } = await supabase.from('player_registration_assets').insert(assetsToInsert)
+      if (assetErr) {
+        await supabase.from('contracts').delete().in('id', contractsToInsert.map((contract) => contract['id'] as string))
+        await supabase.from('players').delete().in('id', playersToInsert.map((player) => player['id'] as string))
+        throw assetErr
       }
 
       // Audit log — one entry per player created
@@ -671,6 +817,7 @@ export async function rosterRoutes(app: ApiApp) {
 
     try {
       const r = parsed.data
+      const annualWagePence = r.annualWagePence ?? r.weeklyWagePence! * 52
       const nowISO = new Date().toISOString()
       const playerId   = randomUUID()
       const contractId = randomUUID()
@@ -702,7 +849,7 @@ export async function rosterRoutes(app: ApiApp) {
         club_id: request.clubId,
         transfer_fee: r.transferFeePence,
         carried_book_value: carried,
-        annual_wage:  r.annualWagePence,
+        annual_wage:  annualWagePence,
         agent_fee:    r.agentFeePence,
         start_date: r.startDate,
         end_date:   r.endDate,
@@ -716,6 +863,21 @@ export async function rosterRoutes(app: ApiApp) {
         // Rollback the player to avoid an orphan
         await supabase.from('players').delete().eq('id', playerId)
         throw cErr
+      }
+      const { error: assetErr } = await supabase.from('player_registration_assets').insert({
+        player_id: playerId,
+        club_id: request.clubId,
+        acquisition_fee: r.transferFeePence,
+        acquisition_agent_fee: r.agentFeePence,
+        acquisition_date: carried != null ? r.startDate : r.joinedDate ?? r.startDate,
+        carrying_value: carried,
+        created_at: nowISO,
+        updated_at: nowISO,
+      })
+      if (assetErr) {
+        await supabase.from('contracts').delete().eq('id', contractId).eq('club_id', request.clubId)
+        await supabase.from('players').delete().eq('id', playerId)
+        throw assetErr
       }
 
       await writeAuditLog(request, 'players', playerId, 'create', { name: r.name, position: r.position })
@@ -789,7 +951,7 @@ export async function rosterRoutes(app: ApiApp) {
     try {
       const { data: existing, error: findErr } = await supabase
         .from('contracts')
-        .select('id, transfer_fee, carried_book_value, annual_wage, agent_fee, start_date, end_date')
+        .select('id, player_id, phase_type, transfer_fee, carried_book_value, annual_wage, agent_fee, start_date, end_date')
         .eq('id', id)
         .eq('club_id', request.clubId)
         .maybeSingle()
@@ -804,7 +966,10 @@ export async function rosterRoutes(app: ApiApp) {
           parsed.data.carriedBookValuePence !== undefined
             ? parsed.data.carriedBookValuePence
             : (existing.carried_book_value == null ? null : Number(existing.carried_book_value)),
-        annualWagePence:  parsed.data.annualWagePence  ?? Number(existing.annual_wage),
+        annualWagePence:
+          parsed.data.annualWagePence
+          ?? (parsed.data.weeklyWagePence == null ? undefined : parsed.data.weeklyWagePence * 52)
+          ?? Number(existing.annual_wage),
         agentFeePence:    parsed.data.agentFeePence    ?? Number(existing.agent_fee),
         startDate:        parsed.data.startDate        ?? String(existing.start_date).slice(0, 10),
         endDate:          parsed.data.endDate          ?? String(existing.end_date).slice(0, 10),
@@ -824,7 +989,8 @@ export async function rosterRoutes(app: ApiApp) {
 
       const startObj = new Date(next.startDate + 'T00:00:00Z')
       const endObj   = new Date(next.endDate   + 'T00:00:00Z')
-      const bookVal  = currentBookValuePence(next.transferFeePence, startObj, endObj, new Date(), next.carriedBookValuePence)
+      const asOfDate = new Date()
+      const bookVal  = currentBookValuePence(next.transferFeePence, startObj, endObj, asOfDate, next.carriedBookValuePence)
 
       const patch: Record<string, unknown> = {
         transfer_fee: next.transferFeePence,
@@ -846,12 +1012,84 @@ export async function rosterRoutes(app: ApiApp) {
 
       if (updateErr) throw updateErr
 
+      // A registration asset is independent from wage-contract phases. This
+      // ordinary correction endpoint never rewrites acquisition cost, source,
+      // or acquisition date; otherwise an extension's zero fee can erase the
+      // original registration asset. Accounting-source corrections belong in a
+      // separately confirmed workflow.
+
       await writeAuditLog(request, 'contracts', id, 'update', parsed.data, existing)
 
       return reply.send({ success: true, bookValuePence: bookVal })
     } catch (err) {
       request.log.error({ err }, 'PATCH /roster/contract/:id failed')
       return reply.status(500).send({ error: 'Failed to update contract' })
+    }
+  })
+
+  // ------------------------------------------------ PATCH /roster/player/:id/registration-asset
+  // Explicit, audited correction flow. It never conflates the asset with a
+  // wage phase, so editing/renewing a contract cannot replace the acquisition
+  // cost with an extension's zero transfer fee.
+  app.patch('/roster/player/:id/registration-asset', async (request, reply) => {
+    if (!canMutateRoster(request.permissions)) {
+      return reply.status(403).send({ error: 'Insufficient permissions' })
+    }
+    const { id } = request.params as { id: string }
+    const parsed = RegistrationAssetCorrectionSchema.safeParse(request.body)
+    if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten() })
+
+    try {
+      const [{ data: player, error: playerErr }, { data: existing, error: assetErr }, { data: earliest, error: contractErr }] = await Promise.all([
+        supabase.from('players').select('id').eq('id', id).eq('club_id', request.clubId).maybeSingle(),
+        supabase.from('player_registration_assets').select('*').eq('player_id', id).eq('club_id', request.clubId).maybeSingle(),
+        supabase.from('contracts').select('transfer_fee, agent_fee, start_date').eq('player_id', id).eq('club_id', request.clubId).order('start_date', { ascending: true }).limit(1).maybeSingle(),
+      ])
+      if (playerErr) throw playerErr
+      if (assetErr) throw assetErr
+      if (contractErr) throw contractErr
+      if (!player) return reply.status(404).send({ error: 'Player not found' })
+      if (!existing && !earliest) return reply.status(409).send({ error: 'A contract is required before accounting data can be corrected' })
+
+      const base = existing ?? {
+        acquisition_fee: earliest?.transfer_fee ?? 0,
+        acquisition_agent_fee: earliest?.agent_fee ?? 0,
+        acquisition_date: earliest?.start_date,
+      }
+      const patch: {
+        player_id: string
+        club_id: string
+        acquisition_fee: number
+        acquisition_agent_fee: number
+        acquisition_date: string
+        carrying_value: number | null
+        updated_at: string
+      } = parsed.data.basis === 'ACQUISITION_COST'
+        ? {
+            player_id: id,
+            club_id: request.clubId,
+            acquisition_fee: parsed.data.acquisitionFeePence,
+            acquisition_agent_fee: Number(base.acquisition_agent_fee ?? 0),
+            acquisition_date: String(base.acquisition_date).slice(0, 10),
+            carrying_value: null,
+            updated_at: new Date().toISOString(),
+          }
+        : {
+            player_id: id,
+            club_id: request.clubId,
+            acquisition_fee: Number(base.acquisition_fee ?? 0),
+            acquisition_agent_fee: Number(base.acquisition_agent_fee ?? 0),
+            acquisition_date: String(base.acquisition_date).slice(0, 10),
+            carrying_value: parsed.data.currentBookValuePence,
+            updated_at: new Date().toISOString(),
+          }
+      const { error: upsertErr } = await supabase.from('player_registration_assets').upsert(patch, { onConflict: 'player_id' })
+      if (upsertErr) throw upsertErr
+      await writeAuditLog(request, 'player_registration_assets', id, 'update', parsed.data, existing)
+      return reply.send({ success: true })
+    } catch (err) {
+      request.log.error({ err }, 'PATCH /roster/player/:id/registration-asset failed')
+      return reply.status(500).send({ error: 'Failed to correct registration accounting data' })
     }
   })
 
@@ -1070,6 +1308,14 @@ export async function rosterRoutes(app: ApiApp) {
   // Full contract ledger for a player (all phases, newest first) for the ledger UI.
   app.get('/roster/player/:id/phases', async (request, reply) => {
     const { id } = request.params as { id: string }
+    const asOfValue = (request.query as Record<string, string> | undefined)?.asOf
+    if (asOfValue && !/^\d{4}-\d{2}-\d{2}$/.test(asOfValue)) {
+      return reply.status(400).send({ error: 'asOf must be an ISO date (YYYY-MM-DD)' })
+    }
+    const asOfDate = asOfValue ? new Date(`${asOfValue}T00:00:00Z`) : new Date()
+    if (Number.isNaN(asOfDate.getTime())) {
+      return reply.status(400).send({ error: 'asOf must be an ISO date (YYYY-MM-DD)' })
+    }
     try {
       const { data: player, error: pErr } = await supabase
         .from('players')
@@ -1088,10 +1334,8 @@ export async function rosterRoutes(app: ApiApp) {
         .order('start_date', { ascending: false })
       if (error) throw error
 
-      const phases = (rows ?? []).map((r) => {
-        const row = r as Record<string, unknown>
-        return buildPhase(row, Number(row['transfer_fee']))
-      })
+      const contractRows = (rows ?? []) as ContractRow[]
+      const phases = contractRows.map((row) => buildPhase(row, contractRows, asOfDate))
       return reply.send({ phases })
     } catch (err) {
       request.log.error({ err }, 'GET /roster/player/:id/phases failed')
@@ -1100,11 +1344,9 @@ export async function rosterRoutes(app: ApiApp) {
   })
 
   // -------------------------------------------------------------------- POST /roster/player/:id/extend
-  // Log a contract extension. Transactionally supersedes the current phase and
-  // inserts a new EXTENSION phase whose principal is the carried book value of
-  // the old deal on the effective date. (No REST transactions — we clear
-  // is_current on the old row first to respect the one-current partial unique
-  // index, then insert; on insert failure we revert the supersede.)
+  // Log a future contract extension. The new phase is scheduled; date-based
+  // reads select it only once it becomes effective, so no background job is
+  // required to preserve the existing phase or its registration asset.
   app.post('/roster/player/:id/extend', async (request, reply) => {
     if (!canMutateRoster(request.permissions)) {
       return reply.status(403).send({ error: 'Insufficient permissions' })
@@ -1112,10 +1354,15 @@ export async function rosterRoutes(app: ApiApp) {
     const { id } = request.params as { id: string }
     const parsed = ExtendContractSchema.safeParse(request.body)
     if (!parsed.success) {
-      return reply.status(400).send({ error: parsed.error.flatten() })
+      return reply.status(400).send({
+        error: 'Check the extension dates and financial values, then try again.',
+        code: 'INVALID_EXTENSION_INPUT',
+        ...(process.env.NODE_ENV !== 'production' ? { diagnostic: parsed.error.flatten() } : {}),
+      })
     }
-    const { effectiveDate, newEndDate, newWeeklyWagePence, newAgentFeePence } = parsed.data
+    const { effectiveDate, newEndDate, newAnnualWagePence, newWeeklyWagePence, newAgentFeePence, amortisationTreatment } = parsed.data
 
+    let insertedContractId: string | null = null
     try {
       const { data: player, error: pErr } = await supabase
         .from('players')
@@ -1126,77 +1373,107 @@ export async function rosterRoutes(app: ApiApp) {
       if (pErr) throw pErr
       if (!player) return reply.status(404).send({ error: 'Player not found' })
 
-      const { data: current, error: curErr } = await supabase
+      const { data: contracts, error: curErr } = await supabase
         .from('contracts')
         .select('*')
         .eq('player_id', id)
         .eq('club_id', request.clubId)
-        .eq('is_current', true)
-        .maybeSingle()
+        .eq('is_active', true)
       if (curErr) throw curErr
-      if (!current) return reply.status(409).send({ error: 'Player has no current contract to extend' })
-
-      const oldStart = new Date(String(current.start_date).slice(0, 10) + 'T00:00:00Z')
-      const oldEnd   = new Date(String(current.end_date).slice(0, 10) + 'T00:00:00Z')
-      const effObj   = new Date(effectiveDate + 'T00:00:00Z')
-      const carried  = calculateRemainingBookValue(
-        { feePence: Number(current.transfer_fee), startDate: oldStart, endDate: oldEnd },
-        effObj
-      )
-
-      const annualWage = newWeeklyWagePence * 52
-      const newEndObj  = new Date(newEndDate + 'T00:00:00Z')
-      const newBookValue = currentBookValuePence(carried, effObj, newEndObj, new Date())
-      const nowISO = new Date().toISOString()
-      const newId  = randomUUID()
-
-      // 1. Supersede the old phase (clear is_current before inserting the new one).
-      const { error: supErr } = await supabase
-        .from('contracts')
-        .update({ is_current: false, is_active: false, superseded_at: nowISO, updated_at: nowISO })
-        .eq('id', current.id)
+      const rows = (contracts ?? []) as ContractRow[]
+      const { data: asset, error: assetErr } = await supabase
+        .from('player_registration_assets')
+        .select('player_id, acquisition_fee, acquisition_agent_fee, acquisition_date, carrying_value')
+        .eq('player_id', id)
         .eq('club_id', request.clubId)
-      if (supErr) throw supErr
+        .maybeSingle()
+      if (assetErr) throw assetErr
+      const current = resolvePlayerContract(rows, asset as RegistrationAssetRow | null, new Date())
+      if (!current) {
+        return reply.status(409).send({
+          error: 'Contract state changed; refresh and try again.',
+          code: 'CONTRACT_STATE_CHANGED',
+        })
+      }
+      const currentEndDate = String(current.row.end_date).slice(0, 10)
+      if (effectiveDate <= currentEndDate) {
+        return reply.status(400).send({
+          error: 'New contract end must be after the current end.',
+          code: 'INVALID_EXTENSION_DATES',
+        })
+      }
+      if (rows.some((row) => row.phase_type === 'EXTENSION' && String(row.start_date).slice(0, 10) === effectiveDate)) {
+        return reply.status(409).send({
+          error: 'A future extension already exists.',
+          code: 'FUTURE_EXTENSION_EXISTS',
+        })
+      }
 
-      // 2. Insert the new EXTENSION phase carrying the old book value as principal.
+      const annualWage = newAnnualWagePence ?? newWeeklyWagePence! * 52
+      const nowISO = new Date().toISOString()
+      const extensionSignedDate = parsed.data.extensionSignedDate ?? nowISO.slice(0, 10)
+      const newId  = randomUUID()
       const { error: insErr } = await supabase.from('contracts').insert({
         id: newId,
         player_id: id,
         club_id: request.clubId,
-        transfer_fee: carried,
+        transfer_fee: 0,
         annual_wage: annualWage,
         agent_fee: newAgentFeePence,
         start_date: effectiveDate,
         end_date: newEndDate,
         contract_length_years: yearsBetween(effectiveDate, newEndDate),
-        book_value: newBookValue,
+        book_value: current.bookValuePence,
         is_active: true,
         phase_type: 'EXTENSION',
-        is_current: true,
+        is_current: false,
+        amortisation_treatment: amortisationTreatment,
+        extension_signed_date: extensionSignedDate,
         created_at: nowISO,
         updated_at: nowISO,
       })
-      if (insErr) {
-        // Revert the supersede so we don't leave the player with no current phase.
-        await supabase
-          .from('contracts')
-          .update({ is_current: true, is_active: true, superseded_at: null, updated_at: nowISO })
-          .eq('id', current.id)
-          .eq('club_id', request.clubId)
-        throw insErr
-      }
+      if (insErr) throw insErr
+      insertedContractId = newId
+
+      const scheduled = resolvePlayerContract([
+        ...rows,
+        {
+          id: newId, player_id: id, transfer_fee: 0, carried_book_value: null,
+          annual_wage: annualWage, agent_fee: newAgentFeePence, start_date: effectiveDate,
+          end_date: newEndDate, contract_length_years: yearsBetween(effectiveDate, newEndDate),
+          is_active: true, phase_type: 'EXTENSION', amortisation_treatment: amortisationTreatment,
+          extension_signed_date: extensionSignedDate,
+        },
+      ], asset as RegistrationAssetRow | null, new Date(`${effectiveDate}T00:00:00Z`))
 
       await writeAuditLog(request, 'contracts', newId, 'create', {
         extension: true,
         playerId: id,
-        carriedBookValuePence: carried,
-        supersededContractId: current.id,
+        amortisationTreatment,
+        extensionSignedDate,
+        scheduledFromContractId: current.row.id,
       })
 
-      return reply.status(201).send({ contractId: newId, carriedBookValuePence: carried, bookValuePence: newBookValue })
+      return reply.status(201).send({
+        contractId: newId,
+        carriedBookValuePence: scheduled?.bookValuePence ?? current.bookValuePence,
+        bookValuePence: scheduled?.bookValuePence ?? current.bookValuePence,
+        status: 'SCHEDULED',
+      })
     } catch (err) {
+      if (insertedContractId) {
+        const { error: rollbackError } = await supabase
+          .from('contracts')
+          .delete()
+          .eq('id', insertedContractId)
+          .eq('club_id', request.clubId)
+        if (rollbackError) {
+          request.log.error({ rollbackError, contractId: insertedContractId }, 'Extension rollback failed')
+        }
+      }
       request.log.error({ err }, 'POST /roster/player/:id/extend failed')
-      return reply.status(500).send({ error: 'Failed to extend contract' })
+      const failure = extensionFailureFrom(err)
+      return reply.status(failure.status).send(extensionFailurePayload(failure))
     }
   })
 
@@ -1288,10 +1565,9 @@ export async function rosterRoutes(app: ApiApp) {
         .order('start_date', { ascending: false })
       if (cErr) throw cErr
 
-      const phases = (rows ?? []).map((r) => {
-        const row = r as Record<string, unknown>
-        return buildPhase(row, Number(row['compensation_fee']))
-      })
+      const managerRows = (rows ?? []).map((r) => r as Record<string, unknown>)
+      const asOfDate = new Date()
+      const phases = managerRows.map((r) => buildManagerPhase(r, managerRows, asOfDate))
       return reply.send({ manager: buildManagerResponse(mgr as Record<string, unknown>, phases) })
     } catch (err) {
       request.log.error({ err }, 'GET /roster/manager failed')
@@ -1312,6 +1588,7 @@ export async function rosterRoutes(app: ApiApp) {
     const r = parsed.data
 
     try {
+      const annualWagePence = r.annualWagePence ?? r.weeklyWagePence! * 52
       const { data: existing, error: exErr } = await supabase
         .from('managers')
         .select('id')
@@ -1346,7 +1623,7 @@ export async function rosterRoutes(app: ApiApp) {
         manager_id: managerId,
         club_id: request.clubId,
         compensation_fee: r.compensationFeePence,
-        annual_wage: r.annualWagePence,
+        annual_wage: annualWagePence,
         agent_fee: r.agentFeePence,
         start_date: r.startDate,
         end_date: r.endDate,
@@ -1437,7 +1714,10 @@ export async function rosterRoutes(app: ApiApp) {
 
       const next = {
         compensationFeePence: parsed.data.feePence        ?? Number(existing.compensation_fee),
-        annualWagePence:      parsed.data.annualWagePence  ?? Number(existing.annual_wage),
+        annualWagePence:
+          parsed.data.annualWagePence
+          ?? (parsed.data.weeklyWagePence == null ? undefined : parsed.data.weeklyWagePence * 52)
+          ?? Number(existing.annual_wage),
         agentFeePence:        parsed.data.agentFeePence    ?? Number(existing.agent_fee),
         startDate:            parsed.data.startDate        ?? String(existing.start_date).slice(0, 10),
         endDate:              parsed.data.endDate          ?? String(existing.end_date).slice(0, 10),
@@ -1497,6 +1777,7 @@ export async function rosterRoutes(app: ApiApp) {
     const r = parsed.data
 
     try {
+      const annualWagePence = r.annualWagePence ?? r.weeklyWagePence! * 52
       const { data: mgr, error: mErr } = await supabase
         .from('managers')
         .select('id')
@@ -1529,7 +1810,7 @@ export async function rosterRoutes(app: ApiApp) {
         manager_id: id,
         club_id: request.clubId,
         compensation_fee: r.compensationFeePence,
-        annual_wage: r.annualWagePence,
+        annual_wage: annualWagePence,
         agent_fee: r.agentFeePence,
         start_date: r.startDate,
         end_date: r.endDate,
@@ -1561,7 +1842,7 @@ export async function rosterRoutes(app: ApiApp) {
     if (!parsed.success) {
       return reply.status(400).send({ error: parsed.error.flatten() })
     }
-    const { effectiveDate, newEndDate, newWeeklyWagePence, newAgentFeePence } = parsed.data
+    const { effectiveDate, newEndDate, newAnnualWagePence, newWeeklyWagePence, newAgentFeePence } = parsed.data
 
     try {
       const { data: mgr, error: mErr } = await supabase
@@ -1573,15 +1854,28 @@ export async function rosterRoutes(app: ApiApp) {
       if (mErr) throw mErr
       if (!mgr) return reply.status(404).send({ error: 'Manager not found' })
 
-      const { data: current, error: curErr } = await supabase
+      const { data: contracts, error: curErr } = await supabase
         .from('manager_contracts')
         .select('*')
         .eq('manager_id', id)
         .eq('club_id', request.clubId)
-        .eq('is_current', true)
-        .maybeSingle()
       if (curErr) throw curErr
+      const managerRows = (contracts ?? []) as Record<string, unknown>[]
+      const activeId = resolveContractPhases(managerRows.map((phase) => ({
+        id: String(phase.id),
+        startDate: String(phase.start_date).slice(0, 10),
+        endDate: String(phase.end_date).slice(0, 10),
+        annualWagePence: Number(phase.annual_wage),
+        agentFeePence: Number(phase.agent_fee),
+      })), new Date()).find((phase) => phase.status === 'ACTIVE')?.id
+      const current = managerRows.find((phase) => String(phase.id) === activeId)
       if (!current) return reply.status(409).send({ error: 'Manager has no current contract to extend' })
+      if (effectiveDate <= String(current.end_date).slice(0, 10)) {
+        return reply.status(400).send({ error: 'An extension must start after the active contract ends' })
+      }
+      if (managerRows.some((row) => row.phase_type === 'EXTENSION' && String(row.start_date).slice(0, 10) === effectiveDate)) {
+        return reply.status(409).send({ error: 'An extension is already scheduled for this date' })
+      }
 
       const oldStart = new Date(String(current.start_date).slice(0, 10) + 'T00:00:00Z')
       const oldEnd   = new Date(String(current.end_date).slice(0, 10) + 'T00:00:00Z')
@@ -1591,18 +1885,11 @@ export async function rosterRoutes(app: ApiApp) {
         effObj
       )
 
-      const annualWage = newWeeklyWagePence * 52
+      const annualWage = newAnnualWagePence ?? newWeeklyWagePence! * 52
       const newEndObj  = new Date(newEndDate + 'T00:00:00Z')
       const newBookValue = currentBookValuePence(carried, effObj, newEndObj, new Date())
       const nowISO = new Date().toISOString()
       const newId  = randomUUID()
-
-      const { error: supErr } = await supabase
-        .from('manager_contracts')
-        .update({ is_current: false, superseded_at: nowISO, updated_at: nowISO })
-        .eq('id', current.id)
-        .eq('club_id', request.clubId)
-      if (supErr) throw supErr
 
       const { error: insErr } = await supabase.from('manager_contracts').insert({
         id: newId,
@@ -1616,27 +1903,20 @@ export async function rosterRoutes(app: ApiApp) {
         contract_length_years: yearsBetween(effectiveDate, newEndDate),
         book_value: newBookValue,
         phase_type: 'EXTENSION',
-        is_current: true,
+        is_current: false,
         created_at: nowISO,
         updated_at: nowISO,
       })
-      if (insErr) {
-        await supabase
-          .from('manager_contracts')
-          .update({ is_current: true, superseded_at: null, updated_at: nowISO })
-          .eq('id', current.id)
-          .eq('club_id', request.clubId)
-        throw insErr
-      }
+      if (insErr) throw insErr
 
       await writeAuditLog(request, 'manager_contracts', newId, 'create', {
         extension: true,
         managerId: id,
         carriedBookValuePence: carried,
-        supersededContractId: current.id,
+        scheduledFromContractId: current.id,
       })
 
-      return reply.status(201).send({ contractId: newId, carriedBookValuePence: carried, bookValuePence: newBookValue })
+      return reply.status(201).send({ contractId: newId, carriedBookValuePence: carried, bookValuePence: newBookValue, status: 'SCHEDULED' })
     } catch (err) {
       request.log.error({ err }, 'POST /roster/manager/:id/extend failed')
       return reply.status(500).send({ error: 'Failed to extend manager contract' })
