@@ -180,9 +180,11 @@ export function calculateRegistrationCost(
     }
   }
 
-  const phaseAgentFee = activePhase?.id === initial?.id
-    ? Math.max(0, asset.acquisitionAgentFeePence || activePhase.agentFeePence)
-    : Math.max(0, activePhase?.agentFeePence ?? 0)
+  const phaseAgentFee = activePhase
+    ? activePhase.id === initial?.id
+      ? Math.max(0, asset.acquisitionAgentFeePence || activePhase.agentFeePence)
+      : Math.max(0, activePhase.agentFeePence)
+    : 0
   const phaseMonths = activePhase
     ? contractMonths(date(activePhase.startDate), cappedEnd(date(activePhase.startDate), date(activePhase.endDate)))
     : 0

@@ -2,14 +2,14 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Inbox, Users, Wrench, LogOut } from 'lucide-react'
+import { Inbox, Users, RefreshCw, LogOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { logout } from '@/app/actions/auth'
 
 const LINKS = [
   { href: '/leads', label: 'Leads', icon: Inbox },
   { href: '/users', label: 'Users', icon: Users },
-  { href: '/jobs', label: 'Jobs', icon: Wrench },
+  { href: '/data-sync/squads', label: 'Data Sync', icon: RefreshCw },
 ] as const
 
 export function TopNav() {

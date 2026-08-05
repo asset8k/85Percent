@@ -7,7 +7,7 @@
  *   1. Newest ACTIVE snapshot stored by an admin "update league table" run
  *      (league_table_snapshots). This is what the admin panel controls.
  *   2. Live fetch from football-data.org (held in a 6h process cache).
- *   3. Bundled end-of-2025-26 snapshot.
+ *   3. Bundled 2026-27 membership with zero results.
  *
  * The endpoint must NEVER hard-fail the dashboard, hence the layered fallback.
  * `source` tells the client which path produced the data.
@@ -20,6 +20,7 @@ import {
   buildFallback,
   fetchLive,
   COMPETITION_LABEL,
+  CURRENT_LEAGUE_SEASON,
   type LeagueId,
   type LeagueTableResponse,
   type LeagueTableRow,
@@ -40,6 +41,7 @@ async function readActiveSnapshot(leagueId: LeagueId): Promise<LeagueTableRespon
     .select('competition, season, source, standings, fetched_at')
     .eq('league_id', leagueId)
     .eq('is_active', true)
+    .eq('season', CURRENT_LEAGUE_SEASON)
     .order('fetched_at', { ascending: false })
     .limit(1)
     .maybeSingle()

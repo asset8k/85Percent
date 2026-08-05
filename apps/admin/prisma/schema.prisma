@@ -38,6 +38,7 @@ model Club {
   ssrEquity         SsrEquity[]
   invites           Invite[]
   notifications     Notification[]
+  registrationAssets PlayerRegistrationAsset[]
 
   @@map("clubs")
 }
@@ -391,8 +392,8 @@ model Notification {
 }
 
 // ── Template roster dictionary (MVP 2.0 onboarding) ─────────────────────────
-// These tables are a STATIC, club-agnostic dictionary scraped on a controlled
-// monthly background schedule from the felipeall/transfermarkt-api. They sit
+// These tables are a static, club-agnostic dictionary reconciled by controlled,
+// manually triggered durable imports from configured football-data providers. They sit
 // completely separate from the live multi-tenant tables above — nothing here
 // is club_id-scoped or RLS-isolated, because the data is the same for everyone
 // and is only read during onboarding to pre-fill a tenant's starting roster.
@@ -415,13 +416,168 @@ model TemplateClub {
   id        String         @id @default(uuid())
   name      String         @unique // e.g. "Chelsea FC"
   league    TemplateLeague
+  isActive  Boolean        @default(true) @map("is_active")
   logoUrl   String?        @map("logo_url")
   createdAt DateTime       @default(now()) @map("created_at")
   updatedAt DateTime       @updatedAt @map("updated_at")
 
   rosterItems TemplateRosterItem[]
+  importTasks DataImportTask[]
+  sourceMappings ExternalSourceMapping[]
 
   @@map("template_clubs")
+}
+
+enum DataImportType {
+  CLUB_SQUAD
+  LEAGUE_STANDINGS
+}
+
+enum DataImportRunStatus {
+  QUEUED
+  RUNNING
+  PARTIAL_SUCCESS
+  SUCCEEDED
+  FAILED
+  CANCELLING
+  CANCELLED
+}
+
+enum DataImportTaskStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum DataImportStage {
+  QUEUED
+  FETCHING
+  NORMALISING
+  MATCHING
+  APPLYING
+  VERIFYING
+  COMPLETED
+}
+
+enum DataImportChangeStatus {
+  AUTO_APPLY
+  NEEDS_REVIEW
+  APPLIED
+  APPROVED
+  REJECTED
+}
+
+model DataImportRun {
+  id                String              @id @default(uuid()) @db.Uuid
+  type              DataImportType
+  status            DataImportRunStatus @default(QUEUED)
+  requestedByUserId String              @map("requested_by_user_id")
+  leagueId          String?             @map("league_id")
+  provider          String
+  totalTasks        Int                 @default(0) @map("total_tasks")
+  completedTasks    Int                 @default(0) @map("completed_tasks")
+  succeededTasks    Int                 @default(0) @map("succeeded_tasks")
+  failedTasks       Int                 @default(0) @map("failed_tasks")
+  skippedTasks      Int                 @default(0) @map("skipped_tasks")
+  progressPercent   Int                 @default(0) @map("progress_percent")
+  startedAt         DateTime?           @map("started_at")
+  completedAt       DateTime?           @map("completed_at")
+  cancelledAt       DateTime?           @map("cancelled_at")
+  lastHeartbeatAt   DateTime?           @map("last_heartbeat_at")
+  errorSummary      String?             @map("error_summary")
+  configuration     Json                @default("{}")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  tasks   DataImportTask[]
+  changes DataImportChange[]
+
+  @@index([status, createdAt])
+  @@map("data_import_runs")
+}
+
+model DataImportTask {
+  id                 String               @id @default(uuid()) @db.Uuid
+  importRunId        String               @db.Uuid @map("import_run_id")
+  templateClubId     String?              @map("template_club_id")
+  externalClubId     String?              @map("external_club_id")
+  competition        TemplateLeague?
+  status             DataImportTaskStatus @default(QUEUED)
+  currentStage       DataImportStage      @default(QUEUED) @map("current_stage")
+  attempts           Int                  @default(0)
+  maxAttempts        Int                  @default(3) @map("max_attempts")
+  startedAt          DateTime?            @map("started_at")
+  completedAt        DateTime?            @map("completed_at")
+  durationMs         Int?                 @map("duration_ms")
+  addedCount         Int                  @default(0) @map("added_count")
+  updatedCount       Int                  @default(0) @map("updated_count")
+  unchangedCount     Int                  @default(0) @map("unchanged_count")
+  reviewCount        Int                  @default(0) @map("review_count")
+  missingCount       Int                  @default(0) @map("missing_count")
+  warningCount       Int                  @default(0) @map("warning_count")
+  errorCode          String?              @map("error_code")
+  safeErrorMessage   String?              @map("safe_error_message")
+  providerMetadata   Json                 @default("{}") @map("provider_metadata")
+  sourceSnapshot     Json?                @map("source_snapshot")
+  idempotencyKey     String               @unique @map("idempotency_key")
+  lastHeartbeatAt    DateTime?            @map("last_heartbeat_at")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+
+  run          DataImportRun         @relation(fields: [importRunId], references: [id], onDelete: Cascade)
+  templateClub TemplateClub?          @relation(fields: [templateClubId], references: [id], onDelete: Restrict)
+  changes      DataImportChange[]
+
+  @@index([importRunId, status])
+  @@index([templateClubId, status])
+  @@map("data_import_tasks")
+}
+
+model DataImportChange {
+  id               String                 @id @default(uuid()) @db.Uuid
+  importRunId      String                 @db.Uuid @map("import_run_id")
+  importTaskId     String                 @db.Uuid @map("import_task_id")
+  entityType       String                 @map("entity_type")
+  changeType       String                 @map("change_type")
+  status           DataImportChangeStatus
+  internalEntityId String?                @map("internal_entity_id")
+  externalEntityId String?                @map("external_entity_id")
+  beforeData       Json?                  @map("before_data")
+  afterData        Json?                  @map("after_data")
+  reason           String?
+  resolvedBy       String?                @map("resolved_by")
+  resolvedAt       DateTime?              @map("resolved_at")
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+
+  run  DataImportRun  @relation(fields: [importRunId], references: [id], onDelete: Cascade)
+  task DataImportTask @relation(fields: [importTaskId], references: [id], onDelete: Cascade)
+
+  @@index([importRunId, status])
+  @@index([importTaskId, status])
+  @@map("data_import_changes")
+}
+
+model ExternalSourceMapping {
+  id             String        @id @default(uuid()) @db.Uuid
+  provider       String
+  entityType     String        @map("entity_type")
+  internalId     String        @map("internal_id")
+  externalId     String        @map("external_id")
+  templateClubId String?       @map("template_club_id")
+  metadata       Json          @default("{}")
+  lastSeenAt     DateTime?     @map("last_seen_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  templateClub TemplateClub? @relation(fields: [templateClubId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, entityType, externalId])
+  @@unique([provider, entityType, internalId])
+  @@index([templateClubId, entityType])
+  @@map("external_source_mappings")
 }
 
 model TemplateRosterItem {

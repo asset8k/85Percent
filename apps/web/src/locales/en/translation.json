@@ -492,7 +492,7 @@
     "clubCount_other": "{{count}} clubs",
     "noCached": {
       "title": "No clubs cached yet",
-      "body": "The roster library for this league hasn't been synced. Run the monthly template sync, or build your squad manually on the Roster page.",
+      "body": "The roster library for this league hasn't been synced. Ask an administrator to run Data Sync, or build your squad manually on the Roster page.",
       "cta": "Build manually"
     },
     "noMatch": "No clubs match “{{query}}”",

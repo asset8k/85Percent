@@ -40,7 +40,7 @@ export function Footer() {
           </div>
           <div className="lg:text-right">
             <p className="mb-5 text-white/55">
-              Limited onboarding for the 2025/26 window.
+              Limited onboarding for the 2026/27 window.
             </p>
             <RequestAccessButton
               variant="primary"

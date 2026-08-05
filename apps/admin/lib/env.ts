@@ -41,12 +41,6 @@ export const env = {
     const vercelUrl = process.env['VERCEL_URL']?.trim().replace(/\/+$/, '')
     return vercelUrl ? `https://${vercelUrl}/api` : 'http://localhost:4000/api'
   },
-  // Shared secret authenticating the admin → API job-trigger call. Must match
-  // INTERNAL_JOB_SECRET on the API. Required (no default) so a job can't be
-  // fired with an empty credential.
-  get internalJobSecret(): string {
-    return required('INTERNAL_JOB_SECRET')
-  },
   // Base URL of the main web app — used as the redirect target for Supabase
   // account-provisioning invites (the invitee lands on `${appUrl}/set-password`).
   // Defaults to the Vite dev server so local provisioning works out of the box.

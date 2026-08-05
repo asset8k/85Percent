@@ -27,7 +27,7 @@ export default function LoginPage({ searchParams }: { searchParams: { error?: st
           </div>
           <h1 className="text-lg font-semibold tracking-tight">Sign in</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Manage inbound leads, accounts and maintenance jobs.
+            Manage inbound leads, accounts and manual data imports.
           </p>
         </div>
 

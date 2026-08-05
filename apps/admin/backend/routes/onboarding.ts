@@ -3,8 +3,8 @@
  *
  * Reads ONLY from the local template dictionary (template_clubs /
  * template_roster_items), never the live scraper — so onboarding is insulated
- * from third-party downtime / Cloudflare bans. The monthly background worker
- * (backend/scripts/sync-templates.ts) keeps that dictionary fresh.
+ * from third-party downtime / Cloudflare bans. Admin Data Sync reconciles that
+ * dictionary through durable, manually triggered per-club tasks.
  *
  *   GET  /onboarding/clubs?league=…  — searchable club list for the wizard
  *   POST /onboarding/complete        — clone a template into the tenant's
@@ -73,6 +73,7 @@ export async function onboardingRoutes(app: ApiApp) {
       let query = supabase
         .from('template_clubs')
         .select('id, name, league, logo_url')
+        .eq('is_active', true)
         .order('name', { ascending: true })
 
       if (leagueParam) {
@@ -129,6 +130,7 @@ export async function onboardingRoutes(app: ApiApp) {
         .from('template_clubs')
         .select('id, name, league, logo_url')
         .eq('id', templateClubId)
+        .eq('is_active', true)
         .maybeSingle()
       if (tErr) throw tErr
       if (!template) return reply.status(404).send({ error: 'Template club not found' })
