@@ -129,10 +129,30 @@ model Player {
 
   club            Club             @relation(fields: [clubId], references: [id])
   contracts       Contract[]
+  registrationAsset PlayerRegistrationAsset?
   scenarioActions ScenarioAction[]
 
   @@index([clubId, isActive])
   @@map("players")
+}
+
+// The capitalised player-registration asset is independent of salary/term
+// phases. Renewals select a treatment, but never replace this acquisition basis.
+model PlayerRegistrationAsset {
+  playerId             String   @id @map("player_id")
+  clubId               String   @map("club_id")
+  acquisitionFee       BigInt   @map("acquisition_fee")
+  acquisitionAgentFee  BigInt   @default(0) @map("acquisition_agent_fee")
+  acquisitionDate      DateTime @map("acquisition_date")
+  carryingValue        BigInt?  @map("carrying_value")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  club   Club   @relation(fields: [clubId], references: [id])
+
+  @@index([clubId])
+  @@map("player_registration_assets")
 }
 
 model Contract {
@@ -161,6 +181,8 @@ model Contract {
   phaseType           String    @default("INITIAL") @map("phase_type") // 'INITIAL' | 'EXTENSION'
   isCurrent           Boolean   @default(true) @map("is_current")
   supersededAt        DateTime? @map("superseded_at")
+  amortisationTreatment String @default("CONTINUE_CURRENT_SCHEDULE") @map("amortisation_treatment")
+  extensionSignedDate DateTime? @map("extension_signed_date")
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
@@ -170,6 +192,7 @@ model Contract {
   @@index([clubId, isActive])
   @@index([playerId, isActive])
   @@index([playerId, isCurrent])
+  @@index([playerId, startDate])
   @@map("contracts")
 }
 

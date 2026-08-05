@@ -16,7 +16,8 @@ import { z } from 'zod'
 import { supabase } from '../lib/supabase'
 import { authMiddleware } from '../middleware/auth'
 import { createNotificationOnce } from '../lib/notifications'
-import { calculateSquadCosts, type ContractInput, type ManagerCostInput } from '@85percent/engine'
+import { deriveRosterSquadCosts } from '../services/roster-costs'
+import { resolvePlayerContract, type ContractRow, type RegistrationAssetRow } from '../services/player-registration'
 
 interface NotificationRow {
   id: string
@@ -132,25 +133,49 @@ export async function notificationRoutes(app: ApiApp) {
     let created = 0
     try {
       // ── Contract expiries ────────────────────────────────────────────────
-      // Active players whose current contract ends within the next 6 months.
+      // Active players whose date-derived current contract ends within the next
+      // six months. `is_current` is retained as legacy storage metadata and
+      // cannot decide a scheduled extension's lifecycle.
       const { data: contracts, error: cErr } = await supabase
         .from('contracts')
-        .select('end_date, player_id, players!inner(name, is_active)')
+        .select('id, player_id, transfer_fee, carried_book_value, annual_wage, agent_fee, start_date, end_date, contract_length_years, is_active, phase_type, amortisation_treatment, extension_signed_date, players!inner(name, is_active)')
         .eq('club_id', request.clubId)
-        .eq('is_current', true)
         .eq('is_active', true)
       if (cErr) throw cErr
 
-      const expiring = (contracts ?? [])
-        .filter((c) => {
-          const p = c.players as unknown as { is_active?: boolean } | null
+      const rowsByPlayer = new Map<string, ContractRow[]>()
+      for (const contract of contracts ?? []) {
+        const row = contract as unknown as ContractRow
+        const rows = rowsByPlayer.get(row.player_id) ?? []
+        rows.push(row)
+        rowsByPlayer.set(row.player_id, rows)
+      }
+      const playerIds = [...rowsByPlayer.keys()]
+      const { data: assets, error: assetErr } = playerIds.length === 0
+        ? { data: [], error: null }
+        : await supabase
+          .from('player_registration_assets')
+          .select('player_id, acquisition_fee, acquisition_agent_fee, acquisition_date, carrying_value')
+          .eq('club_id', request.clubId)
+          .in('player_id', playerIds)
+      if (assetErr) throw assetErr
+      const assetsByPlayer = new Map((assets ?? []).map((asset) => [String(asset.player_id), asset as RegistrationAssetRow]))
+
+      const expiring = [...rowsByPlayer.entries()]
+        .map(([playerId, rows]) => ({
+          current: resolvePlayerContract(rows, assetsByPlayer.get(playerId), new Date()),
+          player: (contracts ?? []).find((contract) => String(contract.player_id) === playerId)?.players as unknown as { is_active?: boolean } | null,
+        }))
+        .filter(({ current, player }) => {
+          const p = player
           if (p && p.is_active === false) return false
-          const m = monthsUntil(c.end_date as string)
+          if (!current) return false
+          const m = monthsUntil(current.row.end_date)
           return m >= 0 && m <= 6
         })
 
       if (expiring.length > 0) {
-        const soonest = Math.min(...expiring.map((c) => monthsUntil(c.end_date as string)))
+        const soonest = Math.min(...expiring.map(({ current }) => monthsUntil(current!.row.end_date)))
         const critical = soonest <= 2
         const ok = await createNotificationOnce(
           {
@@ -228,47 +253,5 @@ async function deriveSquadCostsPence(
     return Number(fin.manual_squad_costs)
   }
 
-  const { data: contracts } = await supabase
-    .from('contracts')
-    .select('player_id, transfer_fee, carried_book_value, annual_wage, agent_fee, contract_length_years')
-    .eq('club_id', clubId)
-    .eq('is_active', true)
-
-  const inputs: ContractInput[] = (contracts ?? []).map((c) => ({
-    playerId: String(c.player_id),
-    transferFeePence: Number(c.transfer_fee),
-    carriedBookValuePence: c.carried_book_value == null ? null : Number(c.carried_book_value),
-    annualWagePence: Number(c.annual_wage),
-    agentFeePence: Number(c.agent_fee),
-    contractLengthYears: Number(c.contract_length_years),
-  }))
-
-  // Active manager (Head Coach) counts toward SCR squad costs.
-  let manager: ManagerCostInput | null = null
-  const { data: mgr } = await supabase
-    .from('managers')
-    .select('id')
-    .eq('club_id', clubId)
-    .eq('is_active', true)
-    .maybeSingle()
-  if (mgr) {
-    const { data: mc } = await supabase
-      .from('manager_contracts')
-      .select('compensation_fee, annual_wage, agent_fee, contract_length_years')
-      .eq('manager_id', mgr.id)
-      .eq('is_current', true)
-      .maybeSingle()
-    if (mc) {
-      manager = {
-        managerId: String(mgr.id),
-        compensationFeePence: Number(mc.compensation_fee),
-        annualWagePence: Number(mc.annual_wage),
-        agentFeePence: Number(mc.agent_fee),
-        contractLengthYears: Number(mc.contract_length_years),
-      }
-    }
-  }
-
-  const { totalSquadCostsPence } = calculateSquadCosts(inputs, manager)
-  return totalSquadCostsPence
+  return (await deriveRosterSquadCosts(clubId, new Date())).totalPence
 }

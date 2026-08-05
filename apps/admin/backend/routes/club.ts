@@ -7,7 +7,15 @@ import { requirePermission } from '../middleware/permissions'
 import { writeAuditLog } from '../lib/audit'
 import { getClubOwnerId } from '../lib/clubOwner'
 import { LEAGUE_CONFIGS, getDefaultCurrencyForLeague } from '@85percent/shared'
-import { calculateSquadCosts, type ContractInput, type ManagerCostInput } from '@85percent/engine'
+import { deriveRosterSquadCosts } from '../services/roster-costs'
+
+function seasonValuationDate(season: string, now: Date = new Date()): Date {
+  const startYear = Number(season.slice(0, 4))
+  const start = new Date(Date.UTC(startYear, 6, 1))
+  const end = new Date(Date.UTC(startYear + 1, 5, 30))
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  return today.getTime() >= start.getTime() && today.getTime() <= end.getTime() ? today : end
+}
 
 const UpdateFinancialsBody = z
   .object({
@@ -28,66 +36,6 @@ const UpdateFinancialsBody = z
     (b) => b.squadCostsMode !== 'manual' || (b.manualSquadCostsPounds != null && b.manualSquadCostsPounds >= 0),
     { message: 'Manual squad costs are required when mode = manual', path: ['manualSquadCostsPounds'] },
   )
-
-// Resolve the active manager's current contract into a ManagerCostInput, or
-// null when the club has no active manager / current contract. Pure DB I/O.
-async function deriveActiveManager(clubId: string): Promise<ManagerCostInput | null> {
-  const { data: mgr, error: mgrErr } = await supabase
-    .from('managers')
-    .select('id')
-    .eq('club_id', clubId)
-    .eq('is_active', true)
-    .maybeSingle()
-  if (mgrErr) throw mgrErr
-  if (!mgr) return null
-
-  const { data: mc, error: mcErr } = await supabase
-    .from('manager_contracts')
-    .select('compensation_fee, annual_wage, agent_fee, contract_length_years')
-    .eq('manager_id', mgr.id)
-    .eq('is_current', true)
-    .maybeSingle()
-  if (mcErr) throw mcErr
-  if (!mc) return null
-
-  return {
-    managerId: String(mgr.id),
-    compensationFeePence: Number(mc.compensation_fee),
-    annualWagePence:      Number(mc.annual_wage),
-    agentFeePence:        Number(mc.agent_fee),
-    contractLengthYears:  Number(mc.contract_length_years),
-  }
-}
-
-// Sum active contracts for a club into a single squad-cost pence total. The
-// active Head Coach / Manager is included per SCR rules. Pure engine call —
-// DB I/O is here, not in @85percent/engine.
-async function deriveSquadCostsForClub(clubId: string): Promise<{
-  totalPence: number
-  contractCount: number
-}> {
-  const { data: contracts, error } = await supabase
-    .from('contracts')
-    .select('player_id, transfer_fee, carried_book_value, annual_wage, agent_fee, contract_length_years')
-    .eq('club_id', clubId)
-    .eq('is_active', true)
-
-  if (error) throw error
-
-  const inputs: ContractInput[] = (contracts ?? []).map((c) => ({
-    playerId: String(c.player_id),
-    transferFeePence: Number(c.transfer_fee),
-    carriedBookValuePence: c.carried_book_value == null ? null : Number(c.carried_book_value),
-    annualWagePence:  Number(c.annual_wage),
-    agentFeePence:    Number(c.agent_fee),
-    contractLengthYears: Number(c.contract_length_years),
-  }))
-
-  const manager = await deriveActiveManager(clubId)
-
-  const { totalSquadCostsPence } = calculateSquadCosts(inputs, manager)
-  return { totalPence: totalSquadCostsPence, contractCount: inputs.length }
-}
 
 export async function clubRoutes(app: ApiApp) {
   app.addHook('preHandler', authMiddleware)
@@ -232,7 +180,10 @@ export async function clubRoutes(app: ApiApp) {
       // 'manual' mode lets a CFO override the value entirely — useful when the
       // user wants to model arbitrary cost scenarios without rebuilding the
       // roster. Derived is always computed too, so the UI can show both.
-      const derived = await deriveSquadCostsForClub(String(request.clubId))
+      const derived = await deriveRosterSquadCosts(
+        String(request.clubId),
+        seasonValuationDate(season),
+      )
       const mode: 'derived' | 'manual' = f.squad_costs_mode === 'manual' ? 'manual' : 'derived'
       const manualPence = f.manual_squad_costs != null ? Number(f.manual_squad_costs) : null
       const currentSquadCosts = mode === 'manual' && manualPence != null ? manualPence : derived.totalPence
@@ -243,7 +194,7 @@ export async function clubRoutes(app: ApiApp) {
         season: f.season,
         footballRelatedRevenue: Number(f.football_related_revenue),
         currentSquadCosts,
-        contractCount: derived.contractCount,
+        contractCount: derived.playerContractCount,
         squadCostsMode: mode,
         derivedSquadCosts: derived.totalPence,
         manualSquadCosts: manualPence,

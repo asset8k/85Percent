@@ -38,6 +38,9 @@ export interface ContractInput {
   agentFeePence: number
   /** Contract length expressed in years (may be fractional, e.g. 3.5). */
   contractLengthYears: number
+  /** Canonical server-derived values for phased registrations. */
+  annualAmortisationOverridePence?: number
+  annualisedAgentFeeOverridePence?: number
 }
 
 /**
@@ -115,9 +118,11 @@ export function calculateSquadCosts(
     return {
       playerId: c.playerId,
       wagePence: c.annualWagePence,
-      amortisationPence,
-      annualisedAgentFeePence,
-      totalAnnualCostPence,
+      amortisationPence: c.annualAmortisationOverridePence ?? amortisationPence,
+      annualisedAgentFeePence: c.annualisedAgentFeeOverridePence ?? annualisedAgentFeePence,
+      totalAnnualCostPence: c.annualWagePence
+        + (c.annualAmortisationOverridePence ?? amortisationPence)
+        + (c.annualisedAgentFeeOverridePence ?? annualisedAgentFeePence),
     }
   })
 

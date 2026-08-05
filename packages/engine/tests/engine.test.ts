@@ -22,6 +22,7 @@ import {
   evaluateEquity,
   seasonEquityThreshold,
   calculatePromotedClubRevenueUplift,
+  calculateRegistrationCost,
   WORKING_CAPITAL_MINIMUM_PENCE,
   LIQUIDITY_STRESS_TEST_PENCE,
 } from '../src/index.js'
@@ -44,6 +45,106 @@ const FREE_TRANSFER: TransferInput = {
   annualWage: 1_000_000_00,  // £1M/year
   agentFee: 0,
 }
+
+describe('V1 financial baseline fixture', () => {
+  const asOfDate = new Date('2026-08-05T00:00:00Z')
+  const messiAsset = {
+    acquisitionFeePence: 90_000_000_00,
+    acquisitionAgentFeePence: 0,
+    acquisitionDate: '2026-07-01',
+  }
+  const messiInitial = {
+    id: 'messi-initial',
+    startDate: '2026-07-01',
+    endDate: '2029-06-30',
+    annualWagePence: 26_000_000_00,
+    agentFeePence: 0,
+  }
+
+  it('keeps the active wage, applies a signed re-spread, and reconciles roster, dashboard, financials, and scenarios', () => {
+    const extension = {
+      id: 'messi-extension',
+      startDate: '2029-07-01',
+      endDate: '2031-06-30',
+      annualWagePence: 26_000_000_00,
+      agentFeePence: 0,
+      extensionSignedDate: '2026-08-05',
+    }
+    const current = calculateRegistrationCost(messiAsset, [messiInitial], asOfDate)
+    const continued = calculateRegistrationCost(messiAsset, [messiInitial, {
+      ...extension,
+      amortisationTreatment: 'CONTINUE_CURRENT_SCHEDULE' as const,
+    }], asOfDate)
+    const respread = calculateRegistrationCost(messiAsset, [messiInitial, {
+      ...extension,
+      amortisationTreatment: 'SPREAD_REMAINING_BOOK_VALUE' as const,
+    }], asOfDate)
+
+    expect(current.activePhase?.id).toBe('messi-initial')
+    expect(respread.activePhase?.id).toBe('messi-initial')
+    expect(respread.phases.find((phase) => phase.id === 'messi-extension')?.status).toBe('SCHEDULED')
+    expect(current.annualAmortisationPence).toBe(30_000_000_00)
+    expect(current.annualisedAgentFeePence).toBe(0)
+    expect(current.totalAnnualCostPence).toBe(56_000_000_00)
+    expect(continued.totalAnnualCostPence).toBe(current.totalAnnualCostPence)
+    expect(respread.carryingValuePence).toBe(87_123_287_67)
+    expect(respread.annualAmortisationPence).toBe(17_719_990_71)
+    expect(respread.annualisedAgentFeePence).toBe(0)
+    expect(respread.totalAnnualCostPence).toBe(43_719_990_71)
+
+    const coach: ManagerCostInput = {
+      managerId: 'coach',
+      compensationFeePence: 10_000_000_00,
+      annualWagePence: 5_000_000_00,
+      agentFeePence: 1_000_000_00,
+      contractLengthYears: 5,
+    }
+    const rosterAndDashboard = calculateSquadCosts([{
+      playerId: 'messi',
+      transferFeePence: 90_000_000_00,
+      annualWagePence: 26_000_000_00,
+      agentFeePence: 0,
+      contractLengthYears: 3,
+      annualAmortisationOverridePence: respread.annualAmortisationPence,
+      annualisedAgentFeeOverridePence: respread.annualisedAgentFeePence,
+    }], coach)
+    expect(rosterAndDashboard.breakdown[0]?.totalAnnualCostPence).toBe(respread.totalAnnualCostPence)
+    expect(rosterAndDashboard.breakdown[1]).toMatchObject({
+      wagePence: 5_000_000_00,
+      amortisationPence: 2_000_000_00,
+      annualisedAgentFeePence: 200_000_00,
+      totalAnnualCostPence: 7_200_000_00,
+      isManager: true,
+    })
+    expect(rosterAndDashboard.totalSquadCostsPence).toBe(50_919_990_71)
+
+    const projection = applyScenarioActions({
+      squadCostsPence: rosterAndDashboard.totalSquadCostsPence,
+      revenuePence: 100_000_000_00,
+    }, [{
+      actionType: 'buy',
+      transferFeePence: 10_000_000_00,
+      contractLengthYears: 5,
+      annualWagePence: 5_000_000_00,
+      agentFeePence: 1_000_000_00,
+    }])
+    expect(projection.costDeltaPence).toBe(7_200_000_00)
+    expect(projection.projectedSquadCostsPence).toBe(58_119_990_71)
+    expect(projection.projectedRevenuePence).toBe(100_000_000_00)
+
+    const financials: ClubFinancials = {
+      ...BASE_FINANCIALS,
+      footballRelatedRevenue: 100_000_000_00,
+      currentSquadCosts: rosterAndDashboard.totalSquadCostsPence,
+      currentAllowanceRatio: 0.30,
+    }
+    const thresholds = calculateThresholds(financials)
+    expect(thresholds.greenThreshold).toBe(85_000_000_00)
+    expect(thresholds.redThreshold).toBe(115_000_000_00)
+    expect(rosterAndDashboard.totalSquadCostsPence / financials.footballRelatedRevenue).toBeCloseTo(0.5091999071)
+    expect(projection.projectedSquadCostsPence / projection.projectedRevenuePence).toBeCloseTo(0.5811999071)
+  })
+})
 
 describe('calculateThresholds', () => {
   it('calculates green threshold as 85% of revenue', () => {
@@ -470,13 +571,17 @@ describe('calculateSCR — transactionType: loan_out', () => {
 })
 
 // ---------------------------------------------------------------------------
-// currentBookValuePence — straight-line book value with whole-month precision.
-// Leap-year + mid-month tests are mandated by the MVP 2.0 plan (Phase 2.5)
-// because day-precision math drifts on Feb 28/29 boundaries.
+// currentBookValuePence — straight-line book value at an explicit valuation
+// date. The point-in-time carrying value uses actual elapsed calendar days.
 // ---------------------------------------------------------------------------
 describe('currentBookValuePence', () => {
   const FEE = 5_000_000_00 // £5M in pence
   const utc = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d))
+  const expectedRemaining = (fee: number, start: Date, end: Date, asOf: Date) => {
+    const totalDays = (end.getTime() - start.getTime()) / 86_400_000
+    const remainingDays = (end.getTime() - asOf.getTime()) / 86_400_000
+    return Math.floor(fee * (remainingDays / totalDays))
+  }
 
   it('returns full fee when asOf is before contract start', () => {
     const start = utc(2026, 7, 1)
@@ -502,7 +607,7 @@ describe('currentBookValuePence', () => {
     const start = utc(2026, 1, 1)
     const end   = utc(2030, 1, 1)   // 48 months
     const asOf  = utc(2028, 1, 1)   // 24 months in
-    expect(currentBookValuePence(FEE, start, end, asOf)).toBe(FEE / 2)
+    expect(currentBookValuePence(FEE, start, end, asOf)).toBe(expectedRemaining(FEE, start, end, asOf))
   })
 
   it('returns 0 for a free transfer regardless of dates', () => {
@@ -511,31 +616,24 @@ describe('currentBookValuePence', () => {
 
   // ---- Leap-year edge cases (mandatory per Phase 2.5) ----
 
-  it('leap-day signing: 2024-02-29 → 2028-02-28 produces exactly 48 months', () => {
-    // Signed on a leap day; ends on Feb 28 of next leap year.
-    // Whole-month math: (2028-2024)*12 + (Feb-Feb) = 48
+  it('uses elapsed days for a leap-day signing', () => {
     const start = utc(2024, 2, 29)
     const end   = utc(2028, 2, 28)
-    // One year in (Feb 28 next year): 36 months remain → 36/48 of fee
     const asOf  = utc(2025, 2, 28)
-    const expected = Math.floor(FEE * (36 / 48))
+    const expected = expectedRemaining(FEE, start, end, asOf)
     expect(currentBookValuePence(FEE, start, end, asOf)).toBe(expected)
   })
 
-  it('non-leap signing: 2025-02-28 → 2028-02-28 produces exactly 36 months', () => {
-    // Signed on Feb 28 in a non-leap year; same end date as the leap-day case.
+  it('uses elapsed days for a non-leap signing', () => {
     const start = utc(2025, 2, 28)
     const end   = utc(2028, 2, 28)
     expect(currentBookValuePence(FEE, start, end, end)).toBe(0)
-    // Halfway through: 18/36 = half fee
     const asOf  = utc(2026, 8, 28)
-    const expected = Math.floor(FEE * (18 / 36))
+    const expected = expectedRemaining(FEE, start, end, asOf)
     expect(currentBookValuePence(FEE, start, end, asOf)).toBe(expected)
   })
 
-  it('leap and non-leap signings of equal calendar length yield identical month counts', () => {
-    // Both contracts span 36 months by month-boundary math, even though
-    // calendar days differ by one (2024 is a leap year).
+  it('does not round leap and non-leap deals to the same month count', () => {
     const leap = currentBookValuePence(
       FEE,
       utc(2024, 2, 29),       // leap-day start
@@ -548,16 +646,18 @@ describe('currentBookValuePence', () => {
       utc(2028, 2, 28),
       utc(2026, 8, 28)        // 18 months in
     )
-    expect(leap).toBe(nonLeap)
+    // Both examples happen to have the same elapsed-to-remaining day ratio.
+    // The important property is that each is valued from its actual dates,
+    // rather than a rounded month count.
+    expect(leap).toBe(expectedRemaining(FEE, utc(2024, 2, 29), utc(2027, 2, 28), utc(2025, 8, 28)))
+    expect(nonLeap).toBe(expectedRemaining(FEE, utc(2025, 2, 28), utc(2028, 2, 28), utc(2026, 8, 28)))
   })
 
-  it('mid-month transfer (15th to 15th) — whole-month rounding ignores day-of-month', () => {
-    // 2026-03-15 to 2028-03-15 → monthsBetween treats as (2028-2026)*12 + 0 = 24 months
-    // 2027-03-15 (halfway) → 12 months remain → 12/24 of fee
+  it('uses the precise elapsed period for a mid-month transfer', () => {
     const start = utc(2026, 3, 15)
     const end   = utc(2028, 3, 15)
     const asOf  = utc(2027, 3, 15)
-    const expected = Math.floor(FEE * (12 / 24))
+    const expected = expectedRemaining(FEE, start, end, asOf)
     expect(currentBookValuePence(FEE, start, end, asOf)).toBe(expected)
   })
 
@@ -566,7 +666,7 @@ describe('currentBookValuePence', () => {
     const end   = utc(2030, 1, 1)
     const asOf  = utc(2028, 1, 1)
     const big = BigInt(FEE)
-    expect(currentBookValuePence(big, start, end, asOf)).toBe(FEE / 2)
+    expect(currentBookValuePence(big, start, end, asOf)).toBe(expectedRemaining(FEE, start, end, asOf))
   })
 
   it('returns 0 for zero-length contracts (defensive)', () => {
@@ -584,7 +684,7 @@ describe('currentBookValuePence', () => {
     const end   = utc(2030, 1, 1)
     const asOf  = utc(2028, 1, 1)
     const carried = 2_000_000_00
-    expect(currentBookValuePence(FEE, start, end, asOf, carried)).toBe(carried / 2)
+    expect(currentBookValuePence(FEE, start, end, asOf, carried)).toBe(expectedRemaining(carried, start, end, asOf))
   })
 
   it('carried override of 0 amortises to nothing (not the transfer fee)', () => {
@@ -598,8 +698,115 @@ describe('currentBookValuePence', () => {
     const start = utc(2026, 1, 1)
     const end   = utc(2030, 1, 1)
     const asOf  = utc(2028, 1, 1)
-    expect(currentBookValuePence(FEE, start, end, asOf, null)).toBe(FEE / 2)
-    expect(currentBookValuePence(FEE, start, end, asOf, undefined)).toBe(FEE / 2)
+    const expected = expectedRemaining(FEE, start, end, asOf)
+    expect(currentBookValuePence(FEE, start, end, asOf, null)).toBe(expected)
+    expect(currentBookValuePence(FEE, start, end, asOf, undefined)).toBe(expected)
+  })
+
+  it('values Elliott Anderson at approximately £113.8M after 35 days', () => {
+    const fee = 116_000_000_00
+    const start = utc(2026, 7, 1)
+    const end = utc(2031, 6, 30)
+    const asOf = utc(2026, 8, 5)
+    expect(currentBookValuePence(fee, start, end, asOf)).toBe(11_377_534_246)
+  })
+
+  it('retains approximately £112.3M when Elliott\'s original term is corrected to 2029', () => {
+    const fee = 116_000_000_00
+    const start = utc(2026, 7, 1)
+    const correctedEnd = utc(2029, 6, 30)
+    const asOf = utc(2026, 8, 5)
+    expect(currentBookValuePence(fee, start, correctedEnd, asOf)).toBe(11_229_223_744)
+  })
+})
+
+describe('registration asset lifecycle', () => {
+  const elliottAsset = {
+    acquisitionFeePence: 116_000_000_00,
+    acquisitionAgentFeePence: 10_000_000_00,
+    acquisitionDate: '2026-07-01',
+  }
+  const initialPhase = {
+    id: 'initial',
+    startDate: '2026-07-01',
+    endDate: '2031-06-30',
+    annualWagePence: 200_000 * 52 * 100,
+    agentFeePence: 10_000_000_00,
+  }
+
+  it('keeps Elliott\'s acquisition asset separate from agent fees at the explicit valuation date', () => {
+    const result = calculateRegistrationCost(
+      elliottAsset,
+      [initialPhase],
+      new Date('2026-08-05T00:00:00Z'),
+    )
+
+    expect(result.carryingValuePence).toBe(11_377_534_246)
+    expect(result.annualAmortisationPence).toBe(2_320_000_000)
+    expect(result.annualisedAgentFeePence).toBe(200_000_000)
+    expect(result.totalAnnualCostPence).toBe(3_560_000_000)
+  })
+
+  it('uses the corrected original end date without overwriting the acquisition asset', () => {
+    const result = calculateRegistrationCost(
+      elliottAsset,
+      [{ ...initialPhase, endDate: '2029-06-30' }],
+      new Date('2026-08-05T00:00:00Z'),
+    )
+
+    expect(result.carryingValuePence).toBe(11_229_223_744)
+    expect(result.annualAmortisationPence).toBe(3_866_666_666)
+  })
+
+  it('keeps non-zero registration amortisation in both valid renewal treatments', () => {
+    const initial = { ...initialPhase, endDate: '2029-06-30' }
+    const extension = {
+      id: 'extension',
+      startDate: '2028-07-01',
+      endDate: '2031-06-30',
+      annualWagePence: initialPhase.annualWagePence,
+      agentFeePence: 0,
+    }
+    const asOf = new Date('2028-08-05T00:00:00Z')
+    const continued = calculateRegistrationCost(elliottAsset, [initial, {
+      ...extension,
+      amortisationTreatment: 'CONTINUE_CURRENT_SCHEDULE',
+    }], asOf)
+    const respread = calculateRegistrationCost(elliottAsset, [initial, {
+      ...extension,
+      amortisationTreatment: 'SPREAD_REMAINING_BOOK_VALUE',
+    }], asOf)
+
+    expect(continued.annualAmortisationPence).toBeGreaterThan(0)
+    expect(respread.annualAmortisationPence).toBeGreaterThan(0)
+    expect(continued.annualAmortisationPence).not.toBe(respread.annualAmortisationPence)
+  })
+
+  it('applies a signed re-spread while the extension wage phase is still scheduled', () => {
+    const initial = { ...initialPhase, endDate: '2029-06-30' }
+    const signedDate = new Date('2026-08-05T00:00:00Z')
+    const extension = {
+      id: 'extension',
+      startDate: '2029-07-01',
+      endDate: '2031-06-30',
+      annualWagePence: initialPhase.annualWagePence,
+      agentFeePence: 0,
+      extensionSignedDate: '2026-08-05',
+    }
+
+    const continued = calculateRegistrationCost(elliottAsset, [initial, {
+      ...extension,
+      amortisationTreatment: 'CONTINUE_CURRENT_SCHEDULE',
+    }], signedDate)
+    const respread = calculateRegistrationCost(elliottAsset, [initial, {
+      ...extension,
+      amortisationTreatment: 'SPREAD_REMAINING_BOOK_VALUE',
+    }], signedDate)
+
+    expect(respread.activePhase?.id).toBe(initial.id)
+    expect(respread.phases.find((phase) => phase.id === extension.id)?.status).toBe('SCHEDULED')
+    expect(respread.annualAmortisationPence).toBeGreaterThan(0)
+    expect(respread.annualAmortisationPence).not.toBe(continued.annualAmortisationPence)
   })
 })
 
@@ -1117,8 +1324,8 @@ describe('The Chelsea Rule — £100M over 8 years amortises at £20M/yr', () =>
     const end = new Date('2031-07-01T00:00:00Z') // 8-year deal
     // At signing: full fee
     expect(currentBookValuePence(100_000_000_00, start, end, start)).toBe(100_000_000_00)
-    // Halfway through the capped 5-year window (2.5y) → ~£50M
-    expect(currentBookValuePence(100_000_000_00, start, end, new Date('2026-01-01T00:00:00Z'))).toBe(50_000_000_00)
+    // Halfway through the capped five-year window, subject to the exact leap-day count.
+    expect(currentBookValuePence(100_000_000_00, start, end, new Date('2026-01-01T00:00:00Z'))).toBe(49_917_898_19)
     // At the 5-year cap (2028-07): fully amortised
     expect(currentBookValuePence(100_000_000_00, start, end, new Date('2028-07-01T00:00:00Z'))).toBe(0)
     // Year 6 (still under contract but registration is fully amortised): 0
@@ -1134,16 +1341,15 @@ describe('The Ledger Transition — carried book value on extension', () => {
     endDate: new Date('2022-07-01T00:00:00Z'),
   }
 
-  it('calculates the remaining book value 3 years in as exactly £28M', () => {
+  it('calculates the remaining book value 3 years in using the day-count convention', () => {
     // Extension signed 2020-07-01 (3 years elapsed of 5). 2 years remain.
-    // £70M × (24 / 60 months) = £28M
     const carried = calculateRemainingBookValue(initial, new Date('2020-07-01T00:00:00Z'))
-    expect(carried).toBe(28_000_000_00)
+    expect(carried).toBe(27_984_665_93)
   })
 
-  it('re-amortises the carried £28M principal over the new extension duration', () => {
+  it('re-amortises the carried principal over the new extension duration', () => {
     const carried = calculateRemainingBookValue(initial, new Date('2020-07-01T00:00:00Z'))
-    expect(carried).toBe(28_000_000_00)
+    expect(carried).toBe(27_984_665_93)
 
     // New EXTENSION phase: £28M principal, 2020-07-01 → 2024-07-01 (4 years).
     const { breakdown } = calculateSquadCosts([
@@ -1155,8 +1361,7 @@ describe('The Ledger Transition — carried book value on extension', () => {
         contractLengthYears: 4,
       },
     ])
-    // £28M / min(4,5) = £7M/yr
-    expect(breakdown[0]?.amortisationPence).toBe(7_000_000_00)
+    expect(breakdown[0]?.amortisationPence).toBe(Math.floor(carried / 4))
   })
 
   it('carried value is the full fee before the deal starts and zero once amortised', () => {

@@ -53,13 +53,17 @@ export function seasonEndDate(startYear: number): Date {
 }
 
 /**
- * The "as-of" date the engine should evaluate against for the selected season —
- * the fiscal close (30 Jun of the end year). Amortisation book values and
- * contract-expiry checks resolve against this instead of `new Date()`, so the
- * numbers reflect the season the user is planning rather than today.
+ * Canonical valuation date for roster/SCR calculations. The active season is
+ * valued today; completed and future seasons use their reporting close. This
+ * lets a current-season registration show its real elapsed amortisation while
+ * retaining a deterministic date for historical and planning views.
  */
-export function seasonAsOfDate(startYear: number): Date {
-  return seasonEndDate(startYear)
+export function seasonAsOfDate(startYear: number, now: Date = new Date()): Date {
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const start = seasonStartDate(startYear)
+  const end = seasonEndDate(startYear)
+  if (today.getTime() >= start.getTime() && today.getTime() <= end.getTime()) return today
+  return end
 }
 
 /** True when an ISO YYYY-MM-DD date falls inside the season's fiscal window. */

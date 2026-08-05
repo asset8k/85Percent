@@ -29,6 +29,7 @@ export interface TemplateRosterItemRow {
 export interface HydratedRoster {
   players: Array<Record<string, unknown>>
   contracts: Array<Record<string, unknown>>
+  registrationAssets: Array<Record<string, unknown>>
   manager: Record<string, unknown> | null
   managerContract: Record<string, unknown> | null
   identity: { name: string; shortName: string; leagueId: LeagueId }
@@ -109,6 +110,7 @@ export function buildHydratedRoster(args: {
 
   const players: Array<Record<string, unknown>> = []
   const contracts: Array<Record<string, unknown>> = []
+  const registrationAssets: Array<Record<string, unknown>> = []
 
   for (const r of playerRows) {
     const playerId = newId()
@@ -158,6 +160,16 @@ export function buildHydratedRoster(args: {
       is_active: true,
       phase_type: isExtension ? 'EXTENSION' : 'INITIAL',
       is_current: true,
+      created_at: nowISO,
+      updated_at: nowISO,
+    })
+    registrationAssets.push({
+      player_id: playerId,
+      club_id: clubId,
+      acquisition_fee: fee,
+      acquisition_agent_fee: 0,
+      acquisition_date: startDate,
+      carrying_value: null,
       created_at: nowISO,
       updated_at: nowISO,
     })
@@ -215,6 +227,7 @@ export function buildHydratedRoster(args: {
   return {
     players,
     contracts,
+    registrationAssets,
     manager,
     managerContract,
     identity: {

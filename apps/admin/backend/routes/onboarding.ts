@@ -165,6 +165,12 @@ export async function onboardingRoutes(app: ApiApp) {
           await supabase.from('players').delete().in('id', hydrated.players.map((p) => p['id'] as string))
           throw cErr
         }
+        const { error: assetErr } = await supabase.from('player_registration_assets').insert(hydrated.registrationAssets)
+        if (assetErr) {
+          await supabase.from('contracts').delete().in('id', hydrated.contracts.map((c) => c['id'] as string))
+          await supabase.from('players').delete().in('id', hydrated.players.map((p) => p['id'] as string))
+          throw assetErr
+        }
       }
 
       // 5. Manager (best-effort — most templates won't have one). Only when the

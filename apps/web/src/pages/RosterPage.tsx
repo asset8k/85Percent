@@ -5,7 +5,7 @@
  * (1) CSV upload — staging-area UX that validates on the server, lets the user
  *     fix errors inline, then commits the whole batch atomically.
  * (2) Manual add — single-player + contract via a modal form.
- * (3) Row click — opens an edit drawer (player + contract patch).
+ * (3) Row click — opens the edit modal (player + contract patch).
  *
  * Design: follows the violet/light system from the UI Kit. No new primitives;
  * relies on Card, Button, NumericInput, Spinner.
@@ -13,7 +13,6 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation, Trans } from 'react-i18next'
-import type { TFunction } from 'i18next'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -25,7 +24,8 @@ import {
   useRosterQuery,
   useArchivedRosterQuery,
   useManagerQuery,
-  queryKeys,
+  usePlayerPhasesQuery,
+  invalidateRosterDerivedQueries,
 } from '@/lib/queries'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -37,15 +37,25 @@ import { DatePicker } from '@/components/ui/date-picker'
 import { cn } from '@/lib/utils'
 import { useCan } from '@/lib/role'
 import { useClubStore } from '@/stores/club'
-import { useSeasonStore, seasonKey } from '@/stores/season'
+import { useSeasonStore, seasonAsOfDate, seasonKey } from '@/stores/season'
 import { exportAmortisationXLSX } from '@/lib/exports/amortisationXlsx'
 import { findCountry, countryName } from '@/lib/countries'
 import { Flag } from '@/components/ui/flag'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import { activeLocale } from '@/lib/locale'
+import { formatPercentagePointDelta } from '@/lib/percentage'
+import { compareByPosition, compareSquadNumbers } from '@/lib/positionSort'
+import { TABLE_COLUMN_LABELS, formatSquadNumber, formatTableMoney, formatTimeLeft } from '@/lib/tablePresentation'
+import { useTablePreferences } from '@/lib/useTablePreferences'
 import { useScrollLock } from '@/lib/useScrollLock'
 import { useCopilot } from '@/stores/copilot'
+import { useNotificationsStore } from '@/stores/notifications'
 import { CopilotTriggerIcon } from '@/components/ai/CopilotTrigger'
+import { calculateRegistrationCost } from '@85percent/engine'
+import {
+  estimateScrChangePoints,
+  previewAnnualCost,
+} from '@/lib/rosterCosts'
 import type {
   PlayerWithContract,
   PlayerPosition,
@@ -58,15 +68,19 @@ import type {
   ExtendContractInput,
 } from '@85percent/shared'
 
-// Annualised amortisation of a capitalised fee under the 5-year regulatory cap
-// (the Chelsea Rule). Mirrors amortisationPeriodYears in @85percent/engine.
-function annualAmortisation(feePence: number, contractLengthYears: number): number {
-  if (feePence <= 0) return 0
-  const years = contractLengthYears > 0 ? contractLengthYears : 1
-  return Math.floor(feePence / Math.min(years, 5))
-}
-
 const POSITIONS: PlayerPosition[] = ['GK', 'DEF', 'MID', 'FWD']
+type RosterTableFilter = 'all' | 'expiring' | PlayerPosition
+type RosterTablePreferences = { sortKey: RosterSortKey; sortDir: RosterSortDir; filter: RosterTableFilter }
+const ROSTER_TABLE_DEFAULTS: RosterTablePreferences = { sortKey: 'squadNumber', sortDir: 'asc', filter: 'all' }
+const ROSTER_SORT_KEYS: RosterSortKey[] = ['squadNumber', 'name', 'position', 'wage', 'amortisation', 'total', 'contractEnd', 'expiry']
+
+function isRosterTablePreferences(value: unknown): value is RosterTablePreferences {
+  if (!value || typeof value !== 'object') return false
+  const preferences = value as Partial<RosterTablePreferences>
+  return ROSTER_SORT_KEYS.includes(preferences.sortKey as RosterSortKey)
+    && (preferences.sortDir === 'asc' || preferences.sortDir === 'desc')
+    && ['all', 'expiring', ...POSITIONS].includes(preferences.filter as RosterTableFilter)
+}
 
 // ---------------------------------------------------------------------------
 // Top-level page
@@ -75,7 +89,7 @@ export function RosterPage() {
   const { t } = useTranslation()
   const can = useCan()
   const navigate = useNavigate()
-  const { clubName, financials, setFinancials } = useClubStore()
+  const { clubName, clubId, financials, setFinancials } = useClubStore()
   const { format: fmtMoney } = useWorkspaceCurrency()
   const openCopilot = useCopilot((s) => s.open)
 
@@ -83,7 +97,6 @@ export function RosterPage() {
   const handleAskCopilotPlayer = (p: PlayerWithContract) => {
     const c = p.contract
     if (!c) return
-    const feePence = c.carriedBookValuePence ?? c.transferFeePence
     const months = p.monthsToExpiry
     openCopilot({
       module: 'Roster',
@@ -99,7 +112,8 @@ export function RosterPage() {
               ? 'Expired'
               : `${months} months (~${(months / 12).toFixed(1)} yrs) to ${formatDate(c.endDate)}`,
         currentBookValue: fmtMoney(c.bookValuePence),
-        annualAmortisation: fmtMoney(annualAmortisation(feePence, c.contractLengthYears)),
+        annualAmortisation: fmtMoney(c.annualAmortisationPence),
+        annualSquadCost: fmtMoney(c.totalAnnualCostPence),
         totalSquadCosts: financials ? fmtMoney(financials.currentSquadCosts) : 'n/a',
       },
     })
@@ -138,8 +152,9 @@ export function RosterPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [pendingActionId, setPendingActionId] = useState<string | null>(null)
 
-  // Filters (Squad tab)
-  const [filter, setFilter] = useState<'all' | 'expiring' | PlayerPosition>('all')
+  const tablePreferences = useTablePreferences('roster', clubId, ROSTER_TABLE_DEFAULTS, isRosterTablePreferences)
+  const { filter } = tablePreferences.value
+  const setFilter = (nextFilter: RosterTableFilter) => tablePreferences.setValue((current) => ({ ...current, filter: nextFilter }))
 
   // Re-fetch after a mutation by invalidating the cached queries: they refetch in
   // the background while the current rows stay on screen (no skeleton). Awaiting
@@ -152,16 +167,13 @@ export function RosterPage() {
   // store copy once, imperatively, instead.
   const refresh = async () => {
     setError('')
+    await invalidateRosterDerivedQueries(queryClient)
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.roster }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.rosterArchived }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.manager }),
+      api.club.getFinancials(season)
+        .then(setFinancials)
+        .catch(() => { /* preserve displayed financials on a transient failure */ }),
+      useNotificationsStore.getState().refresh(season),
     ])
-    try {
-      setFinancials(await api.club.getFinancials(season))
-    } catch {
-      /* keep the existing store financials on a transient failure */
-    }
   }
 
   const handleRestore = async (id: string) => {
@@ -207,7 +219,7 @@ export function RosterPage() {
     [active],
   )
 
-  if (rosterQuery.isPending || archivedQuery.isPending || managerQuery.isPending)
+  if (rosterQuery.isPending || archivedQuery.isPending || managerQuery.isPending || !tablePreferences.ready)
     return <RosterSkeleton />
 
   return (
@@ -340,6 +352,15 @@ export function RosterPage() {
                 {t(`common.positions.${pos}`)}
               </FilterChip>
             ))}
+            {!tablePreferences.isDefault && (
+              <button
+                type="button"
+                onClick={tablePreferences.reset}
+                className="px-2 py-1.5 text-[12px] font-medium text-slate-500 hover:text-violet-700"
+              >
+                Reset view
+              </button>
+            )}
           </div>
 
           {filteredActive.length === 0 ? (
@@ -362,6 +383,9 @@ export function RosterPage() {
               onRowClick={(p) => setEditPlayer(p)}
               flagZeroWage
               onAskCopilot={handleAskCopilotPlayer}
+              sortKey={tablePreferences.value.sortKey}
+              sortDir={tablePreferences.value.sortDir}
+              onSort={(sortKey, sortDir) => tablePreferences.setValue((current) => ({ ...current, sortKey, sortDir }))}
             />
           )}
         </>
@@ -377,6 +401,9 @@ export function RosterPage() {
               players={archived}
               onRowClick={() => undefined}
               archived
+              sortKey={tablePreferences.value.sortKey}
+              sortDir={tablePreferences.value.sortDir}
+              onSort={(sortKey, sortDir) => tablePreferences.setValue((current) => ({ ...current, sortKey, sortDir }))}
               canMutate={can.mutateRoster}
               confirmDeleteId={confirmDeleteId}
               pendingActionId={pendingActionId}
@@ -412,7 +439,7 @@ export function RosterPage() {
           />
         )}
         {editPlayer && (
-          <PlayerEditDrawer
+          <PlayerEditModal
             key={`edit-${editPlayer.id}`}
             player={editPlayer}
             onClose={() => setEditPlayer(null)}
@@ -502,6 +529,9 @@ function PlayerTable({
   onConfirmDelete,
   onCancelDelete,
   onAskCopilot,
+  sortKey,
+  sortDir,
+  onSort,
 }: {
   players: PlayerWithContract[]
   onRowClick: (p: PlayerWithContract) => void
@@ -520,24 +550,25 @@ function PlayerTable({
   onRequestDelete?: (id: string) => void
   onConfirmDelete?: (id: string) => void
   onCancelDelete?: () => void
+  sortKey: RosterSortKey
+  sortDir: RosterSortDir
+  onSort: (sortKey: RosterSortKey, sortDir: RosterSortDir) => void
 }) {
   const { t } = useTranslation()
   const showActions = archived && canMutate && !!onRestore && !!onRequestDelete && !!onConfirmDelete && !!onCancelDelete
   const { format: fmtMoney } = useWorkspaceCurrency()
 
-  // Column sorting — defaults to shirt number ascending (unassigned last), the
-  // order sporting directors expect when scanning a squad sheet. Clicking a
-  // header toggles direction, mirroring the Dashboard's per-column sort.
-  const [sortKey, setSortKey] = useState<RosterSortKey>('squadNumber')
-  const [sortDir, setSortDir] = useState<RosterSortDir>('asc')
   const sortedPlayers = useMemo(() => {
     const dir = sortDir === 'asc' ? 1 : -1
     return [...players].sort((a, b) => {
       switch (sortKey) {
         case 'name':        return a.name.localeCompare(b.name) * dir
-        case 'position':    return (a.position ?? '').localeCompare(b.position ?? '') * dir
+        case 'position':    return compareByPosition(a, b, sortDir)
         case 'wage':        return ((a.contract?.annualWagePence ?? 0) - (b.contract?.annualWagePence ?? 0)) * dir
-        case 'book':        return ((a.contract?.bookValuePence ?? 0) - (b.contract?.bookValuePence ?? 0)) * dir
+        case 'amortisation':
+          return ((a.contract?.annualAmortisationPence ?? 0) - (b.contract?.annualAmortisationPence ?? 0)) * dir
+        case 'total':
+          return ((a.contract?.totalAnnualCostPence ?? 0) - (b.contract?.totalAnnualCostPence ?? 0)) * dir
         case 'contractEnd': {
           const ad = a.contract?.endDate ? Date.parse(a.contract.endDate) : Infinity
           const bd = b.contract?.endDate ? Date.parse(b.contract.endDate) : Infinity
@@ -554,45 +585,41 @@ function PlayerTable({
         }
         case 'squadNumber':
         default: {
-          const an = a.squadNumber ?? Infinity
-          const bn = b.squadNumber ?? Infinity
-          if (an !== bn) return (an - bn) * dir
-          return a.name.localeCompare(b.name)
+          return compareSquadNumbers(a.squadNumber, b.squadNumber, sortDir) || a.name.localeCompare(b.name)
         }
       }
     })
   }, [players, sortKey, sortDir, archived])
 
-  const handleSort = (f: RosterSortKey, d: RosterSortDir) => { setSortKey(f); setSortDir(d) }
-
   return (
     <Card className="overflow-hidden">
       <div className="overflow-x-auto">
-      <table className="w-full min-w-[760px]">
+      <table className="w-full min-w-[840px]">
         <thead className="border-b border-slate-100">
           <tr>
-            <SortableTh field="squadNumber" label="#"            align="right" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-            <SortableTh field="name"        label={t('roster.th.name')}        sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-            <SortableTh field="position"    label={t('roster.th.position')}    sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-            <SortableTh field="wage"        label={t('roster.th.wage')} align="right"  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-            <SortableTh field="book"        label={t('roster.th.book')} align="right"  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} info={<BookValueInfo />} />
-            <SortableTh field="contractEnd" label={t('roster.th.contractEnd')}  sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-            <SortableTh field="expiry"      label={archived ? t('roster.th.archived') : t('roster.th.expiry')} align="right" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+            <SortableTh field="squadNumber" label={TABLE_COLUMN_LABELS.squadNumber} align="right" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+            <SortableTh field="name"        label={TABLE_COLUMN_LABELS.name} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+            <SortableTh field="position"    label={TABLE_COLUMN_LABELS.position} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+            <SortableTh field="wage"        label={TABLE_COLUMN_LABELS.weeklyWage} align="right" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+            <SortableTh field="total"       label={TABLE_COLUMN_LABELS.annualCost} align="right" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+            <SortableTh field="contractEnd" label={TABLE_COLUMN_LABELS.contractEnd} sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
+            <SortableTh field="expiry"      label={archived ? t('roster.th.archived') : TABLE_COLUMN_LABELS.timeLeft} align="right" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
             {showActions && <Th align="right">{t('roster.th.actions')}</Th>}
           </tr>
         </thead>
         <tbody>
-          {sortedPlayers.map((p) => (
+          {sortedPlayers.map((p) => {
+            return (
             <tr
               key={p.id}
-              onClick={() => onRowClick(p)}
+              onClick={() => !archived && onRowClick(p)}
               className={cn(
                 'group border-b border-slate-100 last:border-0 transition-colors',
-                !archived && 'hover:bg-violet-50/60 cursor-pointer'
+                !archived && 'hover:bg-violet-50/60 cursor-pointer',
               )}
             >
               <td className="px-5 py-3.5 text-right text-[13px] num text-slate-500 tabular-nums w-12">
-                {p.squadNumber ?? '—'}
+                {formatSquadNumber(p.squadNumber)}
               </td>
               <td className="px-5 py-3.5 text-[14px] text-slate-900 font-medium">
                 <span className="inline-flex items-center gap-2 align-middle">
@@ -627,28 +654,14 @@ function PlayerTable({
                         <FinancialWarning />
                       </span>
                     ) : (
-                      fmtMoney(p.contract.annualWagePence)
+                      formatTableMoney(Math.round(p.contract.annualWagePence / 52), fmtMoney)
                     )}
                   </td>
                 )
               })()}
-              {(() => {
-                const needsFee = flagZeroWage && !archived && !!p.contract && p.contract.bookValuePence === 0
-                return (
-                  <td className="px-5 py-3.5 text-[13px] num text-right text-slate-700">
-                    {!p.contract ? (
-                      '—'
-                    ) : needsFee ? (
-                      <span className="inline-flex items-center justify-end gap-1.5 text-slate-400">
-                        {fmtMoney(0)}
-                        <FinancialWarning />
-                      </span>
-                    ) : (
-                      fmtMoney(p.contract.bookValuePence)
-                    )}
-                  </td>
-                )
-              })()}
+              <td className="px-5 py-3.5 text-[13px] num text-right font-semibold text-slate-900">
+                {p.contract ? formatTableMoney(p.contract.totalAnnualCostPence, fmtMoney) : '—'}
+              </td>
               <td className="px-5 py-3.5 text-[13px] text-slate-500 num whitespace-nowrap">
                 {p.contract ? formatDate(p.contract.endDate) : '—'}
               </td>
@@ -674,11 +687,61 @@ function PlayerTable({
                 </td>
               )}
             </tr>
-          ))}
+          )})}
         </tbody>
       </table>
       </div>
     </Card>
+  )
+}
+
+function CostMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="meta-label">{label}</div>
+      <div className="mt-0.5 text-[13px] font-medium text-slate-800 num">{value}</div>
+    </div>
+  )
+}
+
+function ContractCostSummary({
+  feePence,
+  carriedBookValuePence = null,
+  annualWagePence,
+  agentFeePence,
+  startDate,
+  endDate,
+  className,
+}: {
+  feePence: number
+  carriedBookValuePence?: number | null
+  annualWagePence: number
+  agentFeePence: number
+  startDate: string
+  endDate: string
+  className?: string
+}) {
+  const { format: fmtMoney } = useWorkspaceCurrency()
+  const financials = useClubStore((state) => state.financials)
+  const preview = previewAnnualCost({
+    feePence,
+    carriedBookValuePence,
+    annualWagePence,
+    agentFeePence,
+    startDate,
+    endDate,
+  })
+  const scrChange = preview
+    ? estimateScrChangePoints(preview.totalAnnualCostPence, financials?.footballRelatedRevenue)
+    : null
+
+  if (!preview) return null
+
+  return (
+    <p className={cn('text-[12px] text-slate-600', className)} aria-live="polite">
+      Estimated annual cost: <span className="font-semibold text-slate-900 num">{fmtMoney(preview.totalAnnualCostPence)}</span>
+      {scrChange != null && <span className="text-violet-700"> · Estimated SCR impact: {formatPercentagePointDelta(scrChange)}</span>}
+    </p>
   )
 }
 
@@ -947,7 +1010,7 @@ function Th({
 }
 
 // Column-sort keys for the squad / archived player tables.
-type RosterSortKey = 'squadNumber' | 'name' | 'position' | 'wage' | 'book' | 'contractEnd' | 'expiry'
+type RosterSortKey = 'squadNumber' | 'name' | 'position' | 'wage' | 'amortisation' | 'total' | 'contractEnd' | 'expiry'
 type RosterSortDir = 'asc' | 'desc'
 
 // Clickable header cell — matches the plain Th visually, adds a direction caret
@@ -1020,16 +1083,6 @@ function PositionPill({ position }: { position: string | null }) {
   )
 }
 
-// "49" → "4 years 1 month" — years lead, months only when non-zero, singular/plural correct.
-function formatExpiryLabel(months: number, t: TFunction): string {
-  const years = Math.floor(months / 12)
-  const rem = months % 12
-  if (years === 0) return t('dashboard.expiry.months', { count: rem })
-  const yearPart = t('dashboard.expiry.years', { count: years })
-  if (rem === 0) return yearPart
-  return `${yearPart} ${t('dashboard.expiry.months', { count: rem })}`
-}
-
 function ExpiryChip({ months }: { months: number | null }) {
   const { t } = useTranslation()
   if (months == null) return <span className="text-slate-400">—</span>
@@ -1039,11 +1092,11 @@ function ExpiryChip({ months }: { months: number | null }) {
   if (months <= 6) {
     return (
       <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-md bg-amber-100 text-amber-700 whitespace-nowrap">
-        {formatExpiryLabel(months, t)}
+        {formatTimeLeft(months, t)}
       </span>
     )
   }
-  return <span className="text-slate-500 whitespace-nowrap">{formatExpiryLabel(months, t)}</span>
+  return <span className="text-slate-500 whitespace-nowrap">{formatTimeLeft(months, t)}</span>
 }
 
 function formatDate(iso: string): string {
@@ -1240,18 +1293,26 @@ function CSVUploadModal({
     <ModalShell onClose={onClose} title={t('roster.csv.title')}>
       <div className="max-h-[80vh] flex flex-col">
         <div className="px-5 pb-3">
-          <p className="text-[13px] text-slate-600">
-            <Trans
-              i18nKey="roster.csv.instructions"
-              components={{
-                c0: <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded" />,
-                c1: <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded" />,
-                c2: <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded" />,
-                c3: <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded" />,
-                c4: <code className="text-[12px] bg-slate-100 px-1.5 py-0.5 rounded" />,
-              }}
-            />
-          </p>
+          <p className="text-[13px] text-slate-600">{t('roster.csv.requirementsIntro')}</p>
+          <div className="mt-3 grid gap-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-[12px] text-slate-600">
+            <div>
+              <span className="font-medium text-slate-800">{t('roster.csv.requiredColumns')}</span>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {['name', 'position', 'transfer_fee_pounds', 'weekly_wage_pounds', 'agent_fee_pounds', 'contract_start', 'contract_end'].map((column) => (
+                  <code key={column} className="rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-700 ring-1 ring-slate-200">{column}</code>
+                ))}
+              </div>
+            </div>
+            <div>
+              <span className="font-medium text-slate-800">{t('roster.csv.optionalColumns')}</span>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {['squad_number', 'nationality', 'date_of_birth', 'joined_date', 'carried_book_value_pounds', 'amortisation_treatment'].map((column) => (
+                  <code key={column} className="rounded bg-white px-1.5 py-0.5 text-[11px] text-slate-700 ring-1 ring-slate-200">{column}</code>
+                ))}
+              </div>
+            </div>
+            <p className="leading-relaxed text-slate-500">{t('roster.csv.requirementsHelp')}</p>
+          </div>
           <div className="flex items-center gap-3 mt-4">
             <input
               ref={fileInputRef}
@@ -1499,11 +1560,13 @@ function StagingRowEditor({
           next.parsed != null
             ? {
                 ...next,
-                parsed: {
-                  ...next.parsed,
-                  carriedBookValuePence: carried,
-                  ...(row.parsed?.joinedDate ? { joinedDate: row.parsed.joinedDate } : {}),
-                },
+      parsed: {
+                ...next.parsed,
+                carriedBookValuePence: carried,
+                ...(row.parsed?.joinedDate ? { joinedDate: row.parsed.joinedDate } : {}),
+                amortisationTreatment:
+                  row.parsed?.amortisationTreatment ?? 'CONTINUE_CURRENT_SCHEDULE',
+              },
               }
             : next
         onChange({ ...merged, rowIndex: row.rowIndex })
@@ -1524,9 +1587,9 @@ function StagingRowEditor({
         <input value={name} onChange={(e) => setName(e.target.value)} className={cellInput} />
       </td>
       <td className="px-2 py-2">
-        <select value={position} onChange={(e) => setPosition(e.target.value as PlayerPosition)} className={cellInput}>
+        <SelectControl value={position} onChange={(e) => setPosition(e.target.value as PlayerPosition)} className={cellInput}>
           {POSITIONS.map((p) => <option key={p} value={p}>{p}</option>)}
-        </select>
+        </SelectControl>
       </td>
       <td className="px-2 py-2">
         <NumericInput value={squadNumber} onChange={setSquadNumber} className={cellNumeric} placeholder="—" />
@@ -1537,7 +1600,6 @@ function StagingRowEditor({
           onChange={setDateOfBirth}
           min={sixtyYearsAgoISO}
           max={todayISO}
-          placeholder={t('roster.csv.dobPlaceholder')}
         />
       </td>
       <td className="px-2 py-2">
@@ -1571,10 +1633,10 @@ function StagingRowEditor({
         <NumericInput value={agentPounds} onChange={setAgentPounds} className={cellNumeric} placeholder="0" />
       </td>
       <td className="px-2 py-2 align-top">
-        <DatePicker value={startDate} onChange={setStartDate} placeholder={t('roster.csv.startPlaceholder')} />
+        <DatePicker value={startDate} onChange={setStartDate} />
       </td>
       <td className="px-2 py-2 align-top">
-        <DatePicker value={endDate} onChange={setEndDate} placeholder={t('roster.csv.endPlaceholder')} />
+        <DatePicker value={endDate} onChange={setEndDate} />
         <div className="flex items-center justify-end gap-2 mt-2">
           <button onClick={onClose} className="text-[12px] text-slate-500 hover:text-slate-700">{t('common.cancel')}</button>
           <button onClick={save} disabled={saving} className="text-[12px] font-medium text-violet-600 hover:text-violet-700 disabled:opacity-60">
@@ -1604,48 +1666,54 @@ function ManualPlayerModal({
   onCreated: () => void
 }) {
   const { t } = useTranslation()
+  const [workflow, setWorkflow] = useState<'newSigning' | 'existingPlayer'>('newSigning')
   const [name, setName] = useState('')
   const [position, setPosition] = useState<PlayerPosition>('MID')
-  const [squadNumber, setSquadNumber] = useState(NaN)
-  const [nationality, setNationality] = useState<string | null>(null)
-  const [dateOfBirth, setDateOfBirth] = useState('')
   const [transferPounds, setTransferPounds] = useState(NaN)
-  const [weeklyWagePounds, setWeeklyWagePounds] = useState(NaN)
+  const [carriedPounds, setCarriedPounds] = useState(NaN)
+  const [wagePounds, setWagePounds] = useState(NaN)
   const [agentPounds, setAgentPounds] = useState(NaN)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
-  const [joinedDate, setJoinedDate] = useState('')
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [squadNumber, setSquadNumber] = useState(NaN)
+  const [nationality, setNationality] = useState<string | null>(null)
+  const [dateOfBirth, setDateOfBirth] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  const computedAge = useMemo(() => ageFromDob(dateOfBirth), [dateOfBirth])
-  // Players are realistically 14–60. Reject obviously bogus DOBs at the UI
-  // boundary so the form is honest about what it will accept.
   const todayISO = new Date().toISOString().slice(0, 10)
-  const sixtyYearsAgoISO = (() => {
-    const d = new Date()
-    d.setFullYear(d.getFullYear() - 60)
-    return d.toISOString().slice(0, 10)
-  })()
+  const weeklyWagePence = Math.round((Number.isFinite(wagePounds) ? wagePounds : 0) * 100)
+  const annualWagePence = weeklyWagePence * 52
+  const transferFeePence = Math.round((Number.isFinite(transferPounds) ? transferPounds : 0) * 100)
+  const carriedBookValuePence =
+    workflow === 'existingPlayer' && Number.isFinite(carriedPounds) && carriedPounds >= 0
+      ? Math.round(carriedPounds * 100)
+      : null
+  const agentFeePence = Math.round((Number.isFinite(agentPounds) ? agentPounds : 0) * 100)
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setSaving(true)
     setError('')
+    if (!name.trim()) return setError("Enter the player's name")
+    if (!Number.isFinite(wagePounds) || wagePounds <= 0) return setError('Weekly wage must be greater than zero')
+    if (workflow === 'newSigning' && !startDate) return setError('Select a contract start date')
+    if (!endDate) return setError('Select a contract end date')
+    if (workflow === 'existingPlayer' && (!Number.isFinite(carriedPounds) || carriedPounds < 0)) return setError('Enter the current book value')
+    setSaving(true)
     try {
-      const cleanNationality = nationality?.trim() ?? ''
       const payload: ManualPlayerInput = {
         name: name.trim(),
         position,
-        ...(Number.isFinite(squadNumber) && squadNumber >= 1 ? { squadNumber } : {}),
-        ...(cleanNationality ? { nationality: cleanNationality } : {}),
-        ...(dateOfBirth ? { dateOfBirth } : {}),
-        ...(joinedDate ? { joinedDate } : {}),
-        transferFeePence: (isFinite(transferPounds) ? transferPounds : 0) * 100,
-        annualWagePence:  (isFinite(weeklyWagePounds) ? weeklyWagePounds : 0) * 52 * 100,
-        agentFeePence:    (isFinite(agentPounds) ? agentPounds : 0) * 100,
-        startDate,
+        transferFeePence: workflow === 'newSigning' ? transferFeePence : 0,
+        ...(carriedBookValuePence != null ? { carriedBookValuePence } : {}),
+        weeklyWagePence,
+        agentFeePence,
+        startDate: workflow === 'existingPlayer' ? todayISO : startDate,
         endDate,
+        squadNumber: Number.isFinite(squadNumber) && squadNumber >= 1 ? squadNumber : undefined,
+        nationality: nationality?.trim() || undefined,
+        dateOfBirth: dateOfBirth || undefined,
       }
       await api.roster.createPlayer(payload)
       onCreated()
@@ -1656,97 +1724,93 @@ function ManualPlayerModal({
   }
 
   return (
-    <ModalShell onClose={onClose} title={t('roster.manual.title')}>
-      <form onSubmit={submit} className="px-5 pb-5 space-y-4 max-h-[80vh] overflow-y-auto overflow-x-visible">
-        <Field label={t('roster.form.name')}>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            maxLength={80}
-            className={fieldClass}
-          />
-        </Field>
+    <ModalShell onClose={onClose} title={t('roster.manual.title')} size="compact">
+      <form onSubmit={submit} className="max-h-[80vh] overflow-y-auto">
+        <div className="space-y-4 px-5 py-5">
+            <div className="grid grid-cols-2 gap-2" role="group" aria-label={t('roster.workflow.label')}>
+              <WorkflowChoice
+                active={workflow === 'newSigning'}
+                title={t('roster.workflow.newSigning')}
+                description={t('roster.workflow.newSigningDescription')}
+                onClick={() => setWorkflow('newSigning')}
+              />
+              <WorkflowChoice
+                active={workflow === 'existingPlayer'}
+                title={t('roster.workflow.existingPlayer')}
+                description={t('roster.workflow.existingPlayerDescription')}
+                onClick={() => setWorkflow('existingPlayer')}
+              />
+            </div>
 
-        <div className="grid grid-cols-[1fr_1fr] gap-4">
-          <Field label={t('roster.form.position')}>
-            <select value={position} onChange={(e) => setPosition(e.target.value as PlayerPosition)} className={fieldClass}>
-              {POSITIONS.map((p) => <option key={p} value={p}>{t(`common.positions.${p}`)}</option>)}
-            </select>
-          </Field>
-          <Field label={t('roster.form.squadNumberOptional')}>
-            <NumericInput value={squadNumber} onChange={setSquadNumber} className={fieldClass} placeholder={t('roster.form.squadNumberPlaceholder')} />
-          </Field>
+            <Field label={t('roster.form.name')}>
+              <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={80} className={fieldClass} />
+            </Field>
+            <Field label={t('roster.form.position')}>
+              <SelectControl value={position} onChange={(e) => setPosition(e.target.value as PlayerPosition)} className={fieldClass}>
+                {POSITIONS.map((item) => <option key={item} value={item}>{t(`common.positions.${item}`)}</option>)}
+              </SelectControl>
+            </Field>
+
+            {workflow === 'newSigning' && (
+              <Field label={t('roster.form.contractStart')}>
+                <DatePicker value={startDate} onChange={setStartDate} required />
+              </Field>
+            )}
+            <Field label={t('roster.form.contractEnd')}>
+              <DatePicker value={endDate} onChange={setEndDate} required />
+            </Field>
+
+            <Field label={t('roster.phase.weeklyWage')}>
+              <PoundInput value={wagePounds} onChange={setWagePounds} />
+            </Field>
+            <Field label={workflow === 'existingPlayer' ? 'Remaining agent fee (£)' : t('roster.form.agentFee')}>
+              <PoundInput value={agentPounds} onChange={setAgentPounds} />
+            </Field>
+
+            {workflow === 'newSigning' ? (
+              <Field label={t('roster.form.transferFee')}>
+                <PoundInput value={transferPounds} onChange={setTransferPounds} />
+              </Field>
+            ) : (
+              <Field label={<span className="flex items-center gap-1.5"><span>{t('roster.accounting.carryingValue')}</span><InfoTooltip text={t('roster.nbv.carriedTooltip')} /></span>}>
+                <PoundInput value={carriedPounds} onChange={setCarriedPounds} />
+              </Field>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setProfileOpen((open) => !open)}
+              className="text-[12px] font-medium text-slate-600 hover:text-slate-900"
+              aria-expanded={profileOpen}
+            >
+              {profileOpen ? t('roster.form.hideProfileDetails') : t('roster.form.profileDetails')}
+            </button>
+            {profileOpen && (
+              <div className="grid gap-4 rounded-lg border border-slate-200 p-3 sm:grid-cols-2">
+                <Field label={t('roster.form.squadNumberOptional')}>
+                  <NumericInput value={squadNumber} onChange={setSquadNumber} className={fieldClass} placeholder={t('roster.form.squadNumberPlaceholder')} />
+                </Field>
+                <Field label={t('roster.form.nationalityOptional')}>
+                  <CountryPicker value={nationality} onChange={setNationality} placeholder={t('roster.form.selectCountry')} />
+                </Field>
+                <Field label={t('roster.form.dobOptional')}>
+                  <DatePicker value={dateOfBirth} onChange={setDateOfBirth} max={todayISO} />
+                </Field>
+              </div>
+            )}
+
+            <ContractCostSummary
+              feePence={workflow === 'newSigning' ? transferFeePence : 0}
+              carriedBookValuePence={carriedBookValuePence}
+              annualWagePence={annualWagePence}
+              agentFeePence={agentFeePence}
+              startDate={workflow === 'existingPlayer' ? todayISO : startDate}
+              endDate={endDate}
+            />
         </div>
-        <Field label={t('roster.form.nationalityOptional')}>
-          <CountryPicker value={nationality} onChange={setNationality} placeholder={t('roster.form.selectCountry')} />
-        </Field>
-
-        <Field
-          label={
-            <span className="flex items-center justify-between">
-              <span>{t('roster.form.dobOptional')}</span>
-              {computedAge != null && (
-                <span className="text-[11px] font-normal text-slate-500 normal-case tracking-normal">
-                  {t('roster.form.age')} <span className="num text-slate-700 font-medium">{computedAge}</span>
-                </span>
-              )}
-            </span>
-          }
-        >
-          <DatePicker
-            value={dateOfBirth}
-            onChange={setDateOfBirth}
-            min={sixtyYearsAgoISO}
-            max={todayISO}
-            placeholder={t('roster.form.selectDob')}
-          />
-        </Field>
-
-        <div className="grid grid-cols-3 gap-4">
-          <Field label={t('roster.form.transferFee')}>
-            <PoundInput value={transferPounds} onChange={setTransferPounds} />
-          </Field>
-          <Field label={t('roster.form.weeklyWage')}>
-            <PoundInput value={weeklyWagePounds} onChange={setWeeklyWagePounds} />
-          </Field>
-          <Field label={t('roster.form.agentFee')}>
-            <PoundInput value={agentPounds} onChange={setAgentPounds} />
-          </Field>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <Field label={t('roster.form.contractStart')}>
-            <DatePicker value={startDate} onChange={setStartDate} required placeholder={t('roster.form.selectStartDate')} />
-          </Field>
-          <Field label={t('roster.form.contractEnd')}>
-            <DatePicker value={endDate} onChange={setEndDate} required placeholder={t('roster.form.selectEndDate')} />
-          </Field>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <Field
-            label={
-              <span className="inline-flex items-center gap-1.5">
-                {t('roster.form.joinedOptional')}
-                <InfoTooltip text={t('roster.form.joinedTooltip')} />
-              </span>
-            }
-          >
-            <DatePicker value={joinedDate} onChange={setJoinedDate} placeholder={t('roster.form.joinedDefaultPlaceholder')} />
-          </Field>
-        </div>
-
-        {error && (
-          <div className="border border-red-200 bg-red-50 rounded-lg px-4 py-3 text-[13px] text-red-700">
-            {error}
-          </div>
-        )}
-
-        <div className="flex items-center justify-end gap-3 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
-            {t('common.cancel')}
-          </Button>
+        {error && <div className="mx-5 mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700">{error}</div>}
+        <div className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-slate-100 bg-white px-5 py-4">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
           <Button type="submit" disabled={saving}>
             {saving ? <Spinner size={14} /> : null}
             {saving ? t('common.saving') : t('roster.form.addPlayer')}
@@ -1757,10 +1821,37 @@ function ManualPlayerModal({
   )
 }
 
+function WorkflowChoice({
+  active,
+  title,
+  description,
+  onClick,
+}: {
+  active: boolean
+  title: string
+  description: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'rounded-lg border p-3 text-left transition-colors',
+        active ? 'border-violet-400 bg-violet-50 text-slate-900' : 'border-slate-200 bg-white text-slate-600 hover:border-violet-200',
+      )}
+    >
+      <span className="block text-[13px] font-semibold">{title}</span>
+      <span className="mt-1 block text-[11.5px] leading-snug text-slate-500">{description}</span>
+    </button>
+  )
+}
+
 // ---------------------------------------------------------------------------
-// Player edit drawer (existing player)
+// Player edit modal. A roster row opens this form directly; there is no
+// read-only intermediate layer between the table and the edit workflow.
 // ---------------------------------------------------------------------------
-function PlayerEditDrawer({
+function PlayerEditModal({
   player,
   onClose,
   onSaved,
@@ -1779,48 +1870,39 @@ function PlayerEditDrawer({
   const [nationality, setNationality] = useState<string | null>(player.nationality)
   const [dateOfBirth, setDateOfBirth] = useState(player.dateOfBirth ?? '')
   const [joinedDate, setJoinedDate] = useState(player.joinedDate ?? '')
-  const [transferPounds, setTransferPounds] = useState(c ? c.transferFeePence / 100 : NaN)
-  const [weeklyWagePounds, setWeeklyWagePounds] = useState(c ? Math.round(c.annualWagePence / 52 / 100) : NaN)
+  const [wagePounds, setWagePounds] = useState(c ? c.annualWagePence / 52 / 100 : NaN)
   const [agentPounds, setAgentPounds] = useState(c ? c.agentFeePence / 100 : NaN)
   const [startDate, setStartDate] = useState(c?.startDate ?? '')
   const [endDate, setEndDate] = useState(c?.endDate ?? '')
 
-  // Carried Book Value override (advanced, progressively disclosed). An imported
-  // extension block (EXTENSION phase, no fee, no override) is flagged for audit
-  // and auto-reveals; an already-set override stays revealed too.
-  const needsBookValueAudit =
-    !!c && c.phaseType === 'EXTENSION' && c.carriedBookValuePence == null && c.transferFeePence === 0
-  const [carriedPounds, setCarriedPounds] = useState(
-    c && c.carriedBookValuePence != null ? c.carriedBookValuePence / 100 : NaN,
-  )
-  const [showCarried, setShowCarried] = useState(
-    !!c && (c.carriedBookValuePence != null || needsBookValueAudit),
-  )
+  const [profileOpen, setProfileOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [archiving, setArchiving] = useState(false)
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [error, setError] = useState('')
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [playerValueEditing, setPlayerValueEditing] = useState(false)
+  const [playerValueBasis, setPlayerValueBasis] = useState<'ACQUISITION_COST' | 'CURRENT_BOOK_VALUE'>(
+    c?.accountingBasis ?? 'ACQUISITION_COST',
+  )
+  const [playerValuePounds, setPlayerValuePounds] = useState(
+    c?.accountingBasis === 'CURRENT_BOOK_VALUE'
+      ? (c.carriedBookValuePence ?? 0) / 100
+      : (c?.transferFeePence ?? 0) / 100,
+  )
+  const formRef = useRef<HTMLFormElement>(null)
 
-  // Contract ledger (all phases) + extension wizard state.
-  const [phases, setPhases] = useState<ContractPhase[]>([])
+  // Contract history is a cached query. Undefined means still loading; an
+  // empty array is the only genuine "no history" state.
+  const phasesQuery = usePlayerPhasesQuery(c ? player.id : undefined, Boolean(c))
+  const phases = phasesQuery.data
   const [extendOpen, setExtendOpen] = useState(false)
 
-  const reloadPhases = () => {
-    api.roster
-      .playerPhases(player.id)
-      .then((r) => setPhases(r.phases))
-      .catch(() => { /* ledger is supplementary — silent on failure */ })
-  }
-
+  // A keyed player modal is freshly mounted on every open. Reset explicitly as
+  // well, so switching players can never retain a previous scroll position.
   useEffect(() => {
-    if (!c) return
-    let cancelled = false
-    api.roster
-      .playerPhases(player.id)
-      .then((r) => { if (!cancelled) setPhases(r.phases) })
-      .catch(() => { /* ledger is supplementary — silent on failure */ })
-    return () => { cancelled = true }
-  }, [player.id, c])
+    formRef.current?.scrollTo({ top: 0 })
+  }, [player.id])
 
   const computedAge = useMemo(() => ageFromDob(dateOfBirth), [dateOfBirth])
   const todayISO = new Date().toISOString().slice(0, 10)
@@ -1829,6 +1911,9 @@ function PlayerEditDrawer({
     d.setFullYear(d.getFullYear() - 60)
     return d.toISOString().slice(0, 10)
   })()
+  const weeklyWagePence = Math.round((Number.isFinite(wagePounds) ? wagePounds : 0) * 100)
+  const annualWagePence = weeklyWagePence * 52
+  const agentFeePence = Math.round((Number.isFinite(agentPounds) ? agentPounds : 0) * 100)
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -1861,27 +1946,31 @@ function PlayerEditDrawer({
 
       // Update contract fields
       if (c) {
+        if (!Number.isFinite(playerValuePounds) || playerValuePounds < 0) {
+          throw new Error('Enter a valid player value')
+        }
         const contractPatch: Parameters<typeof api.roster.updateContract>[1] = {}
-        const transferPence = (isFinite(transferPounds) ? transferPounds : 0) * 100
-        const annualWagePence = (isFinite(weeklyWagePounds) ? weeklyWagePounds : 0) * 52 * 100
-        const agentPence = (isFinite(agentPounds) ? agentPounds : 0) * 100
+        const agentPence = agentFeePence
 
-        if (transferPence !== c.transferFeePence)   contractPatch.transferFeePence = transferPence
-        if (annualWagePence !== c.annualWagePence)  contractPatch.annualWagePence = annualWagePence
+        if (annualWagePence !== c.annualWagePence)  contractPatch.weeklyWagePence = weeklyWagePence
         if (agentPence !== c.agentFeePence)         contractPatch.agentFeePence = agentPence
         if (startDate !== c.startDate)              contractPatch.startDate = startDate
         if (endDate !== c.endDate)                  contractPatch.endDate = endDate
 
-        // Carried Book Value override: a number when revealed & filled, else null
-        // (hidden or cleared reverts to standard transfer-fee amortisation).
-        const nextCarried =
-          showCarried && Number.isFinite(carriedPounds) && carriedPounds >= 0
-            ? Math.round(carriedPounds * 100)
-            : null
-        if (nextCarried !== c.carriedBookValuePence) contractPatch.carriedBookValuePence = nextCarried
-
         if (Object.keys(contractPatch).length > 0) {
           await api.roster.updateContract(c.id, contractPatch)
+        }
+        const playerValuePence = Math.round((Number.isFinite(playerValuePounds) ? playerValuePounds : 0) * 100)
+        const originalPlayerValuePence = playerValueBasis === 'CURRENT_BOOK_VALUE'
+          ? (c.accountingBasis === 'CURRENT_BOOK_VALUE' ? c.carriedBookValuePence ?? 0 : c.bookValuePence)
+          : c.transferFeePence
+        if (playerValueBasis !== c.accountingBasis || playerValuePence !== originalPlayerValuePence) {
+          await api.roster.correctRegistrationAsset(
+            player.id,
+            playerValueBasis === 'ACQUISITION_COST'
+              ? { basis: 'ACQUISITION_COST', acquisitionFeePence: playerValuePence }
+              : { basis: 'CURRENT_BOOK_VALUE', currentBookValuePence: playerValuePence },
+          )
         }
       }
 
@@ -1905,196 +1994,134 @@ function PlayerEditDrawer({
     }
   }
 
-  return (
-    <>
-    <ModalShell onClose={onClose} title={t('roster.edit.title', { name: player.name })}>
-      <form onSubmit={save} className="px-5 pb-5 space-y-4 max-h-[80vh] overflow-y-auto overflow-x-visible">
-        <Field label={t('roster.form.name')}>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            maxLength={80}
-            className={fieldClass}
-          />
-        </Field>
-
-        <div className="grid grid-cols-2 gap-4">
-          <Field label={t('roster.form.position')}>
-            <select value={position} onChange={(e) => setPosition(e.target.value as PlayerPosition)} className={fieldClass}>
-              {POSITIONS.map((p) => <option key={p} value={p}>{t(`common.positions.${p}`)}</option>)}
-            </select>
-          </Field>
-          <Field label={t('roster.form.squadNumber')}>
-            <NumericInput value={squadNumber} onChange={setSquadNumber} className={fieldClass} placeholder={t('roster.form.squadNumberPlaceholder')} />
-          </Field>
-        </div>
-        <Field label={t('roster.form.nationality')}>
-          <CountryPicker value={nationality} onChange={setNationality} placeholder={t('roster.form.selectCountry')} />
-        </Field>
-
-        <Field
-          label={
-            <span className="flex items-center justify-between">
-              <span>{t('roster.form.dobOptional')}</span>
-              {computedAge != null && (
-                <span className="text-[11px] font-normal text-slate-500 normal-case tracking-normal">
-                  {t('roster.form.age')} <span className="num text-slate-700 font-medium">{computedAge}</span>
-                </span>
-              )}
-            </span>
-          }
-        >
-          <DatePicker
-            value={dateOfBirth}
-            onChange={setDateOfBirth}
-            min={sixtyYearsAgoISO}
-            max={todayISO}
-            placeholder={t('roster.form.selectDob')}
-          />
-        </Field>
-
-        {c && (
-          <>
-            <div className="border-t border-slate-100 pt-4">
-              <div className="meta-label mb-3">{t('roster.edit.contract')}</div>
-              <div className="grid grid-cols-3 gap-4">
-                <Field label={t('roster.form.transferFee')}>
-                  <PoundInput
-                    value={transferPounds}
-                    onChange={setTransferPounds}
-                    invalid={!Number.isFinite(transferPounds) || transferPounds === 0}
-                  />
-                </Field>
-                <Field label={t('roster.form.weeklyWage')}>
-                  <PoundInput
-                    value={weeklyWagePounds}
-                    onChange={setWeeklyWagePounds}
-                    invalid={!Number.isFinite(weeklyWagePounds) || weeklyWagePounds === 0}
-                  />
-                </Field>
-                <Field label={t('roster.form.agentFee')}>
-                  <PoundInput value={agentPounds} onChange={setAgentPounds} />
-                </Field>
-              </div>
-
-              <CarriedBookValueField
-                show={showCarried}
-                needsAudit={needsBookValueAudit}
-                valuePounds={carriedPounds}
-                onReveal={() => setShowCarried(true)}
-                onChange={setCarriedPounds}
-                onHide={() => { setShowCarried(false); setCarriedPounds(NaN) }}
-              />
-
-              <div className="grid grid-cols-2 gap-4 mt-4">
-                <Field
-                  label={
-                    <span className="inline-flex items-center gap-1.5">
-                      {t('roster.form.contractStart')}
-                      {player.joinedDate && player.joinedDate !== startDate && (
-                        <InfoTooltip
-                          text={t('roster.edit.extStartTooltip', { date: formatDate(player.joinedDate) })}
-                        />
-                      )}
-                    </span>
-                  }
-                >
-                  <DatePicker value={startDate} onChange={setStartDate} required placeholder={t('roster.form.selectStartDate')} />
-                </Field>
-                <Field label={t('roster.form.contractEnd')}>
-                  <DatePicker value={endDate} onChange={setEndDate} required placeholder={t('roster.form.selectEndDate')} />
-                </Field>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 mt-4">
-                <Field
-                  label={
-                    <span className="inline-flex items-center gap-1.5">
-                      {t('roster.form.joined')}
-                      <InfoTooltip text={t('roster.form.joinedTooltipEdit')} />
-                    </span>
-                  }
-                >
-                  <DatePicker value={joinedDate} onChange={setJoinedDate} placeholder={t('roster.form.selectJoinDate')} />
-                </Field>
-              </div>
-
-              <p className="mt-2 text-[12px] text-slate-500">
-                {t('roster.edit.currentBookValue', { value: fmtMoney(c.bookValuePence) })}
-              </p>
-
-              {/* Contract ledger — only meaningful once there's history beyond
-                  the initial signing. The current phase is always shown above. */}
-              {phases.length > 1 && (
-                <div className="mt-4">
-                  <div className="meta-label mb-2">{t('roster.edit.contractPhases')}</div>
-                  <ContractLedger phases={phases} kind="player" canEdit={can.mutateRoster} onChanged={reloadPhases} />
-                </div>
-              )}
-
-              {can.mutateRoster && (
-                <div className="mt-4">
-                  <Button type="button" variant="outline" onClick={() => setExtendOpen(true)}>
-                    <ExtendIcon /> {t('roster.edit.logExtension')}
-                  </Button>
-                </div>
-              )}
-            </div>
-          </>
-        )}
-
-        {error && (
-          <div className="border border-red-200 bg-red-50 rounded-lg px-4 py-3 text-[13px] text-red-700">
-            {error}
-          </div>
-        )}
-
-        <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-100">
-          {can.mutateRoster ? (
-            confirmArchive ? (
-              <div className="flex items-center gap-2">
-                <span className="text-[13px] text-slate-700">{t('roster.edit.archivePrompt', { name: player.name })}</span>
-                <Button type="button" variant="destructive" onClick={archive} disabled={archiving}>
-                  {archiving ? <Spinner size={14} /> : null}
-                  {archiving ? t('roster.edit.archiving') : t('roster.edit.confirm')}
-                </Button>
-                <Button type="button" variant="ghost" onClick={() => setConfirmArchive(false)} disabled={archiving}>
-                  {t('common.cancel')}
-                </Button>
-              </div>
-            ) : (
-              <Button type="button" variant="ghost" className="text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => setConfirmArchive(true)}>
-                {t('roster.edit.archivePlayer')}
-              </Button>
-            )
-          ) : <div />}
-          <div className="flex items-center gap-3">
-            <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>
-              {t('roster.form.close')}
-            </Button>
-            {can.mutateRoster && (
-              <Button type="submit" disabled={saving}>
-                {saving ? <Spinner size={14} /> : null}
-                {saving ? t('common.saving') : t('roster.edit.saveChanges')}
-              </Button>
-            )}
-          </div>
-        </div>
-      </form>
-    </ModalShell>
-
-    {extendOpen && c && (
+  if (extendOpen && c) {
+    return (
       <ExtendContractWizard
         subjectLabel={player.name}
-        currentEndDate={c.endDate}
-        currentWeeklyWagePence={Math.round(c.annualWagePence / 52)}
+        currentContract={{
+          feePence: c.transferFeePence,
+          carriedBookValuePence: c.carriedBookValuePence,
+          acquisitionAgentFeePence: c.acquisitionAgentFeePence,
+          acquisitionDate: c.acquisitionDate,
+          annualWagePence: c.annualWagePence,
+          agentFeePence: c.agentFeePence,
+          startDate: c.startDate,
+          endDate: c.endDate,
+        }}
         onClose={() => setExtendOpen(false)}
         submit={(input) => api.roster.extendPlayer(player.id, input)}
         onExtended={onSaved}
       />
-    )}
-    </>
+    )
+  }
+
+  return (
+    <ModalShell onClose={onClose} title={t('roster.edit.title', { name: player.name })} size="compact">
+      <form ref={formRef} onSubmit={save} className="max-h-[calc(100dvh-57px)] overflow-y-auto overflow-x-visible sm:max-h-[80vh]">
+        <div className="space-y-4 px-5 py-5">
+            <Field label={t('roster.form.name')}>
+              <input value={name} onChange={(event) => setName(event.target.value)} required maxLength={80} className={fieldClass} />
+            </Field>
+            <Field label={t('roster.form.position')}>
+              <SelectControl value={position} onChange={(event) => setPosition(event.target.value as PlayerPosition)} className={fieldClass}>
+                {POSITIONS.map((item) => <option key={item} value={item}>{t(`common.positions.${item}`)}</option>)}
+              </SelectControl>
+            </Field>
+
+            <button
+              type="button"
+              onClick={() => setProfileOpen((open) => !open)}
+              className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-3 py-2.5 text-left text-[12px] font-medium text-slate-600 transition-colors hover:border-violet-200 hover:bg-violet-50/40 hover:text-slate-900"
+              aria-expanded={profileOpen}
+            >
+              {profileOpen ? t('roster.form.hideProfileDetails') : t('roster.form.profileDetails')}
+              <svg className={cn('h-4 w-4 transition-transform', profileOpen && 'rotate-180')} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+            </button>
+            {profileOpen && (
+              <div className="grid gap-4 rounded-lg border border-slate-200 p-3 sm:grid-cols-2">
+                <Field label={t('roster.form.squadNumberOptional')}>
+                  <NumericInput value={squadNumber} onChange={setSquadNumber} className={fieldClass} placeholder={t('roster.form.squadNumberPlaceholder')} />
+                </Field>
+                <Field label={t('roster.form.nationalityOptional')}>
+                  <CountryPicker value={nationality} onChange={setNationality} placeholder={t('roster.form.selectCountry')} />
+                </Field>
+                <Field label={<span className="flex items-center justify-between"><span>{t('roster.form.dobOptional')}</span>{computedAge != null && <span className="text-[11px] font-normal normal-case tracking-normal text-slate-500">{t('roster.form.age')} {computedAge}</span>}</span>}>
+                  <DatePicker value={dateOfBirth} onChange={setDateOfBirth} min={sixtyYearsAgoISO} max={todayISO} />
+                </Field>
+              </div>
+            )}
+
+            {c && (
+              <section className="space-y-4 border-t border-slate-100 pt-4">
+                <div className="meta-label">{t('roster.edit.contract')}</div>
+                <Field label={t('roster.form.contractStart')}><DatePicker value={startDate} onChange={setStartDate} required /></Field>
+                <Field label={t('roster.form.contractEnd')}><DatePicker value={endDate} onChange={setEndDate} required /></Field>
+                <Field label={t('roster.phase.weeklyWage')}><PoundInput value={wagePounds} onChange={setWagePounds} /></Field>
+                <Field label={t('roster.form.agentFee')}><PoundInput value={agentPounds} onChange={setAgentPounds} /></Field>
+                <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="meta-label">Player value</div>
+                      <p className="mt-1 text-[12px] text-slate-600">
+                        Based on {c.accountingBasis === 'CURRENT_BOOK_VALUE' ? 'current book value' : 'transfer fee'}
+                      </p>
+                    </div>
+                    <button type="button" onClick={() => setPlayerValueEditing((open) => !open)} className="text-[12px] font-medium text-violet-700 hover:text-violet-800">
+                      {playerValueEditing ? 'Done' : 'Edit player value'}
+                    </button>
+                  </div>
+                  {playerValueEditing && (
+                    <div className="mt-3 grid gap-3 border-t border-slate-200 pt-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                      <SelectControl value={playerValueBasis} onChange={(event) => {
+                        const basis = event.target.value as 'ACQUISITION_COST' | 'CURRENT_BOOK_VALUE'
+                        setPlayerValueBasis(basis)
+                        setPlayerValuePounds((basis === 'CURRENT_BOOK_VALUE' ? c.bookValuePence : c.transferFeePence) / 100)
+                      }} className={fieldClass}>
+                        <option value="ACQUISITION_COST">Transfer fee</option>
+                        <option value="CURRENT_BOOK_VALUE">Current book value</option>
+                      </SelectControl>
+                      <PoundInput value={playerValuePounds} onChange={setPlayerValuePounds} />
+                    </div>
+                  )}
+                </div>
+                <p className="text-[12px] text-slate-500">{t('roster.edit.currentBookValue', { value: fmtMoney(c.bookValuePence) })}</p>
+                {can.mutateRoster && <Button type="button" variant="outline" onClick={() => setExtendOpen(true)}><ExtendIcon /> Renew contract</Button>}
+              </section>
+            )}
+            <section className="border-t border-slate-100 pt-4">
+              <button type="button" onClick={() => setHistoryOpen((open) => !open)} className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-3 py-2.5 text-left text-[12px] font-medium text-slate-600 transition-colors hover:border-violet-200 hover:bg-violet-50/40 hover:text-slate-900" aria-expanded={historyOpen}>
+                Contract history{phases ? ` (${phases.length})` : ''}
+                <svg className={cn('h-4 w-4 transition-transform', historyOpen && 'rotate-180')} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+              </button>
+              {historyOpen && (
+                <div className="mt-3 space-y-2">
+                  {phases === undefined && <div className="h-16 animate-pulse rounded-lg bg-slate-100" aria-label="Loading contract history" />}
+                  {[...(phases ?? [])].sort((a, b) => b.endDate.localeCompare(a.endDate)).map((phase) => (
+                    <div key={phase.id} className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+                      <div className="flex items-center justify-between gap-3 text-[12px]"><div className="flex items-center gap-2"><PhaseTypePill phaseType={phase.phaseType} /><PhaseStatusPill status={phase.status} /></div><span className="num text-slate-500">{formatDate(phase.startDate)} - {formatDate(phase.endDate)}</span></div>
+                      <div className="mt-3 grid grid-cols-2 gap-2"><CostMetric label={t('roster.phase.weeklyWage')} value={fmtMoney(Math.round(phase.annualWagePence / 52))} /><CostMetric label="Agent / negotiation fee" value={fmtMoney(phase.agentFeePence)} /></div>
+                    </div>
+                  ))}
+                  {phases?.length === 0 && <p className="text-[12px] text-slate-500">No contract history is available.</p>}
+                </div>
+              )}
+            </section>
+          <ContractCostSummary
+            feePence={c?.transferFeePence ?? 0}
+            carriedBookValuePence={c?.carriedBookValuePence ?? null}
+            annualWagePence={annualWagePence}
+            agentFeePence={agentFeePence}
+            startDate={startDate}
+            endDate={endDate}
+          />
+        </div>
+        {error && <div className="mx-5 mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700">{error}</div>}
+        <div className="sticky bottom-0 flex items-center justify-between gap-3 border-t border-slate-100 bg-white px-5 py-4">
+          {can.mutateRoster ? (confirmArchive ? <div className="flex items-center gap-2"><span className="text-[13px] text-slate-700">{t('roster.edit.archivePrompt', { name: player.name })}</span><Button type="button" variant="destructive" onClick={archive} disabled={archiving}>{archiving ? <Spinner size={14} /> : null}{archiving ? t('roster.edit.archiving') : t('roster.edit.confirm')}</Button><Button type="button" variant="ghost" onClick={() => setConfirmArchive(false)} disabled={archiving}>{t('common.cancel')}</Button></div> : <Button type="button" variant="ghost" className="text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => setConfirmArchive(true)}>{t('roster.edit.archivePlayer')}</Button>) : <div />}
+          <div className="flex items-center gap-3">{can.mutateRoster && <Button type="submit" disabled={saving}>{saving ? <Spinner size={14} /> : null}{saving ? t('common.saving') : t('roster.edit.saveChanges')}</Button>}</div>
+        </div>
+      </form>
+    </ModalShell>
   )
 }
 
@@ -2139,6 +2166,14 @@ function ManagerCard({
   const c = manager.contract
   const needsWage = !!c && c.annualWagePence === 0
   const fmtMoney = format
+  const cost = c ? previewAnnualCost({
+    feePence: c.feePence,
+    carriedBookValuePence: c.carriedBookValuePence,
+    annualWagePence: c.annualWagePence,
+    agentFeePence: c.agentFeePence,
+    startDate: c.startDate,
+    endDate: c.endDate,
+  }) : null
 
   // Minimalist row that echoes a player row: flag · name · "Head Coach" tag on
   // the left; annual wage + contract end on the right; Edit at the far end. The
@@ -2160,23 +2195,47 @@ function ManagerCard({
           </span>
         </div>
 
-        <div className="flex items-center gap-8">
+        {!c ? (
+          canMutate ? (
+            <button type="button" onClick={(event) => { event.stopPropagation(); onEdit() }} className="text-[12px] font-medium text-violet-700 hover:text-violet-800">
+              Add contract
+            </button>
+          ) : <span className="text-[12px] text-amber-700">{t('roster.manager.contractNotConfigured')}</span>
+        ) : (
+        <div className="flex items-center gap-5 sm:gap-8">
           <div className="text-right">
-            <div className="meta-label">{t('roster.manager.annualWage')}</div>
+            <div className="meta-label">{t('roster.phase.weeklyWage')}</div>
             <div className="num text-[13px] mt-0.5 whitespace-nowrap text-slate-900">
-              {!c ? (
-                '—'
-              ) : needsWage ? (
+              {needsWage ? (
                 <span className="inline-flex items-center justify-end gap-1.5 text-slate-400">
                   {fmtMoney(0)}
                   <FinancialWarning />
                 </span>
               ) : (
-                fmtMoney(c.annualWagePence)
+                fmtMoney(Math.round(c.annualWagePence / 52))
               )}
             </div>
           </div>
+          <div className="hidden text-right sm:block">
+            <div className="meta-label">{t('roster.manager.annualCost')}</div>
+            <div className="mt-0.5 whitespace-nowrap text-[13px] font-medium text-slate-900 num">
+              {cost ? fmtMoney(cost.totalAnnualCostPence) : t('roster.manager.contractNotConfigured')}
+            </div>
+          </div>
+          <div className="hidden text-right md:block">
+            <div className="meta-label">{t('roster.form.contractEnd')}</div>
+            <div className="mt-0.5 whitespace-nowrap text-[13px] text-slate-700 num">
+              {formatDate(c.endDate)}
+            </div>
+          </div>
+          <div className="hidden lg:block">
+            <span className="inline-flex rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">
+              {t('roster.manager.includedInScr')}
+            </span>
+          </div>
+          {canMutate && <button type="button" onClick={(event) => { event.stopPropagation(); onEdit() }} className="text-[12px] font-medium text-violet-700 hover:text-violet-800">Edit contract</button>}
         </div>
+        )}
       </div>
     </Card>
   )
@@ -2192,27 +2251,34 @@ function ManagerAddModal({
 }) {
   const { t } = useTranslation()
   const [name, setName] = useState('')
-  const [nationality, setNationality] = useState<string | null>(null)
   const [compPounds, setCompPounds] = useState(NaN)
-  const [weeklyWagePounds, setWeeklyWagePounds] = useState(NaN)
+  const [wagePounds, setWagePounds] = useState(NaN)
   const [agentPounds, setAgentPounds] = useState(NaN)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [additionalCostsOpen, setAdditionalCostsOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const formRef = useRef<HTMLFormElement>(null)
+  const compensationFeePence = Math.round((Number.isFinite(compPounds) ? compPounds : 0) * 100)
+  const weeklyWagePence = Math.round((Number.isFinite(wagePounds) ? wagePounds : 0) * 100)
+  const annualWagePence = weeklyWagePence * 52
+  const agentFeePence = Math.round((Number.isFinite(agentPounds) ? agentPounds : 0) * 100)
+
+  useEffect(() => {
+    formRef.current?.scrollTo({ top: 0 })
+  }, [])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
     setError('')
     try {
-      const cleanNationality = nationality?.trim() ?? ''
       const payload: ManagerInput = {
         name: name.trim(),
-        ...(cleanNationality ? { nationality: cleanNationality } : {}),
-        compensationFeePence: (isFinite(compPounds) ? compPounds : 0) * 100,
-        annualWagePence: (isFinite(weeklyWagePounds) ? weeklyWagePounds : 0) * 52 * 100,
-        agentFeePence: (isFinite(agentPounds) ? agentPounds : 0) * 100,
+        compensationFeePence,
+        weeklyWagePence,
+        agentFeePence,
         startDate,
         endDate,
       }
@@ -2225,43 +2291,22 @@ function ManagerAddModal({
   }
 
   return (
-    <ModalShell onClose={onClose} title={t('roster.manager.addCoach')}>
-      <form onSubmit={submit} className="px-5 pb-5 space-y-4 max-h-[80vh] overflow-y-auto overflow-x-visible">
-        <Field label={t('roster.form.name')}>
-          <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={80} className={fieldClass} />
-        </Field>
-        <Field label={t('roster.form.nationality')}>
-          <CountryPicker value={nationality} onChange={setNationality} placeholder={t('roster.form.selectCountry')} />
-        </Field>
-        <div className="grid grid-cols-3 gap-4">
-          <Field label={t('roster.form.compFee')}>
-            <PoundInput value={compPounds} onChange={setCompPounds} />
-          </Field>
-          <Field label={t('roster.form.weeklyWage')}>
-            <PoundInput value={weeklyWagePounds} onChange={setWeeklyWagePounds} />
-          </Field>
-          <Field label={t('roster.form.agentFee')}>
-            <PoundInput value={agentPounds} onChange={setAgentPounds} />
-          </Field>
+    <ModalShell onClose={onClose} title={t('roster.manager.addCoach')} size="compact">
+      <form ref={formRef} onSubmit={submit} className="max-h-[calc(100dvh-57px)] overflow-y-auto sm:max-h-[80vh]">
+        <div className="space-y-5 px-5 py-5">
+            <Field label={t('roster.form.name')}><input value={name} onChange={(event) => setName(event.target.value)} required maxLength={80} className={fieldClass} /></Field>
+            <section className="space-y-5 border-t border-slate-100 pt-5">
+              <p className="text-[12px] text-slate-500">Add contract details so the coach is included in SCR.</p>
+              <Field label={t('roster.form.contractStart')}><DatePicker value={startDate} onChange={setStartDate} required /></Field>
+              <Field label={t('roster.form.contractEnd')}><DatePicker value={endDate} onChange={setEndDate} required /></Field>
+              <Field label={t('roster.phase.weeklyWage')}><PoundInput value={wagePounds} onChange={setWagePounds} /></Field>
+              <button type="button" onClick={() => setAdditionalCostsOpen((open) => !open)} className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-3 py-2.5 text-left text-[12px] font-medium text-slate-600 hover:border-violet-200 hover:bg-violet-50/40 hover:text-slate-900" aria-expanded={additionalCostsOpen}>Additional costs — optional <span aria-hidden="true">{additionalCostsOpen ? '−' : '+'}</span></button>
+              {additionalCostsOpen && <div className="grid gap-4 rounded-lg border border-slate-200 p-4 sm:grid-cols-2"><Field label={t('roster.form.agentFee')}><PoundInput value={agentPounds} onChange={setAgentPounds} /></Field><Field label={t('roster.form.compFee')}><PoundInput value={compPounds} onChange={setCompPounds} /></Field></div>}
+            </section>
+            <ContractCostSummary feePence={compensationFeePence} annualWagePence={annualWagePence} agentFeePence={agentFeePence} startDate={startDate} endDate={endDate} />
         </div>
-        <div className="grid grid-cols-2 gap-4">
-          <Field label={t('roster.form.contractStart')}>
-            <DatePicker value={startDate} onChange={setStartDate} required placeholder={t('roster.form.selectStartDate')} />
-          </Field>
-          <Field label={t('roster.form.contractEnd')}>
-            <DatePicker value={endDate} onChange={setEndDate} required placeholder={t('roster.form.selectEndDate')} />
-          </Field>
-        </div>
-        {error && (
-          <div className="border border-red-200 bg-red-50 rounded-lg px-4 py-3 text-[13px] text-red-700">{error}</div>
-        )}
-        <div className="flex items-center justify-end gap-3 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
-          <Button type="submit" disabled={saving}>
-            {saving ? <Spinner size={14} /> : null}
-            {saving ? t('common.saving') : t('roster.manager.addCoach')}
-          </Button>
-        </div>
+        {error && <div className="mx-5 mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700">{error}</div>}
+        <div className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-slate-100 bg-white px-5 py-4"><Button type="button" variant="ghost" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button><Button type="submit" disabled={saving}>{saving ? <Spinner size={14} /> : null}{saving ? t('common.saving') : t('roster.manager.addCoach')}</Button></div>
       </form>
     </ModalShell>
   )
@@ -2285,16 +2330,34 @@ function ManagerDrawer({
   const [name, setName] = useState(manager.name)
   const [nationality, setNationality] = useState<string | null>(manager.nationality)
   const [compPounds, setCompPounds] = useState(c ? c.feePence / 100 : NaN)
-  const [weeklyWagePounds, setWeeklyWagePounds] = useState(c ? Math.round(c.annualWagePence / 52 / 100) : NaN)
+  const [wagePounds, setWagePounds] = useState(c ? c.annualWagePence / 52 / 100 : NaN)
   const [agentPounds, setAgentPounds] = useState(c ? c.agentFeePence / 100 : NaN)
   const [startDate, setStartDate] = useState(c?.startDate ?? '')
   const [endDate, setEndDate] = useState(c?.endDate ?? '')
+  const [additionalCostsOpen, setAdditionalCostsOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [extendOpen, setExtendOpen] = useState(false)
   const [phases, setPhases] = useState<ContractPhase[]>(manager.phases)
   const [error, setError] = useState('')
+  const formRef = useRef<HTMLFormElement>(null)
+  const compensationFeePence = Math.round((Number.isFinite(compPounds) ? compPounds : 0) * 100)
+  const weeklyWagePence = Math.round((Number.isFinite(wagePounds) ? wagePounds : 0) * 100)
+  const annualWagePence = weeklyWagePence * 52
+  const agentFeePence = Math.round((Number.isFinite(agentPounds) ? agentPounds : 0) * 100)
+  const contractCost = c ? previewAnnualCost({
+    feePence: c.feePence,
+    carriedBookValuePence: c.carriedBookValuePence,
+    annualWagePence: c.annualWagePence,
+    agentFeePence: c.agentFeePence,
+    startDate: c.startDate,
+    endDate: c.endDate,
+  }) : null
+
+  useEffect(() => {
+    formRef.current?.scrollTo({ top: 0 })
+  }, [manager.id])
 
   // Re-fetch phases in place after editing one (without closing the drawer).
   const reloadPhases = () => {
@@ -2316,33 +2379,32 @@ function ManagerDrawer({
       if (Object.keys(mgrPatch).length > 0) {
         await api.roster.updateManager(manager.id, mgrPatch)
       }
-      const compPence = (isFinite(compPounds) ? compPounds : 0) * 100
-      const annualWagePence = (isFinite(weeklyWagePounds) ? weeklyWagePounds : 0) * 52 * 100
-      const agentPence = (isFinite(agentPounds) ? agentPounds : 0) * 100
+      const compPence = compensationFeePence
+      const agentPence = agentFeePence
 
       if (c) {
         const patch: Parameters<typeof api.roster.updateManagerContract>[1] = {}
         if (compPence !== c.feePence) patch.feePence = compPence
-        if (annualWagePence !== c.annualWagePence) patch.annualWagePence = annualWagePence
+        if (annualWagePence !== c.annualWagePence) patch.weeklyWagePence = weeklyWagePence
         if (agentPence !== c.agentFeePence) patch.agentFeePence = agentPence
         if (startDate !== c.startDate) patch.startDate = startDate
         if (endDate !== c.endDate) patch.endDate = endDate
         if (Object.keys(patch).length > 0) {
           await api.roster.updateManagerContract(c.id, patch)
         }
-      } else if (startDate || endDate || isFinite(weeklyWagePounds) || isFinite(compPounds) || isFinite(agentPounds)) {
+      } else if (startDate || endDate || Number.isFinite(wagePounds) || Number.isFinite(compPounds) || Number.isFinite(agentPounds)) {
         // No contract yet (a template-imported coach with no Transfermarkt data).
         // The CFO has started filling it in — create the INITIAL phase so the
         // manager begins counting toward SCR. All three are required to seed it.
         if (!startDate || !endDate) {
           throw new Error(t('roster.manager.needDates'))
         }
-        if (!isFinite(weeklyWagePounds) || weeklyWagePounds <= 0) {
+        if (!Number.isFinite(wagePounds) || annualWagePence <= 0) {
           throw new Error(t('roster.manager.needWage'))
         }
         const input: ManagerContractInput = {
           compensationFeePence: compPence,
-          annualWagePence,
+          weeklyWagePence,
           agentFeePence: agentPence,
           startDate,
           endDate,
@@ -2369,18 +2431,33 @@ function ManagerDrawer({
     }
   }
 
+  if (extendOpen && c) {
+    return (
+      <ExtendContractWizard
+        subjectLabel={manager.name}
+        currentContract={{
+          feePence: c.feePence,
+          carriedBookValuePence: c.carriedBookValuePence,
+          annualWagePence: c.annualWagePence,
+          agentFeePence: c.agentFeePence,
+          startDate: c.startDate,
+          endDate: c.endDate,
+        }}
+        onClose={() => setExtendOpen(false)}
+        submit={(input) => api.roster.extendManager(manager.id, input)}
+        onExtended={onSaved}
+      />
+    )
+  }
+
   return (
-    <>
-    <ModalShell onClose={onClose} title={t('roster.manager.editTitle', { name: manager.name })}>
-      <form onSubmit={save} className="px-5 pb-5 space-y-4 max-h-[80vh] overflow-y-auto overflow-x-visible">
+    <ModalShell onClose={onClose} title={t('roster.manager.editTitle', { name: manager.name })} size="compact">
+      <form ref={formRef} onSubmit={save} className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overflow-x-visible px-5 py-5">
         <Field label={t('roster.form.name')}>
           <input value={name} onChange={(e) => setName(e.target.value)} required maxLength={80} className={fieldClass} />
         </Field>
-        <Field label={t('roster.form.nationality')}>
-          <CountryPicker value={nationality} onChange={setNationality} placeholder={t('roster.form.selectCountry')} />
-        </Field>
-
-        <div className="border-t border-slate-100 pt-4">
+        <div className="space-y-5 border-t border-slate-100 pt-5">
           <div className="flex items-center gap-2 mb-3">
             <span className="meta-label">{c ? t('roster.manager.currentContract') : t('roster.manager.contract')}</span>
             {c ? (
@@ -2393,61 +2470,45 @@ function ManagerDrawer({
           </div>
           {!c && (
             <p className="mb-3 text-[12px] text-slate-500">
-              {t('roster.manager.noContractBody')}
+              Add contract details so the coach is included in SCR.
             </p>
           )}
-          <div className="grid grid-cols-3 gap-4">
-            <Field label={t('roster.form.compFee')}>
-              <PoundInput value={compPounds} onChange={setCompPounds} />
-            </Field>
-            <Field label={t('roster.form.weeklyWage')}>
-              <PoundInput value={weeklyWagePounds} onChange={setWeeklyWagePounds} />
-            </Field>
-            <Field label={t('roster.form.agentFee')}>
-              <PoundInput value={agentPounds} onChange={setAgentPounds} />
-            </Field>
-          </div>
-          <div className="grid grid-cols-2 gap-4 mt-4">
-            <Field label={t('roster.form.contractStart')}>
-              <DatePicker value={startDate} onChange={setStartDate} required={!!c} placeholder={t('roster.form.selectStartDate')} />
-            </Field>
-            <Field label={t('roster.form.contractEnd')}>
-              <DatePicker value={endDate} onChange={setEndDate} required={!!c} placeholder={t('roster.form.selectEndDate')} />
-            </Field>
-          </div>
+          <Field label={t('roster.form.contractStart')}><DatePicker value={startDate} onChange={setStartDate} required={!!c} /></Field>
+          <Field label={t('roster.form.contractEnd')}><DatePicker value={endDate} onChange={setEndDate} required={!!c} /></Field>
+          <Field label={t('roster.phase.weeklyWage')}><PoundInput value={wagePounds} onChange={setWagePounds} /></Field>
+          <button type="button" onClick={() => setAdditionalCostsOpen((open) => !open)} className="flex w-full items-center justify-between rounded-lg border border-slate-200 px-3 py-2.5 text-left text-[12px] font-medium text-slate-600 hover:border-violet-200 hover:bg-violet-50/40 hover:text-slate-900" aria-expanded={additionalCostsOpen}>Additional costs — optional <span aria-hidden="true">{additionalCostsOpen ? '−' : '+'}</span></button>
+          {additionalCostsOpen && <div className="grid gap-4 rounded-lg border border-slate-200 p-4 sm:grid-cols-2"><Field label={t('roster.form.agentFee')}><PoundInput value={agentPounds} onChange={setAgentPounds} /></Field><Field label={t('roster.form.compFee')}><PoundInput value={compPounds} onChange={setCompPounds} /></Field></div>}
           {c && (
             <p className="mt-2 text-[12px] text-slate-500">
               {t('roster.manager.currentBookValue', { value: fmtMoney(c.bookValuePence) })}
-              {c.feePence > 0 && (
-                <> · {t('roster.manager.amortised', { value: fmtMoney(annualAmortisation(c.feePence, c.contractLengthYears)) })}</>
+              {contractCost && c.feePence > 0 && (
+                <> · {t('roster.manager.amortised', { value: fmtMoney(contractCost.amortisationPence) })}</>
               )}
             </p>
-          )}
-
-          {c && phases.length > 1 && (
-            <div className="mt-4">
-              <div className="meta-label mb-2">{t('roster.manager.contractPhases')}</div>
-              <ContractLedger phases={phases} kind="manager" canEdit={can.mutateRoster} onChanged={reloadPhases} />
-            </div>
           )}
 
           {c && can.mutateRoster && (
             <div className="mt-4">
               <Button type="button" variant="outline" onClick={() => setExtendOpen(true)}>
-                <ExtendIcon /> {t('roster.edit.logExtension')}
+                <ExtendIcon /> Edit contract
               </Button>
             </div>
           )}
         </div>
 
-        {error && (
-          <div className="border border-red-200 bg-red-50 rounded-lg px-4 py-3 text-[13px] text-red-700">{error}</div>
-        )}
+        <ContractCostSummary
+          feePence={compensationFeePence}
+          annualWagePence={annualWagePence}
+          agentFeePence={agentFeePence}
+          startDate={startDate}
+          endDate={endDate}
+        />
+        </div>
 
-        <div className="flex items-center justify-between gap-3 pt-3 border-t border-slate-100">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-100 bg-white px-5 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
           {can.mutateRoster ? (
             confirmRemove ? (
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 <span className="text-[13px] text-slate-700">{t('roster.manager.removePrompt', { name: manager.name })}</span>
                 <Button type="button" variant="destructive" onClick={remove} disabled={removing}>
                   {removing ? <Spinner size={14} /> : null}
@@ -2462,7 +2523,6 @@ function ManagerDrawer({
             )
           ) : <div />}
           <div className="flex items-center gap-3">
-            <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>{t('roster.form.close')}</Button>
             {can.mutateRoster && (
               <Button type="submit" disabled={saving}>
                 {saving ? <Spinner size={14} /> : null}
@@ -2471,20 +2531,9 @@ function ManagerDrawer({
             )}
           </div>
         </div>
+        {error && <div className="shrink-0 border-t border-red-200 bg-red-50 px-5 py-3 text-[13px] text-red-700">{error}</div>}
       </form>
     </ModalShell>
-
-    {extendOpen && c && (
-      <ExtendContractWizard
-        subjectLabel={manager.name}
-        currentEndDate={c.endDate}
-        currentWeeklyWagePence={Math.round(c.annualWagePence / 52)}
-        onClose={() => setExtendOpen(false)}
-        submit={(input) => api.roster.extendManager(manager.id, input)}
-        onExtended={onSaved}
-      />
-    )}
-    </>
   )
 }
 
@@ -2696,10 +2745,10 @@ function PhaseEditor({
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Field label={t('roster.phase.start')}>
-          <DatePicker value={startDate} onChange={setStartDate} required placeholder={t('roster.phase.startDate')} />
+          <DatePicker value={startDate} onChange={setStartDate} required />
         </Field>
         <Field label={t('roster.phase.end')}>
-          <DatePicker value={endDate} onChange={setEndDate} required placeholder={t('roster.phase.endDate')} />
+          <DatePicker value={endDate} onChange={setEndDate} required />
         </Field>
       </div>
       {error && <div className="text-[12px] text-red-600">{error}</div>}
@@ -2730,37 +2779,96 @@ function PhaseTypePill({ phaseType }: { phaseType: ContractPhase['phaseType'] })
   )
 }
 
+function PhaseStatusPill({ status }: { status: ContractPhase['status'] }) {
+  const styles: Record<ContractPhase['status'], string> = {
+    ACTIVE: 'bg-emerald-100 text-emerald-700',
+    SCHEDULED: 'bg-violet-100 text-violet-700',
+    COMPLETED: 'bg-slate-200 text-slate-600',
+    ARCHIVED: 'bg-slate-200 text-slate-500',
+  }
+  return <span className={cn('rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide', styles[status])}>{status.toLowerCase()}</span>
+}
+
 // ---------------------------------------------------------------------------
 // Extend Contract wizard — supersedes the current phase. Shared by player +
 // manager (the `submit` callback targets the right endpoint).
 // ---------------------------------------------------------------------------
 function ExtendContractWizard({
   subjectLabel,
-  currentEndDate,
-  currentWeeklyWagePence,
+  currentContract,
   onClose,
   submit,
   onExtended,
 }: {
   subjectLabel: string
-  currentEndDate: string
-  currentWeeklyWagePence: number
+  currentContract: {
+    feePence: number
+    carriedBookValuePence: number | null
+    acquisitionAgentFeePence?: number
+    acquisitionDate?: string
+    annualWagePence: number
+    agentFeePence: number
+    startDate: string
+    endDate: string
+  }
   onClose: () => void
   submit: (input: ExtendContractInput) => Promise<unknown>
   onExtended: () => void
 }) {
   const { t } = useTranslation()
+  const { format: fmtMoney } = useWorkspaceCurrency()
+  const seasonStartYear = useSeasonStore((state) => state.startYear)
   // The extension begins exactly when the current deal expires — it's derived
   // from the current contract's end date, never picked by hand. (Previously a
   // free date field let you "extend" a deal from an arbitrary, even already-
   // past, date.) New wage seeds from the current wage so a "same terms, longer
   // deal" renewal is a one-field change.
-  const effectiveDate = currentEndDate
+  const effectiveDate = dayAfter(currentContract.endDate)
+  const extensionSignedDate = seasonAsOfDate(seasonStartYear).toISOString().slice(0, 10)
   const [newEndDate, setNewEndDate] = useState('')
-  const [weeklyWagePounds, setWeeklyWagePounds] = useState(Math.round(currentWeeklyWagePence / 100))
+  const [wagePounds, setWagePounds] = useState(currentContract.annualWagePence / 52 / 100)
   const [agentPounds, setAgentPounds] = useState(NaN)
+  const [amortisationTreatment, setAmortisationTreatment] = useState<ExtendContractInput['amortisationTreatment']>('CONTINUE_CURRENT_SCHEDULE')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+
+  const weeklyWagePence = Math.round((Number.isFinite(wagePounds) ? wagePounds : 0) * 100)
+  const annualWagePence = weeklyWagePence * 52
+  const agentFeePence = Math.round((Number.isFinite(agentPounds) ? agentPounds : 0) * 100)
+  const currentPhase = {
+    id: 'current',
+    startDate: currentContract.startDate,
+    endDate: currentContract.endDate,
+    annualWagePence: currentContract.annualWagePence,
+    agentFeePence: currentContract.agentFeePence,
+    amortisationTreatment: 'CONTINUE_CURRENT_SCHEDULE' as const,
+  }
+  const previewPhases = newEndDate ? [
+    currentPhase,
+    {
+      id: 'extension',
+      startDate: effectiveDate,
+      endDate: newEndDate,
+      annualWagePence,
+      agentFeePence,
+      amortisationTreatment,
+      extensionSignedDate,
+    },
+  ] : []
+  const registrationAsset = {
+    acquisitionFeePence: currentContract.feePence,
+    acquisitionAgentFeePence: currentContract.acquisitionAgentFeePence ?? currentContract.agentFeePence,
+    acquisitionDate: currentContract.acquisitionDate ?? currentContract.startDate,
+    carryingValuePence: currentContract.carriedBookValuePence,
+  }
+  const currentPreview = calculateRegistrationCost(
+    registrationAsset,
+    [currentPhase],
+    new Date(`${extensionSignedDate}T00:00:00Z`),
+  )
+  const extensionPreview = newEndDate
+    ? calculateRegistrationCost(registrationAsset, previewPhases, new Date(`${extensionSignedDate}T00:00:00Z`))
+    : null
 
   const go = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -2769,9 +2877,11 @@ function ExtendContractWizard({
     try {
       const input: ExtendContractInput = {
         effectiveDate,
+        extensionSignedDate,
         newEndDate,
-        newWeeklyWagePence: (isFinite(weeklyWagePounds) ? weeklyWagePounds : 0) * 100,
-        newAgentFeePence: (isFinite(agentPounds) ? agentPounds : 0) * 100,
+        newWeeklyWagePence: weeklyWagePence,
+        newAgentFeePence: agentFeePence,
+        amortisationTreatment,
       }
       await submit(input)
       onExtended()
@@ -2782,121 +2892,50 @@ function ExtendContractWizard({
   }
 
   return (
-    <ModalShell onClose={onClose} title={t('roster.extension.title', { name: subjectLabel })}>
-      <form onSubmit={go} className="px-5 pb-5 space-y-4">
-        <div className="rounded-lg bg-violet-50/70 border border-violet-100 px-4 py-3 text-[12.5px] text-slate-600">
-          <Trans
-            i18nKey="roster.extension.intro"
-            values={{ date: formatDate(effectiveDate) }}
-            components={{ d: <span className="num font-medium text-slate-800" /> }}
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <Field label={t('roster.extension.effectiveDate')}>
-            {/* Auto-set to the current contract's expiry — not editable. */}
-            <div className="w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-slate-50 text-slate-500 num cursor-not-allowed flex items-center justify-between">
-              <span>{formatDate(effectiveDate)}</span>
-              <span className="text-[10.5px] uppercase tracking-wide text-slate-400 not-italic">{t('roster.extension.atExpiry')}</span>
+    <ModalShell onClose={onClose} title={`Renew ${subjectLabel}`} size="compact">
+      <form onSubmit={go} className="max-h-[80vh] overflow-y-auto">
+        <div className="space-y-4 px-5 py-5">
+            <div className="rounded-lg border border-violet-100 bg-violet-50/70 px-4 py-3 text-[12.5px] text-slate-600">
+              <Trans i18nKey="roster.extension.intro" values={{ date: formatDate(effectiveDate) }} components={{ d: <span className="num font-medium text-slate-800" /> }} />
             </div>
-          </Field>
-          <Field
-            label={
-              <span className="flex items-center gap-1.5">
-                <span>{t('roster.extension.newEndDate')}</span>
-                <InfoTooltip text={t('roster.extension.newEndTooltip')} />
-              </span>
-            }
-          >
-            <DatePicker value={newEndDate} onChange={setNewEndDate} required min={effectiveDate} placeholder={t('roster.form.selectEndDate')} />
-          </Field>
+            <Field label="Current contract end"><div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[14px] text-slate-500 num">{formatDate(currentContract.endDate)}</div></Field>
+            <Field label={t('roster.extension.newEndDate')}><DatePicker value={newEndDate} onChange={setNewEndDate} required min={effectiveDate} /></Field>
+            <Field label={t('roster.extension.newWeeklyWage')}><PoundInput value={wagePounds} onChange={setWagePounds} /></Field>
+            <Field label={t('roster.extension.newAgentFees')}><PoundInput value={agentPounds} onChange={setAgentPounds} /></Field>
+            <details className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-2 text-[13px] text-slate-600">
+              <summary className="cursor-pointer font-medium text-slate-700">Advanced accounting</summary>
+              <label className="mt-3 block text-[11px] font-medium uppercase tracking-[0.08em] text-slate-500">Amortisation treatment</label>
+              <select
+                value={amortisationTreatment}
+                onChange={(event) => setAmortisationTreatment(event.target.value as ExtendContractInput['amortisationTreatment'])}
+                className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-[13px] text-slate-800"
+              >
+                <option value="CONTINUE_CURRENT_SCHEDULE">Continue current schedule</option>
+                <option value="SPREAD_REMAINING_BOOK_VALUE">Spread remaining book value over extended term</option>
+              </select>
+            </details>
+            {extensionPreview && (
+              <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+                <CostMetric label={t('roster.extension.currentAnnualCost')} value={fmtMoney(currentPreview.totalAnnualCostPence)} />
+                <CostMetric label={t('roster.extension.newAnnualCost')} value={fmtMoney(extensionPreview.totalAnnualCostPence)} />
+                <CostMetric label={t('roster.extension.change')} value={fmtMoney(extensionPreview.totalAnnualCostPence - currentPreview.totalAnnualCostPence)} />
+              </div>
+            )}
         </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <Field label={t('roster.extension.newWeeklyWage')}>
-            <PoundInput value={weeklyWagePounds} onChange={setWeeklyWagePounds} />
-          </Field>
-          <Field label={t('roster.extension.newAgentFees')}>
-            <PoundInput value={agentPounds} onChange={setAgentPounds} />
-          </Field>
-        </div>
-
-        {error && (
-          <div className="border border-red-200 bg-red-50 rounded-lg px-4 py-3 text-[13px] text-red-700">{error}</div>
-        )}
-
-        <div className="flex items-center justify-end gap-3 pt-2">
-          <Button type="button" variant="ghost" onClick={onClose} disabled={submitting}>{t('common.cancel')}</Button>
-          <Button type="submit" disabled={submitting}>
-            {submitting ? <Spinner size={14} /> : null}
-            {submitting ? t('roster.extension.logging') : t('roster.extension.logExtension')}
-          </Button>
+        {error && <div className="mx-5 mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700">{error}</div>}
+        <div className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-slate-100 bg-white px-5 py-4">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={submitting}>{t('roster.extension.back')}</Button>
+          <Button type="submit" disabled={submitting}>{submitting ? <Spinner size={14} /> : null}{submitting ? t('roster.extension.logging') : t('roster.extension.logExtension')}</Button>
         </div>
       </form>
     </ModalShell>
   )
 }
 
-// Small hover/focus tooltip for an info icon. Bubble is absolutely positioned
-// above the icon with a high z-index so it escapes the field row; the wizard
-// modal has enough headroom that it won't clip.
-// Net Book Value explainer shown beside the "Book Value" column header. Richer
-// than InfoTooltip (title + body + formula). Rendered through a portal to <body>
-// and positioned off the icon's screen rect so the table's overflow clipping
-// can't hide it. Hover-only, keyboard-focusable for a11y.
-function BookValueInfo() {
-  const { t } = useTranslation()
-  const iconRef = useRef<HTMLSpanElement>(null)
-  const [coords, setCoords] = useState<{ top: number; right: number } | null>(null)
-
-  const show = () => {
-    const r = iconRef.current?.getBoundingClientRect()
-    if (r) setCoords({ top: r.top, right: window.innerWidth - r.right })
-  }
-  const hide = () => setCoords(null)
-
-  return (
-    <span
-      ref={iconRef}
-      className="relative inline-flex items-center align-middle"
-      onMouseEnter={show}
-      onMouseLeave={hide}
-      onFocus={show}
-      onBlur={hide}
-    >
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2"
-        tabIndex={0}
-        className="text-slate-400 hover:text-slate-600 focus:text-slate-600 outline-none cursor-help"
-        aria-label={t('roster.nbv.ariaHow')}
-      >
-        <circle cx="12" cy="12" r="10" />
-        <path d="M12 16v-4M12 8h.01" />
-      </svg>
-      {coords &&
-        createPortal(
-          <span
-            role="tooltip"
-            className="pointer-events-none fixed z-[1000] -translate-y-full rounded-lg bg-slate-900 px-3 py-2.5 text-left font-normal normal-case leading-relaxed text-white shadow-lg"
-            style={{ width: 300, top: coords.top - 8, right: coords.right }}
-          >
-            <span className="block text-[12px] font-semibold mb-1">{t('roster.nbv.title')}</span>
-            <span className="block text-[11.5px] text-slate-200">
-              {t('roster.nbv.body')}
-            </span>
-            <span className="mt-2 block rounded bg-slate-800 px-2 py-1 text-[11px] font-medium text-white">
-              {t('roster.nbv.formula')}
-            </span>
-          </span>,
-          document.body,
-        )}
-    </span>
-  )
+function dayAfter(isoDate: string): string {
+  const value = new Date(`${isoDate.slice(0, 10)}T00:00:00Z`)
+  value.setUTCDate(value.getUTCDate() + 1)
+  return value.toISOString().slice(0, 10)
 }
 
 // Compact info tooltip beside a field label. Rendered through a portal to
@@ -2979,10 +3018,14 @@ function ModalShell({
   onClose,
   title,
   children,
+  size = 'default',
+  layout = 'modal',
 }: {
   onClose: () => void
   title: string
   children: React.ReactNode
+  size?: 'compact' | 'default'
+  layout?: 'modal' | 'drawer'
 }) {
   const { t } = useTranslation()
   useScrollLock()
@@ -2996,7 +3039,7 @@ function ModalShell({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         transition={{ duration: 0.18 }}
-        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-[2px] overscroll-contain"
+        className={cn('fixed inset-0 z-50 flex bg-slate-900/40 backdrop-blur-[2px] overscroll-contain', layout === 'drawer' ? 'items-stretch justify-end' : 'items-stretch justify-center sm:items-center sm:p-4')}
         onClick={(e) => {
           if (e.target === e.currentTarget) onClose()
         }}
@@ -3009,7 +3052,12 @@ function ModalShell({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0, transition: { duration: 0.12 } }}
           transition={{ duration: 0.16, ease: 'easeOut' }}
-          className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl border border-slate-200 overflow-hidden"
+          className={cn(
+            'flex flex-col bg-white shadow-2xl border border-slate-200 overflow-hidden',
+            layout === 'drawer'
+              ? 'flex h-[100dvh] w-full max-w-[460px] flex-col rounded-none sm:rounded-l-2xl'
+              : cn('h-[100dvh] w-full rounded-none sm:h-auto sm:max-h-[90dvh] sm:rounded-2xl', size === 'compact' ? 'sm:max-w-xl' : 'sm:max-w-3xl'),
+          )}
         >
           <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
             <h2 className="text-[16px] font-semibold text-slate-900">{title}</h2>
@@ -3032,6 +3080,30 @@ function ModalShell({
 
 const fieldClass =
   'w-full px-3 py-2 text-[14px] rounded-lg border border-slate-200 bg-white focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500 transition-colors'
+
+function SelectControl({
+  children,
+  className,
+  ...props
+}: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <div className="relative">
+      <select {...props} className={cn(className, 'appearance-none pr-10')}>
+        {children}
+      </select>
+      <svg
+        className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        aria-hidden="true"
+      >
+        <path d="m6 9 6 6 6-6" />
+      </svg>
+    </div>
+  )
+}
 
 function Field({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
   // String labels carry a "(£)" money hint; swap it for the workspace symbol so
@@ -3068,80 +3140,6 @@ function PoundInput({
         className={cn(fieldClass, 'pl-7 num', invalid && 'border-red-300 ring-1 ring-red-200 focus-visible:ring-red-400')}
         placeholder="0"
       />
-    </div>
-  )
-}
-
-// Progressive-disclosure control for the Carried Book Value override. Hidden by
-// default behind a subtle "Advanced" link; once revealed it shows a £ input
-// with an info tooltip. When `needsAudit` is set (an imported extension block
-// with no fee basis) it auto-reveals and flags an amber warning so the CFO
-// knows to enter the value.
-function CarriedBookValueField({
-  show,
-  needsAudit,
-  valuePounds,
-  onReveal,
-  onChange,
-  onHide,
-}: {
-  show: boolean
-  needsAudit: boolean
-  valuePounds: number
-  onReveal: () => void
-  onChange: (n: number) => void
-  onHide: () => void
-}) {
-  const { t } = useTranslation()
-  const { symbol } = useWorkspaceCurrency()
-  if (!show) {
-    return (
-      <button
-        type="button"
-        onClick={onReveal}
-        className={cn(
-          'mt-2 inline-flex items-center gap-1 text-[11px] normal-case tracking-normal transition-colors',
-          needsAudit
-            ? 'font-medium text-amber-600 hover:text-amber-700'
-            : 'text-slate-400 hover:text-slate-600',
-        )}
-      >
-        {needsAudit && <AlertTriangle size={11} strokeWidth={2} className="text-amber-500" />}
-        {needsAudit ? t('roster.nbv.setCarried') : t('roster.nbv.advanced')}
-      </button>
-    )
-  }
-
-  return (
-    <div
-      className={cn(
-        'mt-3 rounded-lg border p-3',
-        needsAudit ? 'border-amber-300 bg-amber-50/60' : 'border-slate-200 bg-slate-50/60',
-      )}
-    >
-      <Field
-        label={
-          <span className="inline-flex items-center gap-1.5">
-            {needsAudit && <AlertTriangle size={13} strokeWidth={2} className="text-amber-500" />}
-            {t('roster.nbv.carriedLabel', { symbol })}
-            <InfoTooltip text={t('roster.nbv.carriedTooltip')} />
-          </span>
-        }
-      >
-        <PoundInput value={valuePounds} onChange={onChange} />
-      </Field>
-      {needsAudit && (
-        <p className="mt-2 text-[11.5px] leading-snug text-amber-700">
-          {t('roster.nbv.carriedAudit')}
-        </p>
-      )}
-      <button
-        type="button"
-        onClick={onHide}
-        className="mt-2 text-[11.5px] font-medium text-slate-500 hover:text-slate-700"
-      >
-        {t('roster.nbv.useStandard')}
-      </button>
     </div>
   )
 }

@@ -6,11 +6,12 @@ describe('serverless API registry', () => {
   it('registers every migrated endpoint exactly once', async () => {
     const routes = (await getApiRouter()).routeManifest()
     const keys = routes.map(({ method, path }) => `${method} ${path}`)
-    assert.equal(routes.length, 72)
+    assert.equal(routes.length, 73)
     assert.equal(new Set(keys).size, routes.length)
     assert.ok(keys.includes('GET /health'))
     assert.ok(keys.includes('POST /chat'))
     assert.ok(keys.includes('DELETE /roster/manager-contract/:id'))
+    assert.ok(keys.includes('PATCH /roster/player/:id/registration-asset'))
   })
 
   it('serves health without admin-page authentication', async () => {

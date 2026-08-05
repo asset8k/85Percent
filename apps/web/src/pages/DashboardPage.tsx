@@ -13,9 +13,8 @@
  *   (with included scenarios) for clarity.
  */
 
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useTranslation, Trans } from 'react-i18next'
-import type { TFunction } from 'i18next'
 import { Link } from 'react-router-dom'
 import { api, type ScenarioDetail, type ClubFinancialsResponse } from '@/lib/api'
 import { useRosterQuery } from '@/lib/queries'
@@ -44,6 +43,9 @@ import { AnimatedNumber } from '@/components/ui/animated-number'
 import { cn } from '@/lib/utils'
 import { useCopilot } from '@/stores/copilot'
 import { CopilotTriggerButton } from '@/components/ai/CopilotTrigger'
+import { compareByPosition, compareSquadNumbers } from '@/lib/positionSort'
+import { TABLE_COLUMN_LABELS, formatSquadNumber, formatTableMoney, formatTimeLeft } from '@/lib/tablePresentation'
+import { useTablePreferences } from '@/lib/useTablePreferences'
 
 // Format a pence integer as a pretty symbol string ("£1,234,567") — used by the
 // AnimatedNumber `format` callback so the intermediate frames during the
@@ -55,10 +57,24 @@ function formatPenceNumber(pence: number, symbol = '£') {
 
 type SortKey = 'squadNumber' | 'name' | 'position' | 'wage' | 'amortisation' | 'agentFee' | 'total' | 'expiry'
 type SortDir = 'asc' | 'desc'
+type TableFilter = 'all' | 'expiring' | 'GK' | 'DEF' | 'MID' | 'FWD'
+
+type DashboardTablePreferences = { sortKey: SortKey; sortDir: SortDir; filter: TableFilter }
+const DASHBOARD_TABLE_DEFAULTS: DashboardTablePreferences = { sortKey: 'total', sortDir: 'desc', filter: 'all' }
+const DASHBOARD_SORT_KEYS: SortKey[] = ['squadNumber', 'name', 'position', 'wage', 'amortisation', 'agentFee', 'total', 'expiry']
+const TABLE_FILTERS: TableFilter[] = ['all', 'expiring', 'GK', 'DEF', 'MID', 'FWD']
+
+function isDashboardTablePreferences(value: unknown): value is DashboardTablePreferences {
+  if (!value || typeof value !== 'object') return false
+  const preferences = value as Partial<DashboardTablePreferences>
+  return DASHBOARD_SORT_KEYS.includes(preferences.sortKey as SortKey)
+    && (preferences.sortDir === 'asc' || preferences.sortDir === 'desc')
+    && TABLE_FILTERS.includes(preferences.filter as TableFilter)
+}
 
 export function DashboardPage() {
   const { t } = useTranslation()
-  const { financials, financialsLoaded, scenarios, scenariosLoaded, clubName, leagueId, setScenarioInclusion } = useClubStore()
+  const { financials, financialsLoaded, scenarios, scenariosLoaded, clubName, leagueId, clubId, setScenarioInclusion } = useClubStore()
   const can = useCan()
   const { format: fmtMoney, symbol, currency } = useWorkspaceCurrency()
   // Hook must run unconditionally, before any early return below (loading /
@@ -69,9 +85,14 @@ export function DashboardPage() {
   const rosterQuery = useRosterQuery()
   const players = rosterQuery.data ?? []
   const error = rosterQuery.error instanceof Error ? rosterQuery.error.message : ''
-  const [sortKey, setSortKey] = useState<SortKey>('total')
-  const [sortDir, setSortDir] = useState<SortDir>('desc')
-  const [filter, setFilter] = useState<'all' | 'expiring' | 'GK' | 'DEF' | 'MID' | 'FWD'>('all')
+  const tablePreferences = useTablePreferences(
+    'dashboard-player-costs', clubId, DASHBOARD_TABLE_DEFAULTS, isDashboardTablePreferences,
+  )
+  const { sortKey, sortDir, filter } = tablePreferences.value
+  const setSort = (nextSortKey: SortKey, nextSortDir: SortDir) => tablePreferences.setValue((current) => ({
+    ...current, sortKey: nextSortKey, sortDir: nextSortDir,
+  }))
+  const setFilter = (nextFilter: TableFilter) => tablePreferences.setValue((current) => ({ ...current, filter: nextFilter }))
 
   // Live real-world standings — feeds the Consequence Engine (breach → impact
   // visualiser). Fetched unconditionally so the hook order is stable across the
@@ -97,16 +118,25 @@ export function DashboardPage() {
         annualWagePence:  p.contract!.annualWagePence,
         agentFeePence:    p.contract!.agentFeePence,
         contractLengthYears: p.contract!.contractLengthYears,
+        annualAmortisationOverridePence: p.contract!.annualAmortisationPence,
+        annualisedAgentFeeOverridePence: p.contract!.annualisedAgentFeePence,
       }))
     const { totalSquadCostsPence, breakdown } = calculateSquadCosts(inputs)
     const map = new Map<string, typeof breakdown[number]>()
     for (const b of breakdown) map.set(b.playerId, b)
+    const canonicalTotals = new Map(
+      players.flatMap((player) => player.contract ? [[player.id, player.contract.totalAnnualCostPence] as const] : []),
+    )
+    const canonicalBreakdown = inputs.map((p) => ({
+      ...p,
+      ...map.get(p.playerId)!,
+      // This is the server-resolved, canonical player total also used by the
+      // Roster. The engine remains the source for its component breakdown.
+      totalAnnualCostPence: canonicalTotals.get(p.playerId) ?? map.get(p.playerId)!.totalAnnualCostPence,
+    }))
     return {
-      totalSquadCostsPence,
-      breakdownByPlayer: inputs.map((p) => ({
-        ...p,
-        ...map.get(p.playerId)!,
-      })),
+      totalSquadCostsPence: canonicalBreakdown.reduce((sum, row) => sum + row.totalAnnualCostPence, 0) || totalSquadCostsPence,
+      breakdownByPlayer: canonicalBreakdown,
     }
   }, [players])
 
@@ -121,9 +151,12 @@ export function DashboardPage() {
     const cmp = (a: typeof rows[number], b: typeof rows[number]) => {
       const dir = sortDir === 'asc' ? 1 : -1
       switch (sortKey) {
-        case 'squadNumber': return ((a.squadNumber ?? Infinity) - (b.squadNumber ?? Infinity)) * dir
+        case 'squadNumber': {
+          const numberOrder = compareSquadNumbers(a.squadNumber, b.squadNumber, sortDir)
+          return numberOrder || a.playerName.localeCompare(b.playerName)
+        }
         case 'name':     return a.playerName.localeCompare(b.playerName) * dir
-        case 'position': return (a.position ?? '').localeCompare(b.position ?? '') * dir
+        case 'position': return compareByPosition({ position: a.position, squadNumber: a.squadNumber, name: a.playerName }, { position: b.position, squadNumber: b.squadNumber, name: b.playerName }, sortDir)
         case 'wage':     return (a.wagePence - b.wagePence) * dir
         case 'amortisation': return (a.amortisationPence - b.amortisationPence) * dir
         case 'agentFee': return (a.annualisedAgentFeePence - b.annualisedAgentFeePence) * dir
@@ -135,15 +168,17 @@ export function DashboardPage() {
     return sorted
   }, [breakdownByPlayer, filter, sortKey, sortDir])
 
-  // Baseline (no scenarios) — shows the live SCR derived from contracts alone.
+  // Baseline (no scenarios) — use the Financials API's canonical value rather
+  // than the player-only table sum. The API includes an active head coach and
+  // honours the explicit manual override when the club has selected one.
   // Active baseline (with included scenarios) — shown in the TopBar pill.
   const baseline = useMemo(() => {
     if (!financials) return null
     return {
-      squadCostsPence: totalSquadCostsPence,
+      squadCostsPence: financials.currentSquadCosts,
       revenuePence: financials.footballRelatedRevenue + (financials.ownerEquityUsed1yr ?? 0),
     }
-  }, [financials, totalSquadCostsPence])
+  }, [financials])
 
   const ratio = baseline && baseline.revenuePence > 0
     ? baseline.squadCostsPence / baseline.revenuePence
@@ -163,7 +198,7 @@ export function DashboardPage() {
   // Hold the skeleton until financials are actually known (loaded), so we never
   // flash the "set up your club" empty-state while they're still in flight. Once
   // loaded: null ⇒ genuine empty-state; present ⇒ wait for scenarios to fold in.
-  if (rosterQuery.isPending || !financialsLoaded || (financials != null && !scenariosLoaded))
+  if (rosterQuery.isPending || !financialsLoaded || (financials != null && !scenariosLoaded) || !tablePreferences.ready)
     return <DashboardSkeleton />
 
   if (error) {
@@ -455,6 +490,15 @@ export function DashboardPage() {
                 {f === 'all' ? t('dashboard.table.filterAll') : f === 'expiring' ? t('dashboard.table.filterExpiring') : t(`common.positions.${f}`)}
               </button>
             ))}
+            {!tablePreferences.isDefault && (
+              <button
+                type="button"
+                onClick={tablePreferences.reset}
+                className="px-2 py-1.5 text-[12px] font-medium text-slate-500 hover:text-violet-700"
+              >
+                Reset view
+              </button>
+            )}
           </div>
         </div>
 
@@ -462,22 +506,22 @@ export function DashboardPage() {
         <table className="w-full min-w-[720px]">
           <thead className="border-b border-slate-100 bg-slate-50/40">
             <tr>
-              <SortableTh field="squadNumber"  label={t('dashboard.table.th.number')}       align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
-              <SortableTh field="name"         label={t('dashboard.table.th.name')}         align="left"  sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
-              <SortableTh field="position"     label={t('dashboard.table.th.position')}     align="left"  sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
-              <SortableTh field="wage"         label={t('dashboard.table.th.wage')}         align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
-              <SortableTh field="amortisation" label={t('dashboard.table.th.amortisation')} align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
-              <SortableTh field="agentFee"     label={t('dashboard.table.th.agentFee')}     align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }}
+              <SortableTh field="squadNumber"  label={TABLE_COLUMN_LABELS.squadNumber}       align="right" sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
+              <SortableTh field="name"         label={TABLE_COLUMN_LABELS.name}              align="left"  sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
+              <SortableTh field="position"     label={TABLE_COLUMN_LABELS.position}          align="left"  sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
+              <SortableTh field="wage"         label={TABLE_COLUMN_LABELS.annualWage}        align="right" sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
+              <SortableTh field="amortisation" label={TABLE_COLUMN_LABELS.amortisation}      align="right" sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
+              <SortableTh field="agentFee"     label={TABLE_COLUMN_LABELS.agentFees}         align="right" sortKey={sortKey} sortDir={sortDir} onSort={setSort}
                 titleHint={t('dashboard.table.agentFeeHint')}
               />
-              <SortableTh field="total"        label={t('dashboard.table.th.total')}        align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
-              <SortableTh field="expiry"       label={t('dashboard.table.th.expiry')}       align="right" sortKey={sortKey} sortDir={sortDir} onSort={(f, d) => { setSortKey(f); setSortDir(d) }} />
+              <SortableTh field="total"        label={TABLE_COLUMN_LABELS.annualCost}        align="right" sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
+              <SortableTh field="expiry"       label={TABLE_COLUMN_LABELS.timeLeft}          align="right" sortKey={sortKey} sortDir={sortDir} onSort={setSort} />
             </tr>
           </thead>
           <tbody>
             {filteredBreakdown.map((row) => (
               <tr key={row.playerId} className="border-b border-slate-100 last:border-0 hover:bg-violet-50/40 transition-colors">
-                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-500 tabular-nums w-12">{row.squadNumber ?? '—'}</td>
+                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-500 tabular-nums w-12">{formatSquadNumber(row.squadNumber)}</td>
                 <td className="px-6 py-3.5 text-[14px] text-slate-900 font-medium">
                   <span className="inline-flex items-center gap-2 align-middle">
                     <NationalityFlag nationality={row.nationality} />
@@ -487,10 +531,10 @@ export function DashboardPage() {
                 <td className="px-6 py-3.5">
                   <PositionPill position={row.position} />
                 </td>
-                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-700">{fmtMoney(row.wagePence)}</td>
-                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-700">{fmtMoney(row.amortisationPence)}</td>
-                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-700">{fmtMoney(row.annualisedAgentFeePence)}</td>
-                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-900 font-medium">{fmtMoney(row.totalAnnualCostPence)}</td>
+                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-700">{formatTableMoney(row.wagePence, fmtMoney)}</td>
+                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-700">{formatTableMoney(row.amortisationPence, fmtMoney)}</td>
+                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-700">{formatTableMoney(row.annualisedAgentFeePence, fmtMoney)}</td>
+                <td className="px-6 py-3.5 text-[13px] num text-right text-slate-900 font-medium">{formatTableMoney(row.totalAnnualCostPence, fmtMoney)}</td>
                 <td className="px-6 py-3.5 text-right">
                   <ExpiryChip months={row.monthsToExpiry} />
                 </td>
@@ -501,7 +545,7 @@ export function DashboardPage() {
             <tr>
               <td className="px-6 py-3.5 text-[12px] meta-label" colSpan={6}>{t('dashboard.table.totalRow', { count: filteredBreakdown.length })}</td>
               <td className="px-6 py-3.5 text-[14px] num text-right text-slate-900 font-semibold">
-                {fmtMoney(filteredBreakdown.reduce((s, r) => s + r.totalAnnualCostPence, 0))}
+                {formatTableMoney(filteredBreakdown.reduce((s, r) => s + r.totalAnnualCostPence, 0), fmtMoney)}
               </td>
               <td />
             </tr>
@@ -875,16 +919,6 @@ function PositionPill({ position }: { position: string | null }) {
   )
 }
 
-// "49" → "4 years 1 month" — years lead, months only when non-zero, singular/plural correct.
-function formatExpiryLabel(months: number, t: TFunction): string {
-  const years = Math.floor(months / 12)
-  const rem = months % 12
-  if (years === 0) return t('dashboard.expiry.months', { count: rem })
-  const yearPart = t('dashboard.expiry.years', { count: years })
-  if (rem === 0) return yearPart
-  return `${yearPart} ${t('dashboard.expiry.months', { count: rem })}`
-}
-
 function ExpiryChip({ months }: { months: number | null }) {
   const { t } = useTranslation()
   if (months == null) return <span className="text-slate-400 text-[12px]">—</span>
@@ -892,9 +926,9 @@ function ExpiryChip({ months }: { months: number | null }) {
   if (months <= 6) {
     return (
       <span className="inline-block text-[11px] font-medium px-2 py-0.5 rounded-md bg-amber-100 text-amber-700 whitespace-nowrap">
-        {formatExpiryLabel(months, t)}
+        {formatTimeLeft(months, t)}
       </span>
     )
   }
-  return <span className="text-slate-500 text-[12px] whitespace-nowrap">{formatExpiryLabel(months, t)}</span>
+  return <span className="text-slate-500 text-[12px] whitespace-nowrap">{formatTimeLeft(months, t)}</span>
 }

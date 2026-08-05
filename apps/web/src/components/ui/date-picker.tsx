@@ -154,7 +154,9 @@ export function DatePicker({
   maxYear,
 }: DatePickerProps) {
   const { t } = useTranslation()
-  const placeholderText = placeholder ?? t('datepicker.selectDate')
+  // This is a custom text input, so it owns the format hint. Appending another
+  // format to a caller-supplied placeholder produced "DD/MM/YYYY (DD/MM/YYYY)".
+  const placeholderText = placeholder ?? 'DD/MM/YYYY'
   const monthNamesList = monthNames()
   const dayLabelsList = dayLabels()
   const [open, setOpen] = useState(false)
@@ -331,7 +333,7 @@ export function DatePicker({
           inputMode="numeric"
           autoComplete="off"
           value={text}
-          placeholder={placeholderText ? `${placeholderText} (DD/MM/YYYY)` : 'DD/MM/YYYY'}
+          placeholder={placeholderText}
           disabled={disabled}
           onChange={(e) => handleInputChange(e.target.value)}
           onFocus={() => setFocused(true)}

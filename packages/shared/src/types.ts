@@ -119,18 +119,28 @@ export interface PlayerWithContract {
   contract: {
     id: string                        // contract id
     transferFeePence: number
+    acquisitionAgentFeePence: number
+    acquisitionDate: string
     /**
      * Carried Book Value override (pence) or null. When non-null the SCR engine
      * amortises this remaining NBV instead of the transfer fee — for extension
      * blocks where the original fee is unknown (e.g. template imports).
      */
     carriedBookValuePence: number | null
+    /** Whether registration accounting is based on source acquisition data or an imported current balance. */
+    accountingBasis: 'ACQUISITION_COST' | 'CURRENT_BOOK_VALUE'
     annualWagePence: number
     agentFeePence: number
     startDate: string                 // ISO YYYY-MM-DD
     endDate: string
+    amortisationTreatment: AmortisationTreatment
     contractLengthYears: number
     bookValuePence: number            // live, recomputed at read time
+    annualAmortisationPence: number   // canonical server-derived registration charge
+    annualisedAgentFeePence: number   // canonical server-derived extension agent charge
+    totalAnnualCostPence: number
+    phaseStatus: ContractPhaseStatus
+    hasRegistrationAsset: boolean
     isActive: boolean
     phaseType: ContractPhaseType      // INITIAL | EXTENSION (drives carried-value UI)
   } | null
@@ -149,11 +159,15 @@ export interface PlayerWithContract {
 // `feePence` is a player's transfer fee or a manager's compensation fee.
 
 export type ContractPhaseType = 'INITIAL' | 'EXTENSION'
+export type ContractPhaseStatus = 'ACTIVE' | 'SCHEDULED' | 'COMPLETED' | 'ARCHIVED'
+export type AmortisationTreatment = 'CONTINUE_CURRENT_SCHEDULE' | 'SPREAD_REMAINING_BOOK_VALUE'
 
 export interface ContractPhase {
   id: string
   phaseType: ContractPhaseType
   isCurrent: boolean
+  status: ContractPhaseStatus
+  amortisationTreatment: AmortisationTreatment
   /** Transfer fee (player) or compensation fee (manager), in pence. */
   feePence: number
   /**
@@ -163,6 +177,7 @@ export interface ContractPhase {
   carriedBookValuePence: number | null
   annualWagePence: number
   agentFeePence: number
+  extensionSignedDate: string | null
   startDate: string                 // ISO YYYY-MM-DD
   endDate: string
   contractLengthYears: number
@@ -204,6 +219,7 @@ export interface RosterStagingRow {
     agentFeePence: number
     startDate: string
     endDate: string
+    amortisationTreatment: AmortisationTreatment
     contractLengthYears: number
     bookValuePence: number
   }

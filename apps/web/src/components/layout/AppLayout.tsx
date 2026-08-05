@@ -20,6 +20,7 @@ import { computeActiveBaseline, type ActiveBaseline } from '@/lib/scr'
 import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import type { ComplianceStatus } from '@85percent/shared'
 import { useScenarioDetailsQuery } from '@/lib/queries'
+import { formatPercentage, formatPercentagePointDelta } from '@/lib/percentage'
 
 type ScrWidgetState = 'loading' | 'ready' | 'notConfigured' | 'error'
 
@@ -605,7 +606,7 @@ function SCRBreakdownPopover({
               <div>
                 <div className="meta-label text-violet-700">{stackedOn ? t('chrome.topbar.projectedScr') : t('chrome.topbar.currentScr')}</div>
                 <div className="flex items-baseline gap-2 mt-1">
-                  <span className="num text-[22px] font-semibold text-slate-900 tabular-nums">{scrPct.toFixed(1)}%</span>
+                  <span className="num text-[22px] font-semibold text-slate-900 tabular-nums">{formatPercentage(scrPct / 100)}</span>
                   <span
                     className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium"
                     style={{ backgroundColor: `${statusColor}1a`, color: statusColor }}
@@ -628,14 +629,14 @@ function SCRBreakdownPopover({
             {stackedOn && (
               <div className="mt-2 flex items-center gap-1.5 text-[11.5px]">
                 <span className="text-slate-500">{t('chrome.breakdown.settingsOnly')}</span>
-                <span className="num text-slate-700 font-medium tabular-nums">{settingsOnlyPct.toFixed(1)}%</span>
+                <span className="num text-slate-700 font-medium tabular-nums">{formatPercentage(settingsOnlyPct / 100)}</span>
                 {deltaDir !== 'flat' && (
                   <span
                     className={`inline-flex items-center gap-0.5 num font-medium tabular-nums ${
                       deltaDir === 'up' ? 'text-red-600' : 'text-emerald-600'
                     }`}
                   >
-                    {deltaDir === 'up' ? '↑' : '↓'}{deltaAbs.toFixed(1)} pp
+                    {deltaDir === 'up' ? '↑' : '↓'}{formatPercentagePointDelta(deltaAbs).replace('+', '')}
                   </span>
                 )}
               </div>

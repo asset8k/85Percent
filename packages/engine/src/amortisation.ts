@@ -32,6 +32,10 @@ function monthsBetween(from: Date, to: Date): number {
          (to.getUTCMonth() - from.getUTCMonth())
 }
 
+function daysBetween(from: Date, to: Date): number {
+  return Math.floor((to.getTime() - from.getTime()) / (24 * 60 * 60 * 1000))
+}
+
 // The date on which a fee is fully amortised: the earlier of the contract end
 // and start + AMORTISATION_CAP_YEARS. Beyond this point book value is zero.
 function amortisationEndDate(startDate: Date, endDate: Date): Date {
@@ -87,7 +91,7 @@ export function currentBookValuePence(
   transferFeePence: bigint | number,
   startDate: Date,
   endDate: Date,
-  asOf: Date = new Date(),
+  asOfDate: Date,
   carriedBookValuePence?: bigint | number | null,
 ): number {
   const fee = effectiveFeePence(transferFeePence, carriedBookValuePence)
@@ -95,15 +99,15 @@ export function currentBookValuePence(
 
   // Amortise over the capped window, not the full contract length.
   const cappedEnd = amortisationEndDate(startDate, endDate)
-  const totalMonths = monthsBetween(startDate, cappedEnd)
-  if (totalMonths <= 0) return 0
+  const totalDays = daysBetween(startDate, cappedEnd)
+  if (totalDays <= 0) return 0
 
   // Clamp asOf to [startDate, cappedEnd]
-  if (asOf.getTime() <= startDate.getTime()) return fee
-  if (asOf.getTime() >= cappedEnd.getTime()) return 0
+  if (asOfDate.getTime() <= startDate.getTime()) return fee
+  if (asOfDate.getTime() >= cappedEnd.getTime()) return 0
 
-  const remainingMonths = monthsBetween(asOf, cappedEnd)
-  return Math.floor(fee * (remainingMonths / totalMonths))
+  const remainingDays = daysBetween(asOfDate, cappedEnd)
+  return Math.floor(fee * (remainingDays / totalDays))
 }
 
 /**

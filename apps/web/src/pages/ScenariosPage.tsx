@@ -28,13 +28,13 @@ import { Select } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { AnimatedNumber } from '@/components/ui/animated-number'
 import { toast } from '@/components/ui/toast'
+import { formatPercentage, formatPercentagePointDelta } from '@/lib/percentage'
 
 function formatPenceNumber(pence: number, symbol = '£') {
   return symbol + Math.round(pence / 100).toLocaleString('en-GB')
 }
 import { ComplianceGauge } from '@/components/simulator/ComplianceGauge'
 import { computeActiveBaseline, computeDryRun, computeThresholds, actionToEngineInput, scenarioMoneyImpact } from '@/lib/scr'
-import { calculateSquadCosts, type ContractInput } from '@85percent/engine'
 import type { ScenarioActionInput, ScenarioActionType } from '@85percent/engine'
 import type { PlayerWithContract } from '@85percent/shared'
 import { formatPence } from '@85percent/shared'
@@ -192,29 +192,9 @@ export function ScenariosPage() {
   // Surface a transport failure from either fetch.
   const loadError = rosterQuery.isError || scenarioQuery.isError ? t('scenarios.failLoad') : ''
 
-  // Derive baseline squad costs from the live roster (same math as Dashboard).
-  const baselineSquadCostsPence = useMemo(() => {
-    const inputs: ContractInput[] = players
-      .filter((p) => p.contract)
-      .map((p) => ({
-        playerId: p.id,
-        transferFeePence: p.contract!.transferFeePence,
-        // Carried Book Value override replaces the transfer fee as the amortisation
-        // principal when set — keeps the scenario baseline aligned with the
-        // server-derived currentSquadCosts (and the Dashboard / TopBar pill).
-        carriedBookValuePence: p.contract!.carriedBookValuePence,
-        annualWagePence:  p.contract!.annualWagePence,
-        agentFeePence:    p.contract!.agentFeePence,
-        contractLengthYears: p.contract!.contractLengthYears,
-      }))
-    return calculateSquadCosts(inputs).totalSquadCostsPence
-  }, [players])
-
-  // Synthesise a "financials with derived squadCosts" for the scr helper
-  const liveFinancials = useMemo(() => {
-    if (!financials) return null
-    return { ...financials, currentSquadCosts: baselineSquadCostsPence }
-  }, [financials, baselineSquadCostsPence])
+  // The Financials API owns the saved baseline. Rebuilding it from player rows
+  // would omit head-coach costs and incorrectly replace a manual override.
+  const liveFinancials = financials
 
   // For the "before" baseline, exclude the scenario being edited so it does
   // not double-count its existing actions while the draft is being changed.
@@ -265,8 +245,8 @@ export function ScenariosPage() {
       module: 'Scenarios',
       subject: draftName.trim() || 'Draft plan',
       data: {
-        currentSCR: `${(dryRun.before.ratio * 100).toFixed(1)}%`,
-        projectedSCR: `${(dryRun.after.ratio * 100).toFixed(1)}%`,
+        currentSCR: formatPercentage(dryRun.before.ratio),
+        projectedSCR: formatPercentage(dryRun.after.ratio),
         projectedZone: zone(dryRun.after.status),
         proposedTransactions: transactions,
       },
@@ -439,7 +419,7 @@ export function ScenariosPage() {
                   </span>
                   {activeBaseline && (
                     <span className="num text-slate-400">
-                      {(activeBaseline.ratio * 100).toFixed(1)}% SCR
+                      {formatPercentage(activeBaseline.ratio)} SCR
                     </span>
                   )}
                 </div>
@@ -814,7 +794,7 @@ function LiveImpactSummary({ dryRun }: { dryRun: ReturnType<typeof computeDryRun
     <div className="hidden lg:flex sticky top-4 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] shadow-sm">
       <span className="font-semibold text-slate-900 num">{projectedPct.toFixed(1)}% SCR</span>
       <span className={cn('font-medium num', deltaPp <= 0 ? 'text-green-700' : 'text-red-700')}>
-        {deltaPp > 0 ? '+' : ''}{deltaPp.toFixed(1)}%
+        {formatPercentagePointDelta(deltaPp)}
       </span>
       <span className={cn('rounded-full border px-1.5 py-0.5 font-medium', statusTone)}>
         {dryRun.after.status === 'green' ? t('common.status.compliant') : dryRun.after.status === 'amber' ? t('common.status.levyZone') : t('common.status.pointsRisk')}
@@ -879,7 +859,7 @@ function SortableActionRow({
             impact.after.ratio <= impact.before.ratio ? 'text-green-700' : 'text-red-700',
           )}>
             {t('scenarios.actionImpact', {
-              delta: `${impact.after.ratio > impact.before.ratio ? '+' : ''}${((impact.after.ratio - impact.before.ratio) * 100).toFixed(1)}%`,
+              delta: formatPercentagePointDelta((impact.after.ratio - impact.before.ratio) * 100),
               costs: signedPence(impact.after.baselineSquadCosts - impact.before.baselineSquadCosts, fmtMoney),
             })}
           </span>
@@ -1173,7 +1153,7 @@ function ProjectionPanel({
             'mt-1 text-[11px] font-medium num',
             projectedPct <= currentPct ? 'text-green-700' : 'text-red-700',
           )}>
-            {projectedPct > currentPct ? '+' : ''}{(projectedPct - currentPct).toFixed(1)}% {t('scenarios.projection.vsBaseline')}
+            {formatPercentagePointDelta(projectedPct - currentPct)} {t('scenarios.projection.vsBaseline')}
           </div>
           <div className="text-[11px] text-slate-500 mt-2 num">
             {t('scenarios.projection.costs')} <AnimatedNumber value={after.baselineSquadCosts} format={fmtMoneyNum} />
@@ -1292,7 +1272,7 @@ function CompareModal({
                   v === 0 ? 'text-slate-900' : (v > 0) === worseWhenPositive ? 'text-red-700' : 'text-green-700'
                 return (
                   <div className="grid grid-cols-3 gap-4">
-                    <Stat label={t('scenarios.compare.dScr')} value={`${dScr >= 0 ? '+' : ''}${dScr.toFixed(2)}%`} tone={tone(true, dScr)} />
+                    <Stat label={t('scenarios.compare.dScr')} value={formatPercentagePointDelta(dScr, 2)} tone={tone(true, dScr)} />
                     <Stat label={t('scenarios.compare.dCosts')} value={signedPence(dCosts, fmtMoney)} tone={tone(true, dCosts)} />
                     <Stat label={t('scenarios.compare.dRevenue')} value={signedPence(dRev, fmtMoney)} tone={tone(false, dRev)} />
                   </div>
@@ -1360,7 +1340,7 @@ function CompareColumn({
             <span className="text-slate-400">{t('scenarios.compare.vsBaseline')}</span>
             <span className={cn('num inline-flex items-center gap-0.5 font-medium', worse ? 'text-red-700' : 'text-green-700')}>
               <DeltaArrow up={worse} />
-              {worse ? '+' : ''}{delta.toFixed(2)}%
+              {formatPercentagePointDelta(delta, 2)}
             </span>
           </div>
           <div className="mt-4 space-y-1.5 border-t border-slate-100 pt-3">
