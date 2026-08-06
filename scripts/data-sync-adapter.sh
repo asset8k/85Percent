@@ -2,10 +2,13 @@
 set -euo pipefail
 
 CONTAINER_NAME="tmkt-api"
-IMAGE_NAME="transfermarkt-api:local"
+# Avoid reusing a pre-existing image from a different Transfermarkt adapter.
+# Earlier local setups used the same generic tag for felipeall/transfermarkt-api,
+# whose endpoint implementation is incompatible with this workflow.
+IMAGE_NAME="85percent-transfermarkt-api:local-v1"
 PORT="8000"
 CACHE_ROOT="${XDG_CACHE_HOME:-$HOME/Library/Caches}/85percent/transfermarkt-api"
-REPOSITORY_URL="https://github.com/stephane-segning/transfermarkt-api.git"
+REPOSITORY_URL="https://github.com/felipeall/transfermarkt-api.git"
 
 ensure_docker() {
   command -v docker >/dev/null || { echo "Docker CLI is required." >&2; exit 1; }
@@ -18,7 +21,12 @@ ensure_docker() {
 }
 
 adapter_health() {
-  curl -fsS --max-time 5 "http://localhost:${PORT}/competitions/GB1/clubs?season_id=2026" >/dev/null
+  # Startup must only establish that the local FastAPI adapter is running. A
+  # competition scrape reaches Transfermarkt and can fail independently due to
+  # rate limiting or an upstream markup change, which is not a container-health
+  # failure.
+  curl -fsS --max-time 5 "http://localhost:${PORT}/openapi.json" \
+    | grep -q '"/clubs/{club_id}/players"'
 }
 
 setup() {
@@ -36,7 +44,9 @@ setup() {
 start() {
   ensure_docker
   if docker container inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
-    if [[ "$(docker container inspect -f '{{.State.Running}}' "$CONTAINER_NAME")" == "true" ]] && adapter_health; then
+    if [[ "$(docker container inspect -f '{{.Config.Image}}' "$CONTAINER_NAME")" == "$IMAGE_NAME" ]] \
+      && [[ "$(docker container inspect -f '{{.State.Running}}' "$CONTAINER_NAME")" == "true" ]] \
+      && adapter_health; then
       echo "Transfermarkt adapter is already healthy at http://localhost:${PORT}."
       return
     fi

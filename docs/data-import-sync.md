@@ -249,9 +249,9 @@ pnpm data-sync:adapter:status
 pnpm data-sync:adapter:stop
 ```
 
-`setup` checks Docker/Colima, clones or fast-forwards the adapter cache, and builds `transfermarkt-api:local`. `start` only removes/replaces the `tmkt-api` container, never unrelated containers. It refuses to take over port 8000. `status` checks Docker, Colima, image/container state, port 8000, and an actual club-discovery endpoint. `stop` only stops/removes `tmkt-api`.
+`setup` checks Docker/Colima, clones or fast-forwards the adapter cache, and builds `85percent-transfermarkt-api:local-v1`. `start` only removes/replaces the `tmkt-api` container, never unrelated containers. It refuses to take over port 8000. `status` checks Docker, Colima, image/container state, port 8000, and the adapter's OpenAPI contract. It does not scrape Transfermarkt during startup; live provider failures are reported against the relevant import task. `stop` only stops/removes `tmkt-api`.
 
-The admin performs the same provider discovery check before creating a squad run. An unavailable adapter returns HTTP 503; invalid provider data returns 422; a 409 is reserved for a real import-state conflict.
+The admin performs the same adapter-contract check before creating a squad run. An unavailable adapter returns HTTP 503; an incompatible adapter returns 422; a 409 is reserved for a real import-state conflict. The selected club task reports a live Transfermarkt failure without preventing unrelated imports from being queued.
 
 ## QStash mode
 

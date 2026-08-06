@@ -186,7 +186,7 @@ export async function startSquadImport(input: {
     )
   }
   const season = input.season ?? deriveSeasonStartYear()
-  await assertSquadProviderReady(season)
+  await assertSquadProviderReady()
   const { data: clubs, error } = await supabase
     .from('template_clubs')
     .select('id,name,league')

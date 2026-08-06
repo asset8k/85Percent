@@ -26,16 +26,28 @@ function envPart(id: string): string {
   return id.toUpperCase().replace(/[^A-Z0-9]/g, '_')
 }
 
+function firstConfigured(...values: Array<string | undefined>): string | undefined {
+  return values.find((value) => value?.trim())
+}
+
 function resolveTarget(id: string): ResolvedTarget {
   if (!targetIds().includes(id)) throw new DataImportError('IMPORT_CONFIGURATION_INVALID', `Unknown data-import target: ${id}`)
   const part = envPart(id)
   const usesPrimaryCredentials = id === 'default' || id === 'dev'
   const url = usesPrimaryCredentials
-    ? process.env['SUPABASE_URL']
-    : process.env[`DATA_IMPORT_TARGET_${part}_SUPABASE_URL`]
+    ? firstConfigured(process.env['SUPABASE_DEV_URL'], process.env['SUPABASE_URL'])
+    : firstConfigured(process.env[`SUPABASE_${part}_URL`], process.env[`DATA_IMPORT_TARGET_${part}_SUPABASE_URL`])
   const serviceRoleKey = usesPrimaryCredentials
-    ? process.env['SUPABASE_SERVICE_ROLE_KEY']
-    : process.env[`DATA_IMPORT_TARGET_${part}_SUPABASE_SERVICE_ROLE_KEY`]
+    ? firstConfigured(
+        process.env['SUPABASE_DEV_SECRET_KEY'],
+        process.env['SUPABASE_DEV_SERVICE_ROLE_KEY'],
+        process.env['SUPABASE_SERVICE_ROLE_KEY'],
+      )
+    : firstConfigured(
+        process.env[`SUPABASE_${part}_SECRET_KEY`],
+        process.env[`SUPABASE_${part}_SERVICE_ROLE_KEY`],
+        process.env[`DATA_IMPORT_TARGET_${part}_SUPABASE_SERVICE_ROLE_KEY`],
+      )
   if (!url || !serviceRoleKey) {
     throw new DataImportError('IMPORT_CONFIGURATION_INVALID', `Data-import target ${id} is missing Supabase credentials`)
   }
