@@ -1,10 +1,9 @@
 /**
  * embeddings — local sentence embeddings for the RAG knowledge base.
  *
- * Anthropic (our inference provider) has no embeddings endpoint, so we embed
- * locally with sentence-transformers all-MiniLM-L6-v2 via Transformers.js. This
- * keeps the whole RAG pipeline self-contained: no extra vendor, no API key, no
- * per-call cost — well suited to the small single-document corpus we ground on.
+ * We embed locally with sentence-transformers all-MiniLM-L6-v2 via
+ * Transformers.js. This keeps RAG independent of the inference provider: no
+ * extra vendor, no API key, and no per-call embedding cost.
  *
  * The SAME function embeds both the ingested passages (ingest script) and the
  * user's question at query time, so the vectors live in one comparable space.

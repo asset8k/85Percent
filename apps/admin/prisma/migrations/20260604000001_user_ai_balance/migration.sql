@@ -1,5 +1,6 @@
 -- AI credit balance (Compliance Analyst) — a hardcoded prepaid USD balance per
--- user, debited per query at Anthropic Sonnet token cost + a 10% margin. Top-ups
+-- user, debited per query at the configured Analyst model's token cost plus a
+-- 10% margin. Top-ups
 -- are manual (admin DB edit) until a payment gateway exists.
 --
 -- Additive + idempotent, so it is safe to run against the live Supabase database

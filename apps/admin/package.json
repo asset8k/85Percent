@@ -16,11 +16,11 @@
   "dependencies": {
     "@85percent/engine": "workspace:*",
     "@85percent/shared": "workspace:*",
-    "@ai-sdk/anthropic": "^1.2.0",
+    "@ai-sdk/openai": "^1.3.24",
     "@prisma/client": "^6.9.0",
     "@supabase/supabase-js": "^2.50.0",
-    "@upstash/ratelimit": "^2.0.5",
     "@upstash/qstash": "^2.8.3",
+    "@upstash/ratelimit": "^2.0.5",
     "@upstash/redis": "^1.34.3",
     "@xenova/transformers": "^2.17.2",
     "ai": "^4.3.16",

@@ -1,7 +1,7 @@
 /**
  * Chat route — the Compliance Analyst's inference + history endpoints.
  *
- *   POST   /chat                 — RAG-grounded, streamed Claude response
+ *   POST   /chat                 — RAG-grounded, streamed Analyst response
  *   GET    /chat/sessions        — the caller's chat sessions (newest first)
  *   GET    /chat/sessions/:id    — one session's messages
  *   PATCH  /chat/sessions/:id    — rename a session
@@ -309,7 +309,7 @@ export async function chatRoutes(app: ApiApp) {
           ])
         }
 
-        // (2) Debit the balance. Cost = Sonnet token cost + 10% margin. The
+        // (2) Debit the balance. Cost = configured model token cost + 10% margin. The
         // arithmetic and rounding happen atomically in Postgres NUMERIC via the
         // deduct_ai_balance() function, so the stored balance never drifts.
         const cost = calculateQueryCost(usage.promptTokens, usage.completionTokens)

@@ -2,15 +2,15 @@
  * aiPricing — token-cost maths for the Compliance Analyst's prepaid credit
  * system. Pure functions, no I/O, so they are trivially unit-testable.
  *
- * Pricing is for Anthropic Claude Sonnet, quoted per 1,000,000 tokens. We charge
- * the raw token cost plus a fixed margin. This is the ONLY place the margin and
- * the per-token rates live — the chat route imports `calculateQueryCost`.
+ * Pricing is for OpenAI GPT-5.6 Luna, quoted per 1,000,000 tokens. We charge
+ * the raw token cost plus a fixed margin. This is the only place the margin and
+ * per-token rates live — the chat route imports `calculateQueryCost`.
  */
 
-/** Anthropic Sonnet input price, USD per 1M tokens. */
-export const INPUT_PRICE_PER_1M = 3.0
-/** Anthropic Sonnet output price, USD per 1M tokens. */
-export const OUTPUT_PRICE_PER_1M = 15.0
+/** GPT-5.6 Luna input price, USD per 1M tokens. */
+export const INPUT_PRICE_PER_1M = 1.0
+/** GPT-5.6 Luna output price, USD per 1M tokens. */
+export const OUTPUT_PRICE_PER_1M = 6.0
 /** Our markup over raw token cost (10%). */
 export const MARGIN_MULTIPLIER = 1.1
 

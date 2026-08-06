@@ -1,11 +1,8 @@
 /**
  * LLMService — provider-agnostic inference seam.
  *
- * Today we run Anthropic (Claude) via the Vercel AI SDK. This interface is the
- * swap point: to move to Gemini/GPT later you implement a new adapter (e.g.
- * GoogleAdapter / OpenAIAdapter) against the SAME contract and change one line
- * in index.ts — no route or UI changes. The AI SDK already abstracts the wire
- * protocol; this interface abstracts the *provider choice* on top of it.
+ * The current implementation uses OpenAI via the Vercel AI SDK. This contract
+ * isolates provider choice from the chat routes and UI.
  *
  * Hard rule (mirrors services/ai/index.ts): the LLM never does arithmetic. It
  * reads serialized engine output and explains it in language. All SCR/FFP maths
