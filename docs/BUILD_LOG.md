@@ -4407,3 +4407,88 @@ project — the new validator now fails the build if they disagree. Also absent
 from admin Production entirely: `QSTASH_TOKEN`,
 `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY`,
 `FOOTBALL_DATA_API_KEY`, `TRANSFERMARKT_API_URL`, `OPENAI_API_KEY`.
+
+## Session — Production login was still broken: admin backend on a dead Supabase project (2026-08-07)
+
+The previous session's frontend fix (repointing `85percent-web`'s
+`VITE_SUPABASE_URL`) shipped, but production login still failed for a
+brand-new Supabase Auth user. Root cause was one layer deeper: **login is
+proxied through the admin backend**, not done client-side. `LoginPage.tsx`
+calls `POST /auth/login`, which runs `supabaseAnon.auth.signInWithPassword()`
+server-side (`backend/routes/auth.ts`) — the browser's Supabase client only
+receives the resulting tokens via `setSession()` afterward. So the project the
+*admin* backend targets is what actually decides whether login works, and the
+frontend fix never touched it.
+
+**What was found**, from Vercel build logs alone (no secrets read):
+
+- Every `85percent-admin` Production deploy for 3 days had failed the build
+  gate. `admin.85percent.pro` was still serving an Aug 4 build.
+- That Aug 4 build's own log showed the gate passing against the *old*
+  hardcoded ref (`fkyexcddvogkngbbrefz`) — proof `SUPABASE_URL` on admin
+  Production was the old, since-deleted Supabase project at build time. It
+  hadn't been touched in 56 days, so it was still that value right now: the
+  backend that verifies every password was pointed at a project with no DNS
+  record. `SUPABASE_ANON_KEY` had been rotated 4 days ago (to the correct
+  project) but `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` never were —
+  exactly the split-migration case `validate-env.mjs`'s consistency check
+  exists to catch, just not yet deployed.
+- Separately, admin Production was missing 5 vars the gate had required since
+  it was introduced (`54f6e3e`, Aug 3): `QSTASH_TOKEN`,
+  `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY`,
+  `FOOTBALL_DATA_API_KEY`, `TRANSFERMARKT_API_URL`. Present as of the Aug 4
+  build, gone since — most likely dropped during the Supabase reconciliation
+  cleanup. This alone would have kept blocking every deploy even after fixing
+  `SUPABASE_URL`.
+
+**Validator fix** (`scripts/lib/validate-env.mjs`): audited each of the 5
+missing vars against actual runtime call sites rather than blanket-relaxing
+the gate.
+- `QSTASH_TOKEN`/`QSTASH_CURRENT_SIGNING_KEY`/`QSTASH_NEXT_SIGNING_KEY`/
+  `TRANSFERMARKT_API_URL` → moved from `required` to `recommended`. Data Sync
+  (squad/player imports) is local-only by design: it runs against an
+  admin instance on the operator's machine talking to a Transfermarkt adapter
+  on `localhost:8000` (`DATA_IMPORT_DISPATCH_MODE=local`), never against the
+  deployed Vercel admin. Confirmed by reading `data-imports/config.ts` and
+  `app/api/data-imports/task/route.ts`: both are read lazily inside
+  feature-specific code paths, not at cold start, and the QStash route already
+  degrades to a clean 503 rather than crashing when the signing keys are
+  absent — so downgrading these to warnings cannot affect login or any other
+  route.
+- `FOOTBALL_DATA_API_KEY` → **kept required**. `GET /league-table`
+  (`backend/routes/league-table.ts`), hit on every dashboard load behind
+  normal auth, calls football-data.org directly as its live-data tier before
+  falling back to a static table. This is a real, always-on production
+  runtime dependency, not a background-job convenience.
+- Added `scripts/lib/validate-env.test.mjs` cases for both: missing
+  `FOOTBALL_DATA_API_KEY` still fails the gate; missing QStash/Transfermarkt
+  vars pass with warnings, not errors.
+
+**Production fix applied**: with tests (19 validator + 126 admin, all green)
+and `pnpm build` passing first, committed to `dev` → fast-forwarded into
+`main` → pushed (commit `f453e8f`). Then, with the user's explicit go-ahead,
+set the 4 correct values on `85percent-admin` Production directly from
+`apps/admin/.env.local`'s `SUPABASE_PROD_*` / `FOOTBALL_DATA_API_KEY` entries
+(never retyped — piped straight from the file into `vercel env add` so they
+wouldn't be duplicated across the session more than necessary):
+`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`,
+`FOOTBALL_DATA_API_KEY`. Redeployed with `vercel --prod`.
+
+### Verified
+
+Build log for the new deployment (`dpl_5vdBQXK7...`) shows `Validated admin
+environment for Vercel production.` with only the expected warnings
+(OPENAI_API_KEY, QSTASH_*, TRANSFERMARKT_API_URL) — no errors. Deployment
+`READY`, aliased to `admin.85percent.pro`. A bogus-credential probe against
+the live `POST /api/auth/login` returned a clean `401` (proof the backend
+now reaches a real Supabase project and gets a genuine auth rejection,
+not a dead-host error).
+
+### Still open
+
+`85percent-admin` Production still has no `OPENAI_API_KEY` (Analyst feature
+unavailable) and no `QSTASH_*`/`TRANSFERMARKT_API_URL` (Data Sync from the
+*deployed* admin unavailable — expected, since that flow is local-only by
+design). No live end-to-end login test with a real account was performed by
+Claude; the user should confirm the originally-created test account can now
+sign in.
