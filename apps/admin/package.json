@@ -8,7 +8,7 @@
     "start": "next start -p 4000",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test 'backend/scripts/*.test.ts' 'backend/serverless/*.test.ts' 'backend/data-imports/**/*.test.ts'",
+    "test": "node --import tsx --test 'backend/scripts/*.test.ts' 'backend/serverless/*.test.ts' 'backend/middleware/*.test.ts' 'backend/data-imports/**/*.test.ts' '../../scripts/lib/*.test.mjs'",
     "test:onboarding": "node --import tsx --env-file=.env.local --test backend/routes/onboarding-hydrate.test.ts",
     "ingest:kb": "tsx --env-file=.env.local backend/scripts/ingest-knowledge-base.ts",
     "clean": "rm -rf .next"

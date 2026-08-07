@@ -36,6 +36,14 @@ interface CopilotState {
   pendingInjection: string | null
   /** Running summary of the active session's compacted (older) turns. */
   activeSummary: string | null
+  /**
+   * Sessions that exist only in this tab — created by `newSession()` and not yet
+   * persisted (the backend writes a session on its first message). Asking the
+   * API for one of these can only ever 404, so consumers skip the fetch instead
+   * of firing a request they know will fail. Ids drop off this list as soon as
+   * `refreshSessions()` sees them come back from the server.
+   */
+  localSessionIds: string[]
 
   open: (context?: CopilotContext) => void
   close: () => void
@@ -52,6 +60,8 @@ interface CopilotState {
   ensureActiveSession: () => string
   consumeInjection: () => string | null
   setActiveSummary: (summary: string | null) => void
+  /** True while `id` has never been persisted server-side. */
+  isLocalSession: (id: string) => boolean
 }
 
 export const useCopilot = create<CopilotState>((set, get) => ({
@@ -61,6 +71,7 @@ export const useCopilot = create<CopilotState>((set, get) => ({
   activeId: null,
   pendingInjection: null,
   activeSummary: null,
+  localSessionIds: [],
 
   open: (context) => {
     get().ensureActiveSession()
@@ -91,7 +102,9 @@ export const useCopilot = create<CopilotState>((set, get) => ({
             : undefined
         const merged = localActive ? [localActive, ...list] : list
         const activeId = state.activeId ?? merged[0]?.id ?? null
-        return { sessions: merged, activeId }
+        // Anything the server now knows about is no longer local-only.
+        const localSessionIds = state.localSessionIds.filter((id) => !ids.has(id))
+        return { sessions: merged, activeId, localSessionIds }
       })
     } catch {
       // Leave existing state — the chat still works without the sidebar list.
@@ -105,6 +118,7 @@ export const useCopilot = create<CopilotState>((set, get) => ({
       activeId: meta.id,
       pendingInjection: null,
       activeSummary: null,
+      localSessionIds: [...s.localSessionIds, meta.id],
     }))
     return meta.id
   },
@@ -115,7 +129,7 @@ export const useCopilot = create<CopilotState>((set, get) => ({
     set((s) => {
       const sessions = s.sessions.filter((x) => x.id !== id)
       const activeId = s.activeId === id ? (sessions[0]?.id ?? null) : s.activeId
-      return { sessions, activeId }
+      return { sessions, activeId, localSessionIds: s.localSessionIds.filter((x) => x !== id) }
     })
     try {
       await api.chat.remove(id)
@@ -152,4 +166,6 @@ export const useCopilot = create<CopilotState>((set, get) => ({
   },
 
   setActiveSummary: (summary) => set({ activeSummary: summary }),
+
+  isLocalSession: (id) => get().localSessionIds.includes(id),
 }))

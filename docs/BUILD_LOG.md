@@ -4300,3 +4300,110 @@ backend change needed. Shared validator extracted to `lib/password.ts` (reused b
 **Verified:** `tsc` + production build clean for all three apps (web/landing/admin); live 429 probe
 passed. Not committed. **User-owned Supabase settings still needed:** enable email invites, add
 `${APP_URL}/set-password` to allowed redirect URLs, disable public signups.
+
+---
+
+## Session — First-login workspace bootstrap race + production Supabase project drift (2026-08-07)
+
+Two separate regressions, both surfacing as "login is broken". Diagnosed independently.
+
+### Bug 1 — Production login: the web app is built against a DELETED Supabase project
+
+Not a code bug. `app.85percent.pro`'s deployed bundle has
+`https://fkyexcddvogkngbbrefz.supabase.co` inlined (Vite bakes `VITE_*` at build
+time). That hostname is **NXDOMAIN** — the old production Supabase project no
+longer exists. The current production project is `smhzdbyztyavwyuzuumz` (per
+`SUPABASE_PROD_*` / `MIGRATION_DATABASE_URL_PROD` in `apps/admin/.env.local`).
+
+Failure mode: `POST /api/auth/login` succeeds (the **API** reaches a live
+project — a bogus-credential probe returns a clean 401, not a 500), so the
+backend hands back a valid session. The browser then calls
+`supabase.auth.setSession()` on a client pointed at the dead host, that call
+fails on DNS, and `LoginPage` surfaces the error and never navigates. Creating
+the auth user in the Supabase dashboard was never the problem.
+
+Evidence gathered without reading any secret value: live bundle grep, Vercel
+`env ls` timestamps (`85percent-web` vars 56d old; on `85percent-admin`,
+`SUPABASE_ANON_KEY` 4d old but `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`
+56d), and DNS resolution of all three project refs.
+
+**`scripts/validate-vercel-env.mjs` was itself pinned to the dead project ref**,
+so it would have failed the deploy that fixed this. Rewritten: pure logic
+extracted to `scripts/lib/validate-env.mjs`, production default updated to
+`smhzdbyztyavwyuzuumz`, `EXPECTED_SUPABASE_PROJECT_REF` override added for
+future migrations, stale `ANTHROPIC_API_KEY` → `OPENAI_API_KEY`, and a new
+**credential-consistency check**: legacy Supabase keys are JWTs carrying their
+project ref, so a key rotated to one project while the URL points at another is
+now a build failure instead of a silent auth outage. Opaque `sb_publishable_` /
+`sb_secret_` keys carry no ref, so they are skipped rather than guessed at.
+
+### Bug 2 — First login raced its own provisioning (dev AND prod)
+
+`authMiddleware` provisions the `public.users` row (+ starter club, or invite
+join) lazily on the first authenticated request. The first page load fires
+`/me`, `/club`, `/roster`, `/league-table`, `/chat/sessions`, `/scenarios` in
+parallel — **all** before any row exists, so all of them tried to provision.
+One won; the rest hit a `users_pkey` unique violation and returned **503**,
+which `ProtectedRoute` rendered as "Unable to load this workspace". A refresh
+"fixed" it only because the winner had committed by then. Each loser had also
+already inserted its own starter club, leaving orphan `clubs` rows.
+
+**Server fix** (`backend/middleware/provision.ts`, new): provisioning is now
+idempotent and race-safe behind a store port. A unique violation means a sibling
+request already provisioned us, so we re-read and adopt its row; a starter club
+created by a losing request is compensated away; 503 is reserved for genuine
+database unavailability. An email owned by a *different* account is now 409, not
+503. `middleware/auth.ts` is reduced to token validation plus one call.
+
+**Client fix** — the ordering was wrong too, and would still stampede a cold API:
+- `lib/workspace.ts` (new) — `useWorkspaceReady()`, one predicate for
+  `bootstrapStatus === 'ready' && clubId !== null`.
+- Every workspace-scoped hook in `lib/queries.ts` gates on it (`useMeQuery` is
+  deliberately ungated — it *is* the bootstrap). A disabled query stays
+  `isPending`, so pages keep showing their normal skeleton.
+- `AppLayout` holds the routed page behind its own per-route skeleton and does
+  not mount `CopilotChat` until the workspace resolves.
+- `stores/copilot.ts` tracks `localSessionIds`, so a never-persisted new chat no
+  longer fires a `/chat/sessions/:id` request that can only 404.
+
+No sleeps, no retries, no programmatic refresh.
+
+### Tests
+
+- `backend/middleware/provision.test.ts` — 12 cases on an in-memory store that
+  enforces the real PK/unique constraints and yields on every operation, so
+  concurrent `resolveAppUser` calls interleave deterministically. Covers the
+  6-request first-load race (one user, one club, no orphans, zero failures),
+  invite join, orphan cleanup, 409-vs-503, and compensating club deletion.
+- `scripts/lib/validate-env.test.mjs` — 18 cases: wrong target project, dev
+  creds in production, key/URL project mismatch, missing service-role key,
+  placeholders, `EXPECTED_SUPABASE_PROJECT_REF` override.
+- `apps/web/src/components/auth/ProtectedRoute.test.tsx` — 7 cases asserting the
+  ordering at the **network boundary** (stubbed `fetch`, real `api.ts`): no
+  workspace-scoped request may fire while `/me`/`/club` are in flight, each
+  endpoint requested exactly once, no 5xx, no refresh needed, same on reload,
+  and the error screen only after a genuine failure.
+
+Both suites were verified to FAIL against the pre-fix behaviour before being
+kept. `apps/web` gained a test runner (vitest + jsdom + @testing-library/react);
+admin's test glob now also covers `backend/middleware/` and `scripts/lib/`.
+
+Playwright was **not** added — no browser suite exists in this repo and adding
+one was out of scope for this fix.
+
+### Verified
+
+`pnpm typecheck` 9/9 tasks pass. `pnpm build` 6/6 pass (web bundle 2.70 MB
+minified, unchanged). `pnpm test`: engine 119, admin 124 (was 94), web 7.
+
+### Still required in production (not done here — no deploy was made)
+
+On Vercel project **85percent-web** → Production: repoint `VITE_SUPABASE_URL`
+and `VITE_SUPABASE_ANON_KEY` at `smhzdbyztyavwyuzuumz`, then **redeploy** (Vite
+inlines them at build time; an env change alone does nothing). On
+**85percent-admin** → Production: confirm `SUPABASE_URL`,
+`SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_ANON_KEY` all belong to that same
+project — the new validator now fails the build if they disagree. Also absent
+from admin Production entirely: `QSTASH_TOKEN`,
+`QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY`,
+`FOOTBALL_DATA_API_KEY`, `TRANSFERMARKT_API_URL`, `OPENAI_API_KEY`.

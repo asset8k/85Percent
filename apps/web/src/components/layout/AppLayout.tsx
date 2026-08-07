@@ -21,8 +21,30 @@ import { useWorkspaceCurrency } from '@/lib/useWorkspaceCurrency'
 import type { ComplianceStatus } from '@85percent/shared'
 import { useScenarioDetailsQuery } from '@/lib/queries'
 import { formatPercentage, formatPercentagePointDelta } from '@/lib/percentage'
+import {
+  CalendarSkeleton,
+  DashboardSkeleton,
+  FormPageSkeleton,
+  RosterSkeleton,
+  ScenariosSkeleton,
+} from '@/components/ui/page-skeletons'
 
 type ScrWidgetState = 'loading' | 'ready' | 'notConfigured' | 'error'
+
+// While the workspace bootstraps we stand in for the routed page with that
+// page's own skeleton, so the first login looks like a normal load rather than
+// a spinner followed by a jump.
+const bootstrapSkeletons: Record<string, () => JSX.Element> = {
+  '/dashboard': DashboardSkeleton,
+  '/roster': RosterSkeleton,
+  '/scenarios': ScenariosSkeleton,
+  '/calendar': CalendarSkeleton,
+}
+
+function BootstrapSkeleton({ route }: { route: string }) {
+  const Skeleton = bootstrapSkeletons[route] ?? FormPageSkeleton
+  return <Skeleton />
+}
 
 // Maps the first path segment to its i18n key for the breadcrumb title.
 const routeLabelKey: Record<string, string> = {
@@ -120,8 +142,16 @@ export function AppLayout() {
     <div className="min-h-screen flex bg-white text-slate-900">
       <ProgressBar />
       <ToastHost />
-      <CopilotChat />
-      <CopilotLauncher />
+      {/* The copilot loads its server-side chat history on mount, which is a
+          workspace-scoped call. Mounting it before the bootstrap resolves put
+          `/chat/sessions` in the same racing burst as the page queries, so it
+          waits for the workspace like everything else. */}
+      {!shellLoading && (
+        <>
+          <CopilotChat />
+          <CopilotLauncher />
+        </>
+      )}
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
         <header className="h-16 sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-200 flex items-center gap-4 px-8">
@@ -199,12 +229,19 @@ export function AppLayout() {
                 keeps a pre-loaded tab from snapping into place. Honours the OS
                 "reduce motion" setting by dropping the movement. */}
             <motion.div
-              key={firstSegment}
+              key={shellLoading ? `${firstSegment}:bootstrapping` : firstSegment}
               initial={{ opacity: 0, y: reduceMotion ? 0 : 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.45, ease: [0.25, 0.1, 0.25, 1] }}
             >
-              <Outlet />
+              {/* Hold the route's own skeleton until the workspace is resolved.
+                  Route pages read the club store and fire workspace-scoped
+                  requests on mount, so mounting one mid-bootstrap makes it race
+                  the `/me` + `/club` calls it depends on — the first-login
+                  failure. The skeleton is the same one the page shows for a
+                  normal slow load, so this reads as one continuous load rather
+                  than a broken workspace. */}
+              {shellLoading ? <BootstrapSkeleton route={firstSegment} /> : <Outlet />}
             </motion.div>
           </div>
         </main>

@@ -1,46 +1,18 @@
 #!/usr/bin/env node
 
+/**
+ * Vercel build gate. Fails the deployment when the environment is missing
+ * credentials or points at the wrong Supabase project. The rules live in
+ * scripts/lib/validate-env.mjs so they can be unit-tested; this file only wires
+ * them to the process.
+ */
+
+import { APP_CONFIGURATIONS, validateEnvironment } from './lib/validate-env.mjs'
+
 const app = process.argv[2]
 const vercelEnvironment = process.env.VERCEL_ENV
 
-const configurations = {
-  admin: {
-    required: [
-      'SUPABASE_URL',
-      'SUPABASE_SERVICE_ROLE_KEY',
-      'SUPABASE_ANON_KEY',
-      'ADMIN_USERNAME',
-      'ADMIN_PASSWORD',
-      'ADMIN_SESSION_SECRET',
-      'APP_URL',
-      'UPSTASH_REDIS_REST_URL',
-      'UPSTASH_REDIS_REST_TOKEN',
-      'QSTASH_TOKEN',
-      'QSTASH_CURRENT_SIGNING_KEY',
-      'QSTASH_NEXT_SIGNING_KEY',
-      'FOOTBALL_DATA_API_KEY',
-      'TRANSFERMARKT_API_URL',
-    ],
-    recommended: ['ANTHROPIC_API_KEY'],
-    supabaseUrl: 'SUPABASE_URL',
-  },
-  web: {
-    required: ['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY'],
-    supabaseUrl: 'VITE_SUPABASE_URL',
-  },
-  landing: {
-    required: [
-      'NEXT_PUBLIC_SUPABASE_URL',
-      'SUPABASE_ANON_KEY',
-      'UPSTASH_REDIS_REST_URL',
-      'UPSTASH_REDIS_REST_TOKEN',
-    ],
-    supabaseUrl: 'NEXT_PUBLIC_SUPABASE_URL',
-  },
-}
-
-const configuration = configurations[app]
-if (!configuration) {
+if (!APP_CONFIGURATIONS[app]) {
   console.error('Usage: node scripts/validate-vercel-env.mjs <admin|web|landing>')
   process.exit(2)
 }
@@ -50,45 +22,19 @@ if (!vercelEnvironment) {
   process.exit(0)
 }
 
-const placeholderPattern = /^(?:your-|<)|(?:change-me|placeholder|undefined|null)$/i
-const invalid = configuration.required.filter((name) => {
-  const value = process.env[name]?.trim()
-  return !value || placeholderPattern.test(value)
+const { ok, errors, warnings } = validateEnvironment({
+  app,
+  vercelEnvironment,
+  env: process.env,
 })
 
-const errors = invalid.map((name) => `${name} is missing, blank, or a placeholder`)
-
-const expectedProjectRef =
-  vercelEnvironment === 'production'
-    ? 'fkyexcddvogkngbbrefz'
-    : 'deebcfzsgdwnmeoqphgm'
-const supabaseUrl = process.env[configuration.supabaseUrl]?.trim()
-
-if (supabaseUrl && !supabaseUrl.includes(expectedProjectRef)) {
-  errors.push(
-    `${configuration.supabaseUrl} must target the ${vercelEnvironment} Supabase project (${expectedProjectRef})`,
-  )
-}
-
-if (app === 'admin' && vercelEnvironment === 'production') {
-  const appUrl = process.env.APP_URL?.trim()
-  if (appUrl && appUrl !== 'https://app.85percent.pro') {
-    errors.push('APP_URL must be https://app.85percent.pro in production')
-  }
-}
-
-if (errors.length > 0) {
+if (!ok) {
   console.error(`Invalid ${app} environment for Vercel ${vercelEnvironment}:`)
   for (const error of errors) console.error(`- ${error}`)
   console.error('Deployment stopped before the application build.')
   process.exit(1)
 }
 
-const warnings = (configuration.recommended ?? []).filter(
-  (name) => !process.env[name]?.trim(),
-)
-for (const name of warnings) {
-  console.warn(`Warning: ${name} is not configured; its feature will be unavailable.`)
-}
+for (const warning of warnings) console.warn(`Warning: ${warning}`)
 
 console.log(`Validated ${app} environment for Vercel ${vercelEnvironment}.`)

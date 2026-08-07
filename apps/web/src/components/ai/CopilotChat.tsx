@@ -698,7 +698,9 @@ export function CopilotChat() {
   useEffect(() => {
     let cancelled = false
     setChatError(null)
-    if (!activeId) {
+    // A session created in this tab has no server rows until its first message
+    // is sent, so requesting it would only produce a 404 we then discard.
+    if (!activeId || useCopilot.getState().isLocalSession(activeId)) {
       setMessages([])
       setActiveSummary(null)
       return
