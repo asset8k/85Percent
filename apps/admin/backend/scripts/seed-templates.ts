@@ -118,6 +118,11 @@ async function main() {
     return
   }
 
+  // template_clubs.updated_at is NOT NULL with no DB default — Prisma's
+  // @updatedAt only stamps it at the ORM layer, so raw REST writes here must
+  // set it explicitly on every insert/update.
+  const nowISO = () => new Date().toISOString()
+
   for (const club of clubPlan.toInsert) {
     const { error } = await client.from('template_clubs').insert({
       id: club.id,
@@ -125,12 +130,13 @@ async function main() {
       league: club.league,
       logo_url: club.logoUrl,
       is_active: true,
+      updated_at: nowISO(),
     })
     if (error) throw new Error(`Insert failed for ${club.name}: ${error.message}`)
   }
 
   for (const update of clubPlan.toUpdate) {
-    const patch: Record<string, unknown> = {}
+    const patch: Record<string, unknown> = { updated_at: nowISO() }
     if (update.changes.league) patch.league = update.changes.league.to
     if (update.changes.logoUrl) patch.logo_url = update.changes.logoUrl.to
     if (update.changes.isActive) patch.is_active = update.changes.isActive.to
@@ -139,7 +145,7 @@ async function main() {
   }
 
   for (const deactivate of clubPlan.toDeactivate) {
-    const { error } = await client.from('template_clubs').update({ is_active: false }).eq('id', deactivate.id)
+    const { error } = await client.from('template_clubs').update({ is_active: false, updated_at: nowISO() }).eq('id', deactivate.id)
     if (error) throw new Error(`Deactivate failed for ${deactivate.name}: ${error.message}`)
   }
 
