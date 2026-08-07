@@ -4587,3 +4587,29 @@ server-side configuration gap instead. Unsynced clubs now carry a small
 Production seed not yet applied — the dry-run above is what
 `db:seed:templates:prod --apply` would do once approved. After applying:
 run `pnpm db:verify:templates:prod` and a manual onboarding smoke test.
+
+### Production seed applied
+
+`pnpm db:seed:templates:prod` — first attempt failed cleanly on the very
+first insert (`updated_at` NOT NULL, no DB default; Prisma's `@updatedAt`
+only stamps it at the ORM layer, and the script's raw REST insert didn't
+set it — zero rows had been written at that point). Fixed by setting
+`updated_at` explicitly on every insert/update/deactivate in
+`seed-templates.ts`, re-verified as a no-op against Dev, then re-ran
+against Prod successfully: 41 clubs inserted, 44 football-data.org mappings
+created, 0 updates/deactivations needed (the pre-existing 3 already matched
+canonical values).
+
+`pnpm db:verify:templates:prod` → **PASS** — 44 active (20 PL / 24
+Championship). Confirmed `GET /onboarding/clubs`'s exact query
+(`is_active=true AND league=...`) returns 20 and 24 respectively with no
+missing logos, matching what the *currently-deployed* endpoint will now
+serve even before the `hasRoster` code change ships.
+
+Squad coverage in Prod: 0/44 (expected — the seed intentionally never
+touches `template_roster_items`; that's Data Sync's job, run locally
+against Prod on request).
+
+Still pending, in order per instruction: identify+propose the safe way to
+populate Prod squads (next), then merge `dev` → `main` and deploy — held
+until the seed was confirmed good, which it now is.
