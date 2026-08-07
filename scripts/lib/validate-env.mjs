@@ -43,6 +43,16 @@ export const DEFAULT_SUPABASE_PROJECT_REFS = {
  */
 export const APP_CONFIGURATIONS = {
   admin: {
+    // Data Sync (squad/player imports via the Transfermarkt adapter) is
+    // intentionally local-only: it runs against an admin instance on the
+    // operator's machine talking to a Transfermarkt adapter on localhost:8000,
+    // dispatched in-process (DATA_IMPORT_DISPATCH_MODE=local). It is never
+    // triggered against the deployed Vercel admin, so QStash (the dispatcher
+    // for the *remote* worker path, apps/admin/app/api/data-imports/task/route.ts)
+    // and the Transfermarkt adapter URL have nothing to configure in Production
+    // — see `recommended` below. FOOTBALL_DATA_API_KEY is different: the
+    // always-on GET /league-table route (backend/routes/league-table.ts) calls
+    // football-data.org directly as its live-data tier, so it stays required.
     required: [
       'SUPABASE_URL',
       'SUPABASE_SERVICE_ROLE_KEY',
@@ -53,13 +63,9 @@ export const APP_CONFIGURATIONS = {
       'APP_URL',
       'UPSTASH_REDIS_REST_URL',
       'UPSTASH_REDIS_REST_TOKEN',
-      'QSTASH_TOKEN',
-      'QSTASH_CURRENT_SIGNING_KEY',
-      'QSTASH_NEXT_SIGNING_KEY',
       'FOOTBALL_DATA_API_KEY',
-      'TRANSFERMARKT_API_URL',
     ],
-    recommended: ['OPENAI_API_KEY'],
+    recommended: ['OPENAI_API_KEY', 'QSTASH_TOKEN', 'QSTASH_CURRENT_SIGNING_KEY', 'QSTASH_NEXT_SIGNING_KEY', 'TRANSFERMARKT_API_URL'],
     urlVar: 'SUPABASE_URL',
     keyVars: ['SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY'],
   },

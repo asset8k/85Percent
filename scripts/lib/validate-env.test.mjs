@@ -173,6 +173,31 @@ describe('validateEnvironment — required credentials', () => {
     assert.ok(result.errors.some((e) => e.startsWith('SUPABASE_SERVICE_ROLE_KEY')))
   })
 
+  it('rejects a missing football-data.org key — GET /league-table calls it directly in production', () => {
+    const env = adminEnv()
+    delete env.FOOTBALL_DATA_API_KEY
+    const result = validateEnvironment({ app: 'admin', vercelEnvironment: 'production', env })
+    assert.equal(result.ok, false)
+    assert.ok(result.errors.some((e) => e.startsWith('FOOTBALL_DATA_API_KEY')))
+  })
+
+  // Data Sync (QStash dispatch + the Transfermarkt adapter) is local-only by
+  // design: it runs against a locally-started admin talking to an adapter on
+  // localhost:8000, never against the deployed Vercel admin. A Production
+  // deploy must not fail the gate over these.
+  it('does not require QStash or the Transfermarkt adapter URL in production — Data Sync is local-only', () => {
+    const env = adminEnv()
+    delete env.QSTASH_TOKEN
+    delete env.QSTASH_CURRENT_SIGNING_KEY
+    delete env.QSTASH_NEXT_SIGNING_KEY
+    delete env.TRANSFERMARKT_API_URL
+    const result = validateEnvironment({ app: 'admin', vercelEnvironment: 'production', env })
+    assert.equal(result.ok, true)
+    assert.deepEqual(result.errors, [])
+    assert.ok(result.warnings.some((w) => w.includes('QSTASH_TOKEN')))
+    assert.ok(result.warnings.some((w) => w.includes('TRANSFERMARKT_API_URL')))
+  })
+
   it('rejects a missing publishable key', () => {
     const env = adminEnv({ SUPABASE_ANON_KEY: '   ' })
     const result = validateEnvironment({ app: 'admin', vercelEnvironment: 'production', env })
