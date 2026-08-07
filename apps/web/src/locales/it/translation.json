@@ -491,10 +491,12 @@
     "clubCount_one": "{{count}} club",
     "clubCount_other": "{{count}} club",
     "noCached": {
-      "title": "Ancora nessun club in cache",
-      "body": "La libreria delle rose di questo campionato non è stata sincronizzata. Chiedi a un amministratore di eseguire Data Sync oppure costruisci la rosa manualmente dalla pagina Rosa.",
-      "cta": "Costruisci manualmente"
+      "title": "Questo campionato non è ancora configurato",
+      "body": "Nessun club modello è configurato per questo campionato in questo ambiente: è un problema di configurazione del server, non un ritardo di sincronizzazione. Puoi comunque configurare il tuo club manualmente.",
+      "cta": "Configura manualmente"
     },
+    "noRosterBadge": "Configurazione manuale",
+    "noRosterHint": "Questo club non ha ancora una rosa modello: puoi comunque selezionarlo e costruire la rosa manualmente.",
     "noMatch": "Nessun club corrisponde a « {{query}} »",
     "noMatchHint": "Prova con un'altra grafia.",
     "confirmReplacing": "Sostituisce la tua rosa di {{count}} giocatori · gli stipendi partono da 0 £",

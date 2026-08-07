@@ -87,11 +87,31 @@ export async function onboardingRoutes(app: ApiApp) {
       const { data, error } = await query
       if (error) throw error
 
-      const clubs = (data ?? []).map((c) => ({
+      const rows = data ?? []
+
+      // A club being in the catalog and a club having a synced template squad
+      // are two different states (see docs/BUILD_LOG.md — Production once had
+      // clubs missing entirely, a different failure from clubs present but not
+      // yet Data-Synced). Surface both so the UI never conflates them: an
+      // unsynced club still shows up here and is still selectable, it just
+      // hydrates an empty roster for the CFO to build manually.
+      const clubIds = rows.map((c) => String(c.id))
+      let clubIdsWithRoster = new Set<string>()
+      if (clubIds.length > 0) {
+        const { data: rosterRows, error: rosterErr } = await supabase
+          .from('template_roster_items')
+          .select('template_club_id')
+          .in('template_club_id', clubIds)
+        if (rosterErr) throw rosterErr
+        clubIdsWithRoster = new Set((rosterRows ?? []).map((r) => String(r.template_club_id)))
+      }
+
+      const clubs = rows.map((c) => ({
         id: String(c.id),
         name: String(c.name),
         leagueId: templateToLeagueId(String(c.league)),
         logoUrl: (c.logo_url as string | null) ?? null,
+        hasRoster: clubIdsWithRoster.has(String(c.id)),
       }))
       return reply.send({ clubs })
     } catch (err) {

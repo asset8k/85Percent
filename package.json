@@ -20,7 +20,13 @@
     "data-sync:adapter:stop": "bash scripts/data-sync-adapter.sh stop",
     "data-sync:local": "bash scripts/data-sync-local.sh",
     "data-sync:local:dev": "bash scripts/data-sync-local.sh dev",
-    "data-sync:local:prod": "bash scripts/data-sync-local.sh prod"
+    "data-sync:local:prod": "bash scripts/data-sync-local.sh prod",
+    "db:seed:templates:dev": "pnpm --filter @85percent/admin db:seed:templates:dev",
+    "db:seed:templates:dev:dry-run": "pnpm --filter @85percent/admin db:seed:templates:dev:dry-run",
+    "db:seed:templates:prod": "pnpm --filter @85percent/admin db:seed:templates:prod",
+    "db:seed:templates:prod:dry-run": "pnpm --filter @85percent/admin db:seed:templates:prod:dry-run",
+    "db:verify:templates:dev": "pnpm --filter @85percent/admin db:verify:templates:dev",
+    "db:verify:templates:prod": "pnpm --filter @85percent/admin db:verify:templates:prod"
   },
   "devDependencies": {
     "turbo": "^2.5.3",

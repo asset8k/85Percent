@@ -345,6 +345,9 @@ export interface OnboardingClub {
   name: string
   leagueId: 'premier-league' | 'efl-championship'
   logoUrl: string | null
+  // False when the template exists but no squad has been Data-Synced yet —
+  // the club is still selectable, it just hydrates an empty roster.
+  hasRoster: boolean
 }
 
 export interface OnboardingCompleteResponse {

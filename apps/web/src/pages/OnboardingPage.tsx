@@ -442,10 +442,12 @@ function ClubTile({
   selected: boolean
   onSelect: () => void
 }) {
+  const { t } = useTranslation()
   return (
     <button
       type="button"
       onClick={onSelect}
+      title={club.hasRoster ? undefined : t('onboarding.noRosterHint')}
       className={cn(
         'relative flex flex-col items-center gap-3 rounded-xl border bg-white px-3 py-5 text-center transition-all duration-150',
         'hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500',
@@ -459,6 +461,11 @@ function ClubTile({
         >
           <CheckIcon />
         </motion.span>
+      )}
+      {!club.hasRoster && (
+        <span className="absolute top-2 left-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9.5px] font-medium text-slate-500">
+          {t('onboarding.noRosterBadge')}
+        </span>
       )}
       <ClubAvatar club={club} size={52} />
       <span className="text-[12.5px] font-medium text-slate-800 leading-tight line-clamp-2">

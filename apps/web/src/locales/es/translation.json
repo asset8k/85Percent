@@ -491,10 +491,12 @@
     "clubCount_one": "{{count}} club",
     "clubCount_other": "{{count}} clubes",
     "noCached": {
-      "title": "Aún no hay clubes en caché",
-      "body": "La biblioteca de plantillas de esta liga no se ha sincronizado. Pide a un administrador que ejecute Data Sync o crea tu plantilla manualmente en la página Plantilla.",
-      "cta": "Crear manualmente"
+      "title": "Esta liga aún no está configurada",
+      "body": "No hay clubes de plantilla configurados para esta liga en este entorno; es un problema de configuración del servidor, no un retraso de sincronización. Aun así, puedes configurar tu club manualmente.",
+      "cta": "Configurar manualmente"
     },
+    "noRosterBadge": "Configuración manual",
+    "noRosterHint": "Este club aún no tiene plantilla de referencia: puedes seleccionarlo igualmente y crear la plantilla manualmente.",
     "noMatch": "Ningún club coincide con «{{query}}»",
     "noMatchHint": "Prueba con otra ortografía.",
     "confirmReplacing": "Reemplaza tu plantilla de {{count}} jugadores · los salarios empiezan en 0 £",

@@ -491,10 +491,12 @@
     "clubCount_one": "{{count}} club",
     "clubCount_other": "{{count}} clubs",
     "noCached": {
-      "title": "No clubs cached yet",
-      "body": "The roster library for this league hasn't been synced. Ask an administrator to run Data Sync, or build your squad manually on the Roster page.",
-      "cta": "Build manually"
+      "title": "This league isn't set up yet",
+      "body": "No template clubs are configured for this league on this environment — that's a server-side setup gap, not a data-sync delay. You can still set up your club manually.",
+      "cta": "Set up manually"
     },
+    "noRosterBadge": "Manual setup",
+    "noRosterHint": "No template squad yet for this club — you can still select it and build the roster manually.",
     "noMatch": "No clubs match “{{query}}”",
     "noMatchHint": "Try a different spelling.",
     "confirmReplacing": "Replaces your {{count}}-player squad · wages start at £0",

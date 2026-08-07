@@ -491,10 +491,12 @@
     "clubCount_one": "{{count}} club",
     "clubCount_other": "{{count}} clubs",
     "noCached": {
-      "title": "Aucun club en cache pour l'instant",
-      "body": "La bibliothèque d'effectifs de cette ligue n'a pas été synchronisée. Demandez à un administrateur de lancer Data Sync, ou constituez votre effectif manuellement depuis la page Effectif.",
-      "cta": "Constituer manuellement"
+      "title": "Cette ligue n'est pas encore configurée",
+      "body": "Aucun club modèle n'est configuré pour cette ligue sur cet environnement : il s'agit d'un problème de configuration serveur, pas d'un retard de synchronisation. Vous pouvez tout de même configurer votre club manuellement.",
+      "cta": "Configurer manuellement"
     },
+    "noRosterBadge": "Configuration manuelle",
+    "noRosterHint": "Ce club n'a pas encore d'effectif modèle : vous pouvez tout de même le sélectionner et constituer l'effectif manuellement.",
     "noMatch": "Aucun club ne correspond à « {{query}} »",
     "noMatchHint": "Essayez une autre orthographe.",
     "confirmReplacing": "Remplace votre effectif de {{count}} joueurs · les salaires démarrent à 0 £",
