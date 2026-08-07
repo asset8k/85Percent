@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuthStore } from '@/stores/auth'
 import { supabase } from '@/lib/supabase'
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
 import { useClubStore } from '@/stores/club'
 import { useSeasonStore, seasonKey } from '@/stores/season'
 import { useNotificationsStore } from '@/stores/notifications'
@@ -127,7 +127,17 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     setFinancialsLoading()
     api.club.getFinancials(seasonKey(seasonStartYear))
       .then((f) => { if (!cancelled) setFinancials(f) })
-      .catch(() => { if (!cancelled) setFinancialsError() })
+      .catch((err) => {
+        if (cancelled) return
+        // 404 is the API's documented shape for "no financials row yet" — a
+        // brand-new club that hasn't been through onboarding, not a failure.
+        // Routing it through setFinancials(null) (the same success path a
+        // genuinely-empty season takes) is what lets the TopBar SCR pill and
+        // page empty-states show their neutral "set up financials" state
+        // instead of the red Unavailable/Retry error state.
+        if (err instanceof ApiError && err.status === 404) setFinancials(null)
+        else setFinancialsError()
+      })
     return () => { cancelled = true }
   }, [userId, clubId, seasonStartYear, financialsRequestVersion, setFinancials, setFinancialsError, setFinancialsLoading])
 

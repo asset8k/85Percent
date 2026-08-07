@@ -59,7 +59,10 @@
       "startHere": "Commencez ici",
       "body": "Choisissez votre club pour préremplir instantanément tout l'effectif, les contrats et l'entraîneur.",
       "choose": "Choisir un club",
-      "dismiss": "Ignorer"
+      "dismiss": "Ignorer",
+      "financialsTitle": "Ensuite : Finances",
+      "financialsBody": "Ajoutez les revenus et la marge de votre club pour calculer votre ratio de coût de l'effectif.",
+      "financialsCta": "Configurer les finances"
     },
     "changeModal": {
       "title": "Changer de club",

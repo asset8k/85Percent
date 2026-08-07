@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { createPortal } from 'react-dom'
@@ -42,7 +42,10 @@ const navIcons: Record<NavigationItemId, React.ReactNode> = {
 
 export function Sidebar() {
   const { t } = useTranslation()
-  const { bootstrapStatus, clubId, clubName, leagueId, clubLogoUrl } = useClubStore()
+  const {
+    bootstrapStatus, clubId, clubName, leagueId, clubLogoUrl,
+    financials, financialsStatus,
+  } = useClubStore()
   const navigate = useNavigate()
   const can = useCan()
   const [changeOpen, setChangeOpen] = useState(false)
@@ -63,6 +66,50 @@ export function Sidebar() {
     return () => { cancelled = true }
   }, [clubId, can.switchLeague])
   const showClubNudge = squadEmpty === true && can.switchLeague && !nudgeDismissed && !changeOpen
+
+  // Step 2 of onboarding: once a squad exists (club chosen) but no Financials
+  // row has been saved for the season, point the CFO at Financials next. Both
+  // conditions are read straight off real domain state (roster rows,
+  // `club_financials` row existence) rather than a persisted "dismissed" flag —
+  // once financials are saved, `financials` is non-null for good, so the nudge
+  // naturally never reappears without any localStorage/backend flag to manage.
+  const [financialsNudgeDismissed, setFinancialsNudgeDismissed] = useState(false)
+  const showFinancialsNudge =
+    squadEmpty === false &&
+    can.editClubFinancials &&
+    financialsStatus === 'ready' &&
+    financials === null &&
+    !financialsNudgeDismissed &&
+    !changeOpen
+
+  // The coach-mark is portaled to <body> (see below) rather than absolutely
+  // positioned inside <nav>: that list scrolls (`overflow-y-auto`), and per
+  // the CSS overflow spec, setting overflow-y to anything but `visible` forces
+  // the computed overflow-x to `auto` too — so an absolutely-positioned child
+  // meant to float out to the right gets clipped by the nav's own scroll
+  // container instead of escaping it. Measuring the nav item's position and
+  // portaling avoids that entirely.
+  const financialsNavRef = useRef<HTMLDivElement | null>(null)
+  const [financialsAnchor, setFinancialsAnchor] = useState<{ top: number; left: number } | null>(null)
+  useLayoutEffect(() => {
+    if (!showFinancialsNudge) { setFinancialsAnchor(null); return }
+    const update = () => {
+      const r = financialsNavRef.current?.getBoundingClientRect()
+      // Anchored to the row's top edge, not vertically centered via a CSS
+      // transform: framer-motion owns the `transform` property on the
+      // motion.div below (it's already animating `x`), so a translateY(-50%)
+      // set alongside it in `style` gets silently overwritten. The arrow is
+      // offset down by a fixed amount instead, to line up with the row's icon.
+      if (r) setFinancialsAnchor({ top: r.top, left: r.right + 12 })
+    }
+    update()
+    window.addEventListener('resize', update)
+    window.addEventListener('scroll', update, true)
+    return () => {
+      window.removeEventListener('resize', update)
+      window.removeEventListener('scroll', update, true)
+    }
+  }, [showFinancialsNudge])
 
   const capabilities = resolveProductCapabilities(leagueId ?? '', can)
   const visibleNavItems = visibleNavigation(capabilities)
@@ -105,32 +152,92 @@ export function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 py-4 flex flex-col gap-0.5 overflow-y-auto">
         {visibleNavItems.map(({ id, to, labelKey }) => (
-          <NavLink
-            key={to}
-            to={to}
-            className={({ isActive }) =>
-              cn(
-                'group relative w-full flex items-center gap-3 pl-5 pr-4 py-2.5 text-sm font-medium transition-colors duration-150',
-                isActive
-                  ? 'text-violet-700'
-                  : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
-              )
-            }
-          >
-            {({ isActive }) => (
-              <>
-                {isActive && (
-                  <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r bg-violet-600" />
-                )}
-                <span className={cn(isActive ? 'text-violet-600' : 'text-slate-400 group-hover:text-slate-600')}>
-                  {navIcons[id]}
-                </span>
-                <span>{t(labelKey)}</span>
-              </>
-            )}
-          </NavLink>
+          <div key={to} className="relative" ref={id === 'financials' ? financialsNavRef : undefined}>
+            <NavLink
+              to={to}
+              className={({ isActive }) =>
+                cn(
+                  'group relative w-full flex items-center gap-3 pl-5 pr-4 py-2.5 text-sm font-medium transition-colors duration-150',
+                  isActive
+                    ? 'text-violet-700'
+                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50',
+                  id === 'financials' && showFinancialsNudge && 'ring-2 ring-violet-400 ring-offset-1 rounded-md',
+                )
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  {isActive && (
+                    <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r bg-violet-600" />
+                  )}
+                  <span className={cn(isActive ? 'text-violet-600' : 'text-slate-400 group-hover:text-slate-600')}>
+                    {navIcons[id]}
+                  </span>
+                  <span>{t(labelKey)}</span>
+                </>
+              )}
+            </NavLink>
+          </div>
         ))}
       </nav>
+
+      {/* Step 2 coach-mark — same visual/behavioral pattern as the
+          workspace-switcher "Start here" nudge below, anchored to the
+          Financials nav item. Portaled to <body> and positioned from a
+          measured rect (see financialsAnchor above) rather than absolutely
+          positioned inside <nav>, so it floats over the page instead of
+          being clipped by the nav list's own scroll container. */}
+      {createPortal(
+        <AnimatePresence>
+          {showFinancialsNudge && financialsAnchor && (
+            <motion.div
+              initial={{ opacity: 0, x: -6 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -6 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+              style={{
+                position: 'fixed',
+                top: financialsAnchor.top,
+                left: financialsAnchor.left,
+                zIndex: 40,
+              }}
+              className="w-56"
+            >
+              <div className="relative rounded-xl bg-violet-600 text-white shadow-lg shadow-violet-600/25 p-3.5">
+                <button
+                  onClick={() => setFinancialsNudgeDismissed(true)}
+                  aria-label={t('chrome.nudge.dismiss')}
+                  className="absolute top-2 right-2 text-white/60 hover:text-white transition-colors"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+                <div className="text-[12px] font-semibold pr-3">
+                  {t('chrome.nudge.financialsTitle')}
+                </div>
+                <p className="mt-1 text-[12px] leading-snug text-violet-100 pr-3">
+                  {t('chrome.nudge.financialsBody')}
+                </p>
+                <button
+                  onClick={() => { setFinancialsNudgeDismissed(true); navigate('/financials') }}
+                  className="mt-2.5 inline-flex items-center gap-1 text-[12px] font-semibold text-white bg-white/15 hover:bg-white/25 rounded-lg px-2.5 py-1.5 transition-colors"
+                >
+                  {t('chrome.nudge.financialsCta')}
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12h14" /><path d="M13 6l6 6-6 6" />
+                  </svg>
+                </button>
+                {/* Arrow pointing left to the nav item's icon — fixed offset
+                    from the box's top edge (which sits at the row's top),
+                    rather than vertically centered on the box itself. */}
+                <span className="absolute top-5 -left-1.5 w-3 h-3 rotate-45 bg-violet-600" />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
 
       {/* Workspace */}
       <div className="relative px-5 py-4 border-t border-slate-100">

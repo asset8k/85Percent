@@ -4613,3 +4613,68 @@ against Prod on request).
 Still pending, in order per instruction: identify+propose the safe way to
 populate Prod squads (next), then merge `dev` → `main` and deploy — held
 until the seed was confirmed good, which it now is.
+
+## Onboarding UX: honest SCR state + Financials as Step 2 (2026-08-07)
+
+Production symptom: a brand-new user who'd just picked a club saw the
+TopBar "CURRENT SCR" widget read **Unavailable / Retry** before they'd
+ever had a chance to enter Financials — looked like a backend failure,
+wasn't one.
+
+### Root cause
+
+`GET /club/financials` already returned the right shape: `404` for "no row
+for this season yet", `500` for a genuine failure
+(`apps/admin/backend/routes/club.ts:177,207`). But `apiFetch`
+(`apps/web/src/lib/api.ts`) threw the same `ApiError` for any non-OK
+response, and `ProtectedRoute.tsx` funneled every rejection into
+`setFinancialsError()` — so 404 and 500 both landed on
+`financialsStatus: 'error'`. `AppLayout.tsx`'s SCR widget already had a
+correct `notConfigured` state and pill; it was just unreachable dead code,
+since nothing ever fed it that input.
+
+Fixed at the source, not visually:
+- `ApiError` now carries `status` (`apps/web/src/lib/api.ts`).
+- `ProtectedRoute` checks it: 404 → `setFinancials(null)` (the same
+  success path a genuinely-empty season takes → the friendly
+  "Set up financials" pill); anything else → `setFinancialsError()` (real
+  `Unavailable` / `Retry`).
+
+### Financials as onboarding Step 2
+
+Added a second coach-mark, same pattern as the existing "Start here" club
+picker, anchored to the Financials sidebar item. Eligibility is derived
+from real domain state rather than a new persistence flag: shows when the
+roster is non-empty (club chosen) and `financials === null` (no
+`club_financials` row yet); disappears for good once financials are saved,
+since `financials` then stays non-null — no localStorage/backend flag
+needed. No schema change, no new backend field.
+
+Two bugs found and fixed live in the browser after the first pass tested
+green:
+- The coach-mark was absolutely-positioned inside `<nav>`, which has
+  `overflow-y-auto` — per the CSS overflow spec, setting one axis to
+  non-`visible` forces the other axis to compute as `auto` too, so the
+  "escape to the right" positioning got clipped by the nav's own scroll
+  box. Fixed by portaling to `document.body` (same pattern as the SCR
+  breakdown popover and the "change club" modal already in this file),
+  positioned from a measured `getBoundingClientRect()`.
+- The portal's vertical centering (`style.transform: 'translateY(-50%)'`)
+  was silently overwritten — the same `motion.div` also animates `x` via
+  framer-motion, which owns the `transform` property on anything it
+  animates. Fixed by anchoring to the row's top edge directly (no
+  transform) and offsetting the arrow by a fixed pixel amount instead.
+
+### Verified
+
+- `pnpm --filter @85percent/web test` — 14/14 pass, including a new
+  `AppLayout.test.tsx` (7 tests, full-stack render against a real fetch
+  mock) covering all 6 requested regression scenarios: no-club/no-error,
+  financials-missing/neutral-state, financials-configured/normal-SCR,
+  genuine-500/still-shows-Retry, refresh-doesn't-resurrect-a-completed-step,
+  and both "Set up financials" CTAs navigating to `/financials`.
+- `pnpm --filter @85percent/web typecheck` / `build` — clean.
+- Admin untouched (no backend/schema change), so no admin test run needed.
+- Manually confirmed in the browser (localhost:5173) against a real
+  Championship club with a not-yet-configured season — this is where the
+  two positioning bugs above were actually caught.

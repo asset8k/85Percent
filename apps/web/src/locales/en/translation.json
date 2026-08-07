@@ -59,7 +59,10 @@
       "startHere": "Start here",
       "body": "Pick your club to instantly pre-fill the full squad, contracts and head coach.",
       "choose": "Choose a club",
-      "dismiss": "Dismiss"
+      "dismiss": "Dismiss",
+      "financialsTitle": "Next: Financials",
+      "financialsBody": "Add your club's revenue and allowance to calculate your Squad Cost Ratio.",
+      "financialsCta": "Set up financials"
     },
     "changeModal": {
       "title": "Change club",

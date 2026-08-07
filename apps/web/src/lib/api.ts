@@ -21,10 +21,14 @@ const BASE = '/api'
 export class ApiError extends Error {
   readonly code?: string
   readonly diagnostic?: unknown
+  /** HTTP status of the failed response — lets callers distinguish an expected
+   * "not found yet" (404) from a genuine backend failure (5xx/other 4xx). */
+  readonly status: number
 
-  constructor(message: string, options: { code?: string; diagnostic?: unknown } = {}) {
+  constructor(message: string, status: number, options: { code?: string; diagnostic?: unknown } = {}) {
     super(message)
     this.name = 'ApiError'
+    this.status = status
     this.code = options.code
     this.diagnostic = options.diagnostic
   }
@@ -51,7 +55,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     const res = await fetch(`${BASE}${path}`, { ...init, headers: { ...headers, ...init?.headers } })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string; code?: string; diagnostic?: unknown }
-      throw new ApiError(err.error ?? `API error ${res.status}`, { code: err.code, diagnostic: err.diagnostic })
+      throw new ApiError(err.error ?? `API error ${res.status}`, res.status, { code: err.code, diagnostic: err.diagnostic })
     }
     return (await res.json()) as T
   } finally {
@@ -72,7 +76,7 @@ async function publicPost<T>(path: string, body: unknown): Promise<T> {
     })
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string; code?: string; diagnostic?: unknown }
-      throw new ApiError(err.error ?? `API error ${res.status}`, { code: err.code, diagnostic: err.diagnostic })
+      throw new ApiError(err.error ?? `API error ${res.status}`, res.status, { code: err.code, diagnostic: err.diagnostic })
     }
     return (await res.json()) as T
   } finally {

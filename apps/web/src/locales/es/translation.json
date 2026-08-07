@@ -59,7 +59,10 @@
       "startHere": "Empieza aquí",
       "body": "Elige tu club para rellenar al instante toda la plantilla, los contratos y el entrenador.",
       "choose": "Elegir un club",
-      "dismiss": "Descartar"
+      "dismiss": "Descartar",
+      "financialsTitle": "Siguiente: Finanzas",
+      "financialsBody": "Añade los ingresos y el margen de tu club para calcular tu ratio de coste de plantilla.",
+      "financialsCta": "Configurar finanzas"
     },
     "changeModal": {
       "title": "Cambiar de club",

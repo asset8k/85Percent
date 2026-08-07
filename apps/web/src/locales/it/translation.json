@@ -59,7 +59,10 @@
       "startHere": "Inizia qui",
       "body": "Scegli il tuo club per precompilare all'istante l'intera rosa, i contratti e l'allenatore.",
       "choose": "Scegli un club",
-      "dismiss": "Ignora"
+      "dismiss": "Ignora",
+      "financialsTitle": "Successivo: Finanze",
+      "financialsBody": "Aggiungi i ricavi e il margine del tuo club per calcolare il tuo rapporto costo rosa.",
+      "financialsCta": "Configura le finanze"
     },
     "changeModal": {
       "title": "Cambia club",
