@@ -4492,3 +4492,98 @@ unavailable) and no `QSTASH_*`/`TRANSFERMARKT_API_URL` (Data Sync from the
 design). No live end-to-end login test with a real account was performed by
 Claude; the user should confirm the originally-created test account can now
 sign in.
+
+## Session — Production onboarding catalog was down to 3 clubs; built a canonical seed system (2026-08-07)
+
+### Root cause
+
+`template_clubs` (the 44-club onboarding catalog: 20 Premier League + 24
+Championship) was never a schema-migration or seed-script concern. Per the
+original migration's own comment, it was "populated by the monthly
+background sync worker... from the felipeall/transfermarkt-api scraper" —
+i.e. by running Data Sync manually against whichever Supabase project was
+live at the time. That only ever happened against Development.
+
+When Production was reconciled to a new Supabase project (2026-08-06), the
+catalog was never reproduced there. The following day's promotion migration
+(`20260805193000_activate_2026_27_template_clubs`) ran an `UPDATE ...
+WHERE name IN (41 names)` to move the existing catalog onto the 2026-27
+season, plus an unconditional `INSERT ... ON CONFLICT` for the 3 newly
+promoted clubs (Bolton Wanderers, Cardiff City, Lincoln City). Against a
+Production database with zero pre-existing `template_clubs` rows, the
+`UPDATE` matched nothing (a silent no-op — `UPDATE` on zero rows doesn't
+error), while the `INSERT` succeeded — which is exactly why Production had
+only those 3 Championship clubs and 0 Premier League clubs.
+
+### Dev vs Prod, before any fix
+
+| | Premier League | Championship | Total active | Roster items | Provider mappings |
+|---|---|---|---|---|---|
+| Expected | 20 | 24 | 44 | — | — |
+| Dev | 20 | 24 | 44 | 1,322 (34 clubs) | 59 |
+| Prod | 0 | 3 | 3 | 0 | 0 |
+
+### Fix
+
+Built a canonical, version-controlled reference-data system, kept separate
+from schema migrations per the standing architecture rule ("schema
+migrations and reference-data seeding are different concerns — that
+conflation is what caused this outage"):
+
+- `apps/admin/backend/data-imports/reference-data/template-clubs.ts` — the
+  44-club catalog (id, name, league, logoUrl, footballDataClubId), sourced
+  from Development (the only environment with a complete, correct catalog).
+- `apps/admin/backend/data-imports/template-catalog.ts` — pure diff/verify
+  logic, unit tested (14 tests): upserts by `name` (a real DB-unique
+  constraint — exact matching, not fuzzy), so a same-named row that already
+  exists (e.g. Production's Bolton Wanderers) keeps its own id and only gets
+  metadata reconciled; a catalog id is only ever used to insert a genuinely
+  new row. Clubs that fall out of the catalog (relegation) are deactivated,
+  never deleted, so roster/import history survives.
+- `apps/admin/backend/scripts/seed-templates.ts` / `verify-templates.ts` —
+  idempotent CLIs, wired as `pnpm db:seed:templates:dev` /
+  `:prod`(`:dry-run` variants default to no writes) and
+  `pnpm db:verify:templates:dev` / `:prod`. Both touch only `template_clubs`
+  and `external_source_mappings` — disjoint tables from `clubs` / `players`
+  / `contracts` (real customer workspaces), so they structurally cannot read
+  or write customer financial data. Neither touches
+  `template_roster_items` (template squads) — that stays Data Sync's job,
+  a separate, provider-scraped, versioned-by-import-run system.
+
+Production dry run (`pnpm db:seed:templates:prod:dry-run`) confirms: 41
+inserts, 0 updates, 0 deactivations, 3 unchanged, 44 provider-mapping
+upserts. Not yet applied — awaiting explicit approval before writing to
+Production, per instruction.
+
+### Also fixed: onboarding empty-state messaging
+
+`GET /onboarding/clubs` now reports `hasRoster` per club (catalog presence
+and squad-sync are two different states — Production's incident was the
+former; a club with no synced squad was never actually hidden, it just
+looked identical to a fully-hydrated one). The empty-state copy previously
+read "hasn't been synced, ask an administrator to run Data Sync" — wrong
+advice for a catalog that doesn't exist at all, which is what Production
+actually hit; reworded across all 4 locales (en/es/it/fr) to name it as a
+server-side configuration gap instead. Unsynced clubs now carry a small
+"Manual setup" badge rather than looking indistinguishable from synced ones.
+
+### Verified
+
+- `pnpm --filter @85percent/admin test` — 140/140 pass (includes the new
+  14-test `template-catalog.test.ts`).
+- `pnpm --filter @85percent/admin typecheck` / `build` — clean.
+- `pnpm --filter @85percent/web typecheck` / `build` / `test` — clean.
+- `pnpm db:verify:templates:dev` — PASS (44 active: 20 PL / 24
+  Championship; 33/44 have a synced squad, reported separately from catalog
+  membership as required).
+- Pre-existing, unrelated: `pnpm --filter @85percent/admin test:onboarding`
+  has one failing assertion ("Bolton Wanderers: realistic squad size, got
+  0") — 10 Dev clubs (including the 3 promoted this month) have no synced
+  template squad yet. Not caused by this session's changes; needs a Data
+  Sync run against Dev, not a seed fix.
+
+### Still open
+
+Production seed not yet applied — the dry-run above is what
+`db:seed:templates:prod --apply` would do once approved. After applying:
+run `pnpm db:verify:templates:prod` and a manual onboarding smoke test.
