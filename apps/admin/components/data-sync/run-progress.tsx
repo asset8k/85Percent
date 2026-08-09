@@ -64,6 +64,7 @@ export function RunProgress({ initial, targetId }: { initial: Detail; targetId: 
   const active = detail.tasks.filter((task) => task.status === 'RUNNING')
   const failed = detail.tasks.filter((task) => task.status === 'FAILED')
   const reviewItems = detail.changes.filter((change) => change.status === 'NEEDS_REVIEW')
+  const missingItems = detail.changes.filter((change) => change.change_type === 'MISSING')
   const configuration = (run.configuration ?? {}) as Record<string, unknown>
   const remainingSeconds = estimateRemainingSeconds(
     detail.tasks,
@@ -94,6 +95,7 @@ export function RunProgress({ initial, targetId }: { initial: Detail; targetId: 
       </div>)}
     </div>
     {reviewItems.length > 0 && <section className="mt-7"><h2 className="mb-3 font-semibold">Needs review</h2><div className="space-y-3">{reviewItems.map((change) => <article key={String(change.id)} className="rounded-lg border border-amber-200 bg-amber-50/40 p-4 text-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0 flex-1"><strong>{String(change.entity_type)} · {String(change.change_type)}</strong><p className="mt-1 text-muted-foreground">{String(change.reason ?? 'Review before applying.')}</p><details className="mt-3"><summary className="cursor-pointer text-xs font-medium text-primary">Compare source values</summary><dl className="mt-2 space-y-1 text-xs"><div><dt className="inline font-medium">Stored: </dt><dd className="inline text-muted-foreground">{formatReviewData(change.before_data)}</dd></div><div><dt className="inline font-medium">Provider: </dt><dd className="inline text-muted-foreground">{formatReviewData(change.after_data)}</dd></div></dl></details></div><div className="flex gap-2"><Button size="sm" variant="outline" disabled={busy} onClick={() => review(String(change.id), 'reject')}>Keep current</Button>{change.change_type === 'CONFLICT' && Boolean(change.internal_entity_id) && <Button size="sm" disabled={busy} onClick={() => review(String(change.id), 'approve')}>Apply provider value</Button>}</div></div></article>)}</div></section>}
+    {missingItems.length > 0 && <section className="mt-7"><h2 className="mb-3 font-semibold">Not found in this source (no action needed)</h2><div className="space-y-3">{missingItems.map((change) => <article key={String(change.id)} className="rounded-lg border border-border bg-muted/30 p-4 text-sm"><strong>{String(change.entity_type)}</strong><p className="mt-1 text-muted-foreground">{String(change.reason ?? 'The player was not present in this source response.')}</p><details className="mt-3"><summary className="cursor-pointer text-xs font-medium text-primary">Compare source values</summary><dl className="mt-2 space-y-1 text-xs"><div><dt className="inline font-medium">Stored: </dt><dd className="inline text-muted-foreground">{formatReviewData(change.before_data)}</dd></div></dl></details></article>)}</div></section>}
     <Link href={`/data-sync/squads?target=${encodeURIComponent(targetId)}`} className="mt-6 inline-block text-sm font-medium text-primary hover:underline">Back to data sync</Link>
   </div>
 }

@@ -164,7 +164,11 @@ export function reconcilePlayers(
   for (const player of players) {
     if (!matched.has(player.id)) {
       changes.push({
-        entityType: 'PLAYER', changeType: 'MISSING', status: 'NEEDS_REVIEW', internalEntityId: player.id,
+        // Informational only: a missing player usually means they left the
+        // squad since the last sync. No archive or deletion is applied, and
+        // this never needs a human decision, so it must not sit in the
+        // reviewer's action queue — auto-resolve it and just surface it.
+        entityType: 'PLAYER', changeType: 'MISSING', status: 'AUTO_APPLY', internalEntityId: player.id,
         externalEntityId: null, beforeData: publicData(player), afterData: null,
         reason: 'The player was not present in this source response. No archive or deletion was applied.',
       })

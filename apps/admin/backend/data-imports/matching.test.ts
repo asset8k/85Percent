@@ -20,7 +20,7 @@ describe('squad reconciliation', () => {
     const changes = reconcilePlayers([imported], [player], [])
     assert.equal(changes[0]?.changeType, 'ADD')
     assert.equal(changes[1]?.changeType, 'MISSING')
-    assert.equal(changes[1]?.status, 'NEEDS_REVIEW')
+    assert.equal(changes[1]?.status, 'AUTO_APPLY')
   })
 
   it('uses a provider mapping first and patches only returned public fields', () => {
