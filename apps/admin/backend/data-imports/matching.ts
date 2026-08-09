@@ -164,13 +164,13 @@ export function reconcilePlayers(
   for (const player of players) {
     if (!matched.has(player.id)) {
       changes.push({
-        // Informational only: a missing player usually means they left the
-        // squad since the last sync. No archive or deletion is applied, and
-        // this never needs a human decision, so it must not sit in the
-        // reviewer's action queue — auto-resolve it and just surface it.
+        // A missing player means they left the squad since the last sync.
+        // This is never a human decision, so it must not sit in the
+        // reviewer's action queue — auto-apply it (the roster row is
+        // removed) and just surface it as information.
         entityType: 'PLAYER', changeType: 'MISSING', status: 'AUTO_APPLY', internalEntityId: player.id,
         externalEntityId: null, beforeData: publicData(player), afterData: null,
-        reason: 'The player was not present in this source response. No archive or deletion was applied.',
+        reason: 'The player was not present in this source response and was removed from the roster.',
       })
     }
   }
