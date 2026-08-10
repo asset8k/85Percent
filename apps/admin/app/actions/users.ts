@@ -65,11 +65,18 @@ export async function adjustBalance(formData: FormData): Promise<void> {
   redirect(flash(id, 'ok', `Balance set to ${formatUsd(rounded)}.`))
 }
 
-/** Delete the account and the rows that reference it, then the auth login. */
+/** Delete the auth login, then the profile row and the rows that reference it.
+ *  Auth goes first (and its failure aborts here, leaving the profile intact)
+ *  so a failed delete never silently leaves an orphaned auth account behind
+ *  with no profile row pointing back at it — the reverse of that used to
+ *  happen here, since the previous order deleted the profile first and then
+ *  swallowed any auth-deletion error. */
 export async function deleteUser(formData: FormData): Promise<void> {
   requireSession()
   const id = str(formData.get('id'))
   const sb = getSupabase()
+  const { error: authError } = await sb.auth.admin.deleteUser(id)
+  if (authError) redirect(flash(id, 'err', `Auth delete failed: ${authError.message}`))
   // Remove referencing rows first (chat_messages cascade from chat_sessions;
   // scenario_actions from scenarios).
   await sb.from('chat_sessions').delete().eq('user_id', id)
@@ -77,7 +84,6 @@ export async function deleteUser(formData: FormData): Promise<void> {
   await sb.from('audit_logs').delete().eq('user_id', id)
   await sb.from('notifications').delete().eq('user_id', id)
   const { error } = await sb.from('users').delete().eq('id', id)
-  if (error) redirect(flash(id, 'err', `Delete failed: ${error.message}`))
-  await sb.auth.admin.deleteUser(id).catch(() => undefined)
+  if (error) redirect(flash(id, 'err', `Profile delete failed (auth account already removed): ${error.message}`))
   redirect('/users')
 }

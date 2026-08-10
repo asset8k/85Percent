@@ -14,10 +14,10 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  DELETE FROM public.chat_sessions WHERE user_id = OLD.id;
-  DELETE FROM public.scenarios WHERE created_by = OLD.id;
-  DELETE FROM public.audit_logs WHERE user_id = OLD.id;
-  DELETE FROM public.notifications WHERE user_id = OLD.id;
+  DELETE FROM public.chat_sessions WHERE user_id = OLD.id::text;
+  DELETE FROM public.scenarios WHERE created_by = OLD.id::text;
+  DELETE FROM public.audit_logs WHERE user_id = OLD.id::text;
+  DELETE FROM public.notifications WHERE user_id = OLD.id::text;
   DELETE FROM public.users WHERE id = OLD.id::text;
   RETURN OLD;
 END;
