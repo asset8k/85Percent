@@ -232,6 +232,19 @@ CREATE POLICY "notifications: own club only"
   USING  (club_id = public.current_club_id())
   WITH CHECK (club_id = public.current_club_id());
 
+-- ── player_registration_assets — tenant-scoped, same pattern as players ────
+-- Shipped in the registration-assets/amortisation migration without RLS,
+-- tripping Supabase's "RLS Disabled in Public" advisor.
+ALTER TABLE public.player_registration_assets ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "player_registration_assets: own club only" ON public.player_registration_assets;
+
+CREATE POLICY "player_registration_assets: own club only"
+  ON public.player_registration_assets
+  FOR ALL
+  USING  (club_id = public.current_club_id())
+  WITH CHECK (club_id = public.current_club_id());
+
 -- ── _prisma_migrations — Prisma's internal bookkeeping ─────────────────────
 -- Only touched by the migration engine over the privileged direct connection
 -- (table owner / postgres role, which bypasses RLS). Enable RLS with no policy
