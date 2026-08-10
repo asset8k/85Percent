@@ -31,6 +31,7 @@
 import { useQuery, keepPreviousData, type QueryClient } from '@tanstack/react-query'
 import { api } from './api'
 import { seasonAsOfDate, useSeasonStore } from '@/stores/season'
+import { useClubStore } from '@/stores/club'
 import { useWorkspaceReady } from '@/lib/workspace'
 
 /** Centralised query keys — one source of truth so invalidation stays in sync. */
@@ -40,7 +41,7 @@ export const queryKeys = {
   playerPhases: (id: string, asOf: string) => ['roster', 'player-phases', id, asOf] as const,
   manager: ['roster', 'manager'] as const,
   scenarioDetails: ['scenarios', 'details'] as const,
-  leagueTable: ['leagueTable'] as const,
+  leagueTable: (leagueId: string) => ['leagueTable', leagueId] as const,
   ssrWorkingCapital: (season: string) => ['ssr', 'workingCapital', season] as const,
   ssrLiquidity: (season: string) => ['ssr', 'liquidity', season] as const,
   ssrEquity: (season: string) => ['ssr', 'equity', season] as const,
@@ -129,13 +130,21 @@ export function useScenarioDetailsQuery() {
   })
 }
 
-/** Live real-world league standings. */
+/**
+ * Live real-world league standings. The API derives which league (PL or
+ * Championship) to return from the caller's current club server-side — it
+ * doesn't take a leagueId param — but the cache key still needs one: without
+ * it, switching from a Premier League club to a Championship club (or back)
+ * keeps serving the previously-cached league's table until a hard reload,
+ * since React Query has no way to know the underlying data changed.
+ */
 export function useLeagueTableQuery() {
   const workspaceReady = useWorkspaceReady()
+  const leagueId = useClubStore((state) => state.leagueId)
   return useQuery({
-    queryKey: queryKeys.leagueTable,
+    queryKey: queryKeys.leagueTable(leagueId ?? ''),
     queryFn: () => api.leagueTable.get(),
-    enabled: workspaceReady,
+    enabled: workspaceReady && !!leagueId,
   })
 }
 
