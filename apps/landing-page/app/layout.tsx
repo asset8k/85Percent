@@ -33,8 +33,8 @@ export const metadata: Metadata = {
     shortcut: ['/favicon-85percent-v3.svg'],
   },
   title: {
-    default: '85Percent · The Squad Cost Engine',
-    template: '%s · 85Percent',
+    default: '85Percent • Football Financial Compliance',
+    template: '%s • 85Percent',
   },
   description:
     'The definitive financial compliance platform for elite football clubs. Maximize your squad. Protect your points.',
