@@ -55,6 +55,14 @@ interface ClubState {
    * (a value OR null), via setFinancials.
    */
   financialsLoaded: boolean
+  /**
+   * Bumped whenever the roster is rebuilt out from under the Sidebar's own
+   * "squad empty?" check (e.g. onboarding pre-fills a squad without changing
+   * clubId, so the effect that gates the step-2 "Set up financials" nudge
+   * would otherwise never re-run). Sidebar treats any change as a signal to
+   * re-fetch roster state.
+   */
+  rosterRefreshToken: number
 
   // logoUrl is optional — omit it to leave the current crest untouched (e.g. on
   // a league switch that shouldn't clear the logo). baseCurrency is likewise
@@ -82,6 +90,7 @@ interface ClubState {
   removeScenario: (id: string) => void
   setScenarioInclusion: (id: string, isIncluded: boolean) => void
   setScenarioName: (id: string, name: string) => void
+  bumpRosterRefreshToken: () => void
 }
 
 export const useClubStore = create<ClubState>()((set) => ({
@@ -98,6 +107,7 @@ export const useClubStore = create<ClubState>()((set) => ({
   scenariosLoaded: false,
   scenariosStatus: 'idle',
   financialsLoaded: false,
+  rosterRefreshToken: 0,
 
   setClub: (id, name, leagueId, logoUrl, baseCurrency) =>
     set((state) => ({
@@ -177,4 +187,6 @@ export const useClubStore = create<ClubState>()((set) => ({
     set((state) => ({
       scenarios: state.scenarios.map((s) => (s.id === id ? { ...s, name } : s)),
     })),
+  bumpRosterRefreshToken: () =>
+    set((state) => ({ rosterRefreshToken: state.rosterRefreshToken + 1 })),
 }))

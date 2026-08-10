@@ -44,7 +44,7 @@ export function Sidebar() {
   const { t } = useTranslation()
   const {
     bootstrapStatus, clubId, clubName, leagueId, clubLogoUrl,
-    financials, financialsStatus,
+    financials, financialsStatus, rosterRefreshToken,
   } = useClubStore()
   const navigate = useNavigate()
   const can = useCan()
@@ -60,11 +60,19 @@ export function Sidebar() {
   useEffect(() => {
     if (!clubId || !can.switchLeague) { setSquadEmpty(null); return }
     let cancelled = false
-    api.roster.list()
-      .then((r) => { if (!cancelled) setSquadEmpty(r.players.length === 0) })
-      .catch(() => { if (!cancelled) setSquadEmpty(false) })
-    return () => { cancelled = true }
-  }, [clubId, can.switchLeague])
+    // rosterRefreshToken is never persisted, so it's only > 0 here when
+    // onboarding just rebuilt the squad (clubId itself doesn't change) and
+    // bumped it to force this re-check. Give the "choose a club" nudge a
+    // beat before handing off to "Set up financials" instead of swapping
+    // instantly; a plain mount/login (token still 0) fetches right away.
+    const delayMs = rosterRefreshToken > 0 ? 2500 : 0
+    const timer = window.setTimeout(() => {
+      api.roster.list()
+        .then((r) => { if (!cancelled) setSquadEmpty(r.players.length === 0) })
+        .catch(() => { if (!cancelled) setSquadEmpty(false) })
+    }, delayMs)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [clubId, can.switchLeague, rosterRefreshToken])
   const showClubNudge = squadEmpty === true && can.switchLeague && !nudgeDismissed && !changeOpen
 
   // Step 2 of onboarding: once a squad exists (club chosen) but no Financials
@@ -100,7 +108,7 @@ export function Sidebar() {
       // motion.div below (it's already animating `x`), so a translateY(-50%)
       // set alongside it in `style` gets silently overwritten. The arrow is
       // offset down by a fixed amount instead, to line up with the row's icon.
-      if (r) setFinancialsAnchor({ top: r.top, left: r.right + 12 })
+      if (r) setFinancialsAnchor({ top: r.top, left: r.right + 22 })
     }
     update()
     window.addEventListener('resize', update)
@@ -161,7 +169,7 @@ export function Sidebar() {
                   isActive
                     ? 'text-violet-700'
                     : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50',
-                  id === 'financials' && showFinancialsNudge && 'ring-2 ring-violet-400 ring-offset-1 rounded-md',
+                  id === 'financials' && showFinancialsNudge && 'ring-2 ring-inset ring-violet-400 rounded-md',
                 )
               }
             >
@@ -201,22 +209,22 @@ export function Sidebar() {
                 left: financialsAnchor.left,
                 zIndex: 40,
               }}
-              className="w-56"
+              className="w-72"
             >
-              <div className="relative rounded-xl bg-violet-600 text-white shadow-lg shadow-violet-600/25 p-3.5">
+              <div className="relative rounded-xl bg-violet-600 text-white shadow-md shadow-slate-900/15 p-4">
                 <button
                   onClick={() => setFinancialsNudgeDismissed(true)}
                   aria-label={t('chrome.nudge.dismiss')}
-                  className="absolute top-2 right-2 text-white/60 hover:text-white transition-colors"
+                  className="absolute top-2.5 right-2.5 text-white/60 hover:text-white transition-colors"
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
                   </svg>
                 </button>
-                <div className="text-[12px] font-semibold pr-3">
+                <div className="text-[12px] font-semibold pr-4">
                   {t('chrome.nudge.financialsTitle')}
                 </div>
-                <p className="mt-1 text-[12px] leading-snug text-violet-100 pr-3">
+                <p className="mt-1 text-[12px] leading-snug text-violet-100 pr-4">
                   {t('chrome.nudge.financialsBody')}
                 </p>
                 <button
@@ -251,7 +259,7 @@ export function Sidebar() {
               transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
               className="absolute left-4 right-4 bottom-full mb-2 z-20"
             >
-              <div className="relative rounded-xl bg-violet-600 text-white shadow-lg shadow-violet-600/25 p-3.5">
+              <div className="relative rounded-xl bg-violet-600 text-white shadow-md shadow-slate-900/15 p-3.5">
                 <button
                   onClick={() => { setNudgeDismissed(true) }}
                   aria-label={t('chrome.nudge.dismiss')}

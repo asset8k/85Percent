@@ -161,7 +161,16 @@ export function OnboardingPage() {
       //     any carried over from a previous club so the SCR baseline and Scenarios
       //     tab don't reference deleted players. Mark loaded (not loading) so the
       //     TopBar SCR pill resolves immediately instead of hanging on a spinner.
-      useClubStore.setState({ scenarios: [], scenariosLoaded: true })
+      //  3) Sidebar's own "is the squad empty?" check is a plain fetch keyed off
+      //     clubId, which doesn't change here, so it would otherwise keep
+      //     believing the squad is empty (from the pre-onboarding fetch) until a
+      //     full reload — bump this to make it re-check and pick up the new
+      //     "Set up financials" nudge without one.
+      useClubStore.setState((state) => ({
+        scenarios: [],
+        scenariosLoaded: true,
+        rosterRefreshToken: state.rosterRefreshToken + 1,
+      }))
 
       toast.success(
         replacing ? t('onboarding.toast.changed') : t('onboarding.toast.prefilled'),
