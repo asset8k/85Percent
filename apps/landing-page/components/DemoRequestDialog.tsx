@@ -7,6 +7,7 @@ import { X, Check, Loader2 } from 'lucide-react'
 import { EASE_EXPO } from './motion/variants'
 import { demoRequestSchema } from '@/lib/demoRequest'
 import { site } from '@/content/site'
+import { trackAnalytics } from '@/lib/analytics'
 
 type Status = 'idle' | 'submitting' | 'success' | 'error'
 
@@ -39,6 +40,11 @@ export function DemoRequestDialog({
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => setMounted(true), [])
+
+  // This is a conversion-funnel event only. Form values are never sent to analytics.
+  useEffect(() => {
+    if (open) trackAnalytics('request_access_started', { location: source })
+  }, [open, source])
 
   // Remember the opener, lock scroll, focus the first field, restore on close.
   useEffect(() => {
@@ -122,6 +128,7 @@ export function DemoRequestDialog({
         return
       }
       setStatus('success')
+      trackAnalytics('request_access_submitted', { location: source })
     } catch {
       setStatus('error')
       setError('Something went wrong sending your request. Please try again.')
@@ -194,7 +201,7 @@ export function DemoRequestDialog({
                 </button>
               </div>
             ) : (
-              <form onSubmit={onSubmit} noValidate>
+              <form className="ph-sensitive" onSubmit={onSubmit} noValidate>
                 <h2 id={titleId} className="font-display text-2xl font-semibold tracking-tight">
                   Request access
                 </h2>

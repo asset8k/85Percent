@@ -9,11 +9,14 @@ import { useNotificationsStore } from '@/stores/notifications'
 import { queryClient } from '@/lib/queryClient'
 import { Spinner } from '@/components/ui/spinner'
 import { queryKeys } from '@/lib/queries'
+import { identifyAnalytics, resetAnalytics } from '@/lib/analytics'
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, setSession } = useAuthStore()
   const {
     clubId,
+    clubName,
+    leagueId,
     bootstrapStatus,
     financialsRequestVersion,
     setClub,
@@ -52,6 +55,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       // doesn't momentarily see the previous user's cached roster/scenarios — and
       // so those queries report `isPending` again, holding their skeletons.
       if (event === 'SIGNED_OUT') {
+        resetAnalytics()
         useClubStore.setState({
           bootstrapStatus: 'idle',
           clubId: null,
@@ -71,6 +75,18 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
     return () => listener.subscription.unsubscribe()
   }, [setSession])
+
+  // Supabase UUID is the sole PostHog distinct id. The properties are only
+  // identity/workspace metadata; no financial or Analyst content is captured.
+  useEffect(() => {
+    if (!session?.user?.id || !clubId) return
+    identifyAnalytics(session.user.id, {
+      email: session.user.email,
+      clubId,
+      clubName,
+      league: leagueId,
+    })
+  }, [clubId, clubName, leagueId, session?.user?.email, session?.user?.id])
 
   useEffect(() => {
     const userId = session?.user?.id

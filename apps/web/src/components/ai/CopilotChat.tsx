@@ -39,6 +39,7 @@ import {
 } from '@/components/ai/icons'
 import { api } from '@/lib/api'
 import { useCopilot } from '@/stores/copilot'
+import { trackAnalytics } from '@/lib/analytics'
 import { useScrollLock } from '@/lib/useScrollLock'
 import { KNOWLEDGE_SOURCE_LABEL, parseContextLabel } from '@/lib/copilotContext'
 
@@ -764,12 +765,14 @@ export function CopilotChat() {
 
   const submit = () => {
     if (!input.trim() || depleted) return
+    trackAnalytics('analyst_question_submitted', { submission_type: 'typed' })
     setChatError(null)
     useCopilot.getState().ensureActiveSession()
     handleSubmit(undefined, sendOpts())
   }
   const onExample = (text: string) => {
     if (depleted) return
+    trackAnalytics('analyst_question_submitted', { submission_type: 'example' })
     setChatError(null)
     useCopilot.getState().ensureActiveSession()
     void append({ role: 'user', content: text }, sendOpts())
@@ -834,7 +837,7 @@ export function CopilotChat() {
       {isOpen && isFullscreen && (
         <motion.div
           key="fullscreen"
-          className="fixed inset-0 z-50 flex bg-white"
+          className="ph-no-capture fixed inset-0 z-50 flex bg-white"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -862,7 +865,7 @@ export function CopilotChat() {
       {isOpen && !isFullscreen && (
         <motion.aside
           key="drawer"
-          className="fixed right-0 top-0 z-50 flex h-full w-full max-w-lg flex-col border-l border-slate-200 bg-white shadow-2xl"
+          className="ph-no-capture fixed right-0 top-0 z-50 flex h-full w-full max-w-lg flex-col border-l border-slate-200 bg-white shadow-2xl"
           initial={{ x: '100%' }}
           animate={{ x: 0 }}
           exit={{ x: '100%' }}

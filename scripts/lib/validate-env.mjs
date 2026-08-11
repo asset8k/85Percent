@@ -71,7 +71,7 @@ export const APP_CONFIGURATIONS = {
   },
   web: {
     required: ['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY'],
-    recommended: [],
+    recommended: ['VITE_POSTHOG_KEY', 'VITE_POSTHOG_HOST', 'VITE_POSTHOG_ENABLED', 'VITE_POSTHOG_ENVIRONMENT'],
     urlVar: 'VITE_SUPABASE_URL',
     keyVars: ['VITE_SUPABASE_ANON_KEY'],
   },
@@ -82,7 +82,7 @@ export const APP_CONFIGURATIONS = {
       'UPSTASH_REDIS_REST_URL',
       'UPSTASH_REDIS_REST_TOKEN',
     ],
-    recommended: [],
+    recommended: ['NEXT_PUBLIC_POSTHOG_KEY', 'NEXT_PUBLIC_POSTHOG_HOST', 'NEXT_PUBLIC_POSTHOG_ENABLED', 'NEXT_PUBLIC_POSTHOG_ENVIRONMENT'],
     urlVar: 'NEXT_PUBLIC_SUPABASE_URL',
     keyVars: ['SUPABASE_ANON_KEY'],
   },

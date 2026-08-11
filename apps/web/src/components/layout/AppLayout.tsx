@@ -154,7 +154,7 @@ export function AppLayout() {
       )}
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="h-16 sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-200 flex items-center gap-4 px-8">
+        <header className="ph-sensitive h-16 sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-slate-200 flex items-center gap-4 px-8">
           <div className="flex-1 flex items-center gap-2 text-[13px] text-slate-500 min-w-0">
             {shellLoading ? (
               <>
@@ -218,7 +218,7 @@ export function AppLayout() {
           </div>
         </header>
 
-        <main className="flex-1 px-8 py-8">
+        <main className="ph-sensitive flex-1 px-8 py-8">
           <div className="max-w-[1280px] mx-auto">
             {/* Route transition: a single, calm fade + gentle rise on the new
                 page. Keyed on the first path segment so it plays on tab switches

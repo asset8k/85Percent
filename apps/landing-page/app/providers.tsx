@@ -1,6 +1,7 @@
 'use client'
 
 import { MotionConfig } from 'framer-motion'
+import { AnalyticsTracker } from '@/components/AnalyticsTracker'
 
 /**
  * Client providers for the marketing site.
@@ -14,6 +15,7 @@ import { MotionConfig } from 'framer-motion'
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <MotionConfig reducedMotion="user">
+      <AnalyticsTracker />
       {children}
     </MotionConfig>
   )

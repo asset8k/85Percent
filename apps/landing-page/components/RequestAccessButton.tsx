@@ -5,6 +5,7 @@ import { motion, useMotionValue, useReducedMotion, useSpring } from 'framer-moti
 import { DemoRequestDialog } from './DemoRequestDialog'
 import { EASE_EXPO } from './motion/variants'
 import { CTA_LABEL } from '@/content/nav'
+import { trackAnalytics } from '@/lib/analytics'
 
 type Variant = 'primary' | 'inverse' | 'ghost'
 
@@ -85,7 +86,15 @@ export function RequestAccessButton({
   const btn = (
     <button
       type="button"
-      onClick={() => setOpen(true)}
+      onClick={() => {
+        trackAnalytics('landing_cta_clicked', {
+          cta_name: label,
+          location: source,
+          destination: 'request_access_dialog',
+        })
+        trackAnalytics('request_access_clicked', { location: source })
+        setOpen(true)
+      }}
       className={`relative z-10 inline-flex items-center justify-center rounded-md font-medium transition-all duration-200 ease-gentle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${surface} ${SIZES[size]} ${className}`}
     >
       {label}

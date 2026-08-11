@@ -15,6 +15,7 @@
 import { create } from 'zustand'
 import { api } from '@/lib/api'
 import { buildContextInjection, type CopilotContext } from '@/lib/copilotContext'
+import { trackAnalytics } from '@/lib/analytics'
 
 export interface SessionMeta {
   id: string
@@ -76,11 +77,13 @@ export const useCopilot = create<CopilotState>((set, get) => ({
   open: (context) => {
     get().ensureActiveSession()
     set({ isOpen: true, pendingInjection: context ? buildContextInjection(context) : null })
+    trackAnalytics('analyst_opened', { has_context: Boolean(context) })
   },
   // Closing always drops fullscreen so the next open is the small drawer.
   close: () => set({ isOpen: false, isFullscreen: false }),
   toggle: () => {
     if (!get().isOpen) get().ensureActiveSession()
+    if (!get().isOpen) trackAnalytics('analyst_opened')
     set((s) => ({ isOpen: !s.isOpen, isFullscreen: s.isOpen ? false : s.isFullscreen }))
   },
   setFullscreen: (v) => set({ isFullscreen: v }),

@@ -46,6 +46,7 @@ import type { ScenarioDetail, ScenarioAction, ClubFinancialsResponse } from '@/l
 import { cn } from '@/lib/utils'
 import { useCan } from '@/lib/role'
 import { exportComparisonPDF } from '@/lib/exports/comparisonPdf'
+import { trackAnalytics } from '@/lib/analytics'
 import {
   DndContext,
   closestCenter,
@@ -162,7 +163,7 @@ export function ScenariosPage() {
   const can = useCan()
   const { format: fmtMoney } = useWorkspaceCurrency()
   const openCopilot = useCopilot((s) => s.open)
-  const { financials, scenarios, scenariosLoaded, setScenarios, upsertScenario, removeScenario, setScenarioInclusion } = useClubStore()
+  const { clubId, leagueId, financials, scenarios, scenariosLoaded, setScenarios, upsertScenario, removeScenario, setScenarioInclusion } = useClubStore()
   // Cached above the router — revisiting this tab serves the roster instantly
   // (no re-fetch, no skeleton); scenarios live in the persisted club store.
   const rosterQuery = useRosterQuery()
@@ -326,6 +327,12 @@ export function ScenariosPage() {
       setDraftName(detail.name)
       setDraftActions(detail.actions.map(actionToDraft))
       setEditingScenarioId(detail.id)
+      trackAnalytics(editingScenarioId ? 'scenario_updated' : 'scenario_created', {
+        ...(clubId ? { club_id: clubId } : {}),
+        ...(leagueId ? { league: leagueId } : {}),
+        action_count: detail.actions.length,
+        action_types: [...new Set(detail.actions.map((action) => action.actionType))],
+      })
       toast.success(t('scenarios.saveSuccess'))
     } catch (e) {
       setError(e instanceof Error ? e.message : t('scenarios.failSave'))

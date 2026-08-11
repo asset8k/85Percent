@@ -18,10 +18,12 @@ import { useClubStore } from '@/stores/club'
 import { useCan } from '@/lib/role'
 import { resolveProductCapabilities } from '@/lib/navigation'
 import { FormPageSkeleton } from '@/components/ui/page-skeletons'
+import { AnalyticsTracker } from '@/components/analytics/AnalyticsTracker'
 
 export function App() {
   return (
     <BrowserRouter>
+      <AnalyticsTracker />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         {/* Public self-serve registration is disabled (invite-only). Any stale

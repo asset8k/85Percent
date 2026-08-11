@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { useClubStore } from '@/stores/club'
+import { resetAnalytics } from '@/lib/analytics'
 
 interface AuthState {
   session: Session | null
@@ -21,6 +22,7 @@ export const useAuthStore = create<AuthState>()(
       setSession: (session) => set({ session, user: session?.user ?? null, loading: false }),
       signOut: async () => {
         await supabase.auth.signOut()
+        resetAnalytics()
         set({ session: null, user: null })
         // Reset all per-club state so a different user signing in on the same browser
         // does not briefly see (or rehydrate from) the previous user's data.
