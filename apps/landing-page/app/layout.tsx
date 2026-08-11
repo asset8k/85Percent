@@ -43,13 +43,13 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     siteName: '85Percent',
-    title: '85Percent · The Squad Cost Engine',
+    title: '85Percent • Football Financial Compliance',
     description:
       'The definitive financial compliance platform for elite football clubs. Maximize your squad. Protect your points.',
   },
   twitter: {
     card: 'summary_large_image',
-    title: '85Percent · The Squad Cost Engine',
+    title: '85Percent • Football Financial Compliance',
     description:
       'The definitive financial compliance platform for elite football clubs.',
   },
