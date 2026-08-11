@@ -14,23 +14,10 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  -- Guarded with to_regclass: dev and prod have drifted before (prod is
-  -- missing chat_sessions/chat_messages entirely as of this writing), and an
-  -- unconditional DELETE against a table that doesn't exist on one
-  -- environment throws "relation does not exist", which aborts this trigger
-  -- and silently blocks every auth.users deletion on that environment.
-  IF to_regclass('public.chat_sessions') IS NOT NULL THEN
-    DELETE FROM public.chat_sessions WHERE user_id = OLD.id::text;
-  END IF;
-  IF to_regclass('public.scenarios') IS NOT NULL THEN
-    DELETE FROM public.scenarios WHERE created_by = OLD.id::text;
-  END IF;
-  IF to_regclass('public.audit_logs') IS NOT NULL THEN
-    DELETE FROM public.audit_logs WHERE user_id = OLD.id::text;
-  END IF;
-  IF to_regclass('public.notifications') IS NOT NULL THEN
-    DELETE FROM public.notifications WHERE user_id = OLD.id::text;
-  END IF;
+  DELETE FROM public.chat_sessions WHERE user_id = OLD.id;
+  DELETE FROM public.scenarios WHERE created_by = OLD.id;
+  DELETE FROM public.audit_logs WHERE user_id = OLD.id;
+  DELETE FROM public.notifications WHERE user_id = OLD.id;
   DELETE FROM public.users WHERE id = OLD.id::text;
   RETURN OLD;
 END;
