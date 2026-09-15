@@ -124,6 +124,27 @@ The Analyst is deliberately an explanation layer—not a calculation authority.
 - **Experience:** responses stream to the client; user-scoped history is persisted and compacted to preserve useful context.
 - **Cost control:** the current internal billing constants are $1.00 / 1M input tokens and $6.00 / 1M output tokens with a 10% margin. These are configuration values, not a latency or quality benchmark.
 
+### RAG pipeline
+
+The retrieval layer is intentionally provider-independent: it can keep the inference model focused on language while the application owns its source material and vector search.
+
+```mermaid
+flowchart LR
+  Source[Reviewed regulatory material] --> Extract[Extract + chunk]
+  Extract --> Embed[Local MiniLM embedding]
+  Embed --> Docs[(Supabase documents\npgvector · 384 dimensions)]
+  Question[Latest user question] --> Query[Same local embedding model]
+  Query --> Match[match_documents RPC\nTop 5 passages]
+  Docs --> Match
+  Match --> Prompt[Guardrailed system prompt\n+ club calculation context]
+  Prompt --> Stream[Streamed Analyst response]
+```
+
+- **Safe ingestion:** the ingestion script extracts and chunks a reviewed source, embeds every passage before it replaces that source's rows, and aborts rather than clearing the knowledge base when extraction produces no usable chunks.
+- **Comparable vectors:** ingestion and query-time retrieval use the same mean-pooled, L2-normalised `all-MiniLM-L6-v2` vector representation, keeping semantic search in a single 384-dimensional space with no embedding API key or per-query embedding fee.
+- **Context assembly:** the API embeds the latest user turn, invokes `match_documents`, and places the five best passages alongside the relevant Dashboard, Roster, or Scenario context in the system prompt.
+- **Bounded responsibility:** passages give the model regulatory language to explain; the shared engine remains the authority for SCR, amortisation, thresholds, and scenario outcomes. If retrieval is unavailable, the event is logged and the prompt explicitly records that no relevant passages were retrieved.
+
 There is no published LLM quality benchmark yet. The current validation emphasis is on deterministic engine tests, serverless route-contract tests, pricing tests, and human review of regulatory sources. A representative, reviewed football-finance question set is the next requirement before making model-quality claims.
 
 ## Run locally
