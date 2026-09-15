@@ -19,3 +19,7 @@ build
 # Local pnpm store mirror and DB dump/reconciliation backups — machine-local, never shipped
 .pnpm-store/
 backups/
+
+# Local assistant and portfolio-working notes are not part of the public product.
+AGENTS.md
+github-portfolio-playbook.md

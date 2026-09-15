@@ -1,113 +1,158 @@
-# 85Percent - Football Financial Compliance Platform
+# 85Percent
 
-85Percent is a B2B SaaS platform for professional football clubs to model Squad
-Cost Ratio (SCR), roster contracts, transfer scenarios, Premier League SSR, and
-the regulatory impact of football decisions before they happen.
+**A financial-compliance workspace for professional football clubs.** 85Percent turns contract, roster, transfer, and financial data into a clear view of Squad Cost Ratio (SCR) exposure before a club commits to a decision.
 
-## Current Architecture
+`TypeScript` `React` `Next.js` `Supabase` `Postgres / pgvector` `Turborepo`
 
-The repository is a pnpm 11 + Turborepo monorepo with three Vercel applications:
+<img src="docs/screenshots/landing.png" alt="85Percent public landing page" width="100%" />
 
-- `apps/web`: React 18 + Vite main product, local port 5173.
-- `apps/admin`: Next.js 14 admin panel and all serverless API Route Handlers,
-  local port 4000.
-- `apps/landing-page`: Next.js 14 public site, local port 3100.
+> **Portfolio note:** the product captures below use the local Chelsea template roster, which contains real player names. Financial inputs, contract values, transfer fees, and scenarios are illustrative product data—not Chelsea FC financial statements or recommendations.
 
-Shared packages:
+## Why it exists
 
-- `packages/engine`: pure SCR, amortisation, levy, points, and SSR calculations.
-- `packages/shared`: types, Zod schemas, money helpers, and chat context.
-- `packages/brand`: shared brand assets.
+Football finance teams need to connect decisions that are usually kept in separate spreadsheets: player contracts, transfer accounting, football revenue, league rules, and the evidence behind a conclusion. 85Percent provides that shared operating view.
 
-The former Railway/Fastify `apps/api` package is retired. The exact API contract
-is now served from `apps/admin/app/api/[...path]/route.ts`; backend handlers live
-under `apps/admin/backend` and the Prisma history lives under
-`apps/admin/prisma`.
+The platform calculates SCR deterministically, surfaces the regulatory consequence of a result, and lets a club model a summer plan before it becomes a budget commitment. An embedded Analyst can explain the saved context and supporting regulatory material, but never substitutes its own arithmetic for the calculation engine.
 
-## Prerequisites
+## Product tour
 
-- Node.js 20 or newer
-- pnpm 9 or newer; the repository pins pnpm 11.2.2
-- A Supabase project
-- An Upstash Redis database for distributed rate limiting
+### Executive dashboard
 
-## Install
+<img src="docs/screenshots/dashboard.png" alt="Chelsea dashboard showing 40 active contracts and current SCR" width="100%" />
+
+Live SCR, risk band, the active squad-cost position, and the expected effect of the selected plan are visible together.
+
+### Full club roster and contracts
+
+<img src="docs/screenshots/roster.png" alt="Chelsea FC roster with 40 active player contracts" width="100%" />
+
+The roster combines player, contract, salary, expiry, and accounting context in one searchable workspace. The capture shows the full 40-player Chelsea template roster.
+
+### Transfer scenario builder
+
+<img src="docs/screenshots/scenarios.png" alt="Chelsea summer plan with buy, sale, and loan scenario actions" width="100%" />
+
+Finance teams can build a realistic plan from purchases, sales, loans, extensions, and salary changes, then compare its regulatory impact against the current baseline.
+
+### Premier League SSR
+
+<img src="docs/screenshots/ssr.png" alt="SSR assessment for working capital, liquidity, and positive equity" width="100%" />
+
+Separate assessments make the Working Capital, Liquidity, and Positive Equity tests visible rather than treating SCR as the only financial constraint.
+
+### Contract calendar
+
+<img src="docs/screenshots/calendar.png" alt="Contract calendar with forthcoming football financial deadlines" width="100%" />
+
+An operational calendar brings renewals, reporting obligations, and material decision dates into the same workflow.
+
+### Financial inputs and regulatory thresholds
+
+<img src="docs/screenshots/financials.png" alt="Financial inputs and SCR threshold model" width="100%" />
+
+The financial model makes the revenue inputs, squad costs, green threshold, allowance, and red threshold inspectable.
+
+### Workspace controls
+
+<img src="docs/screenshots/workspace-settings.png" alt="85Percent workspace settings and access controls" width="100%" />
+
+Team invitations, granular permissions, TOTP, audit history, currencies, notifications, and workspace settings support the finance team around the model.
+
+## What the product covers
+
+- **SCR and consequences:** squad cost calculation, green/amber/red status, levy exposure, and points-deduction logic.
+- **Roster accounting:** players, managers, contracts, extensions, wages, amortisation, and expiry tracking. Player amortisation is capped at five years for SCR purposes.
+- **Scenario planning:** saved scenario actions are layered over the active baseline, so transfer plans can be compared before approval.
+- **SSR:** Working Capital, Liquidity, and Positive Equity assessments for Premier League Sustainability and Systemic Resilience requirements.
+- **Operational workflow:** onboarding, season selection, contract calendar, regulatory rules, league table, notifications, and export-ready evidence.
+- **Collaboration and governance:** workspace roles, invitations, TOTP, and audit history.
+- **Context-aware Analyst:** an AI copilot that explains the club’s calculated position and retrieves supporting regulatory context.
+
+## Rules the calculation engine enforces
+
+The shared `@85percent/engine` package keeps the financial logic outside the UI and AI layer.
+
+| Rule                  | Implementation                                                             |
+| --------------------- | -------------------------------------------------------------------------- |
+| Green SCR threshold   | 85%                                                                        |
+| Red threshold         | `85% + allowance percentage points`—not `85% × allowance`                  |
+| Default red threshold | 115% with the default 30-point allowance                                   |
+| Red consequence       | Six points, plus one point for each complete £6.5m above the red threshold |
+| Included costs        | Player **and manager/head-coach** costs                                    |
+| Amortisation          | Capped at five years for SCR                                               |
+| Championship support  | Optional owner-equity top-up                                               |
+
+All monetary database values are stored as integer pence. The engine and server-side helpers own arithmetic; presentation and AI layers consume the resulting figures.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  User[Club finance team] --> Web[React + Vite workspace]
+  User --> Landing[Next.js public site]
+  Web -->|Supabase JWT /api| API[Next.js Route Handler]
+  API --> Auth[Supabase Auth]
+  API --> DB[(Supabase Postgres)]
+  DB --> Vector[pgvector knowledge base]
+  Web --> Engine[Shared SCR + amortisation engine]
+  API --> Engine
+  API --> AI[OpenAI via AI SDK]
+  API --> Jobs[QStash import tasks]
+  Jobs --> Providers[League + roster providers]
+```
+
+This pnpm 11 + Turborepo monorepo contains three deployable apps:
+
+| Area                | Responsibility                                             | Local port |
+| ------------------- | ---------------------------------------------------------- | ---------- |
+| `apps/web`          | React 18 + Vite product workspace                          | 5173       |
+| `apps/admin`        | Next.js 14 admin console and serverless API                | 4000       |
+| `apps/landing-page` | Next.js 14 marketing and demo-request site                 | 3100       |
+| `packages/engine`   | Pure SCR, amortisation, consequence, and SSR calculations  | —          |
+| `packages/shared`   | Shared types, Zod schemas, money helpers, and chat context | —          |
+| `packages/brand`    | Shared marks and wordmark assets                           | —          |
+
+The serverless API preserves 72 method/path contracts through a dispatcher beneath `apps/admin/app/api/[...path]/route.ts`. Supabase service-role access bypasses RLS, so tenant-owned queries are explicitly scoped by `club_id` and, where relevant, `user_id`.
+
+## Analyst: grounded, explainable assistance
+
+The Analyst is deliberately an explanation layer—not a calculation authority.
+
+- **Model:** OpenAI through the Vercel AI SDK; `gpt-5.6-luna` is the default and `OPENAI_MODEL` provides an intentional server-side override.
+- **Retrieval:** `Xenova/all-MiniLM-L6-v2` creates local 384-dimensional embeddings; pgvector returns up to five relevant knowledge-base passages per query.
+- **Guardrails:** the prompt receives deterministic SCR/roster/scenario context, tells the model to explain rather than recompute, and asks it to identify when official regulatory validation is required.
+- **Experience:** responses stream to the client; user-scoped history is persisted and compacted to preserve useful context.
+- **Cost control:** the current internal billing constants are $1.00 / 1M input tokens and $6.00 / 1M output tokens with a 10% margin. These are configuration values, not a latency or quality benchmark.
+
+There is no published LLM quality benchmark yet. The current validation emphasis is on deterministic engine tests, serverless route-contract tests, pricing tests, and human review of regulatory sources. A representative, reviewed football-finance question set is the next requirement before making model-quality claims.
+
+## Run locally
+
+Prerequisites: Node.js 20+, pnpm (the repository pins pnpm 11.2.2), and a Supabase project. Upstash is required for production rate limiting; local API limiting is skipped when its variables are absent.
 
 ```bash
-pnpm install
-```
+pnpm install --frozen-lockfile
 
-## Environment Setup
+cp apps/web/.env.example apps/web/.env.local
+cp apps/admin/.env.example apps/admin/.env.local
+cp apps/landing-page/.env.example apps/landing-page/.env.local
 
-Real environment files are gitignored. Never commit their values.
-
-### Main web app
-
-Copy `apps/web/.env.example` to `apps/web/.env.local`:
-
-```text
-VITE_SUPABASE_URL=
-VITE_SUPABASE_ANON_KEY=
-```
-
-### Admin and serverless API
-
-Copy `apps/admin/.env.example` to `apps/admin/.env.local`. The important groups are:
-
-- Supabase: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
-  `SUPABASE_ANON_KEY`, and optional Prisma CLI `DATABASE_URL`.
-- Admin login: `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`.
-- API rate limiting: `UPSTASH_REDIS_REST_URL`,
-  `UPSTASH_REDIS_REST_TOKEN`.
-- AI: `ANTHROPIC_API_KEY` and optional `ANTHROPIC_MODEL`.
-- Manual data imports: QStash credentials, `FOOTBALL_DATA_API_KEY`, and
-  Transfermarkt provider settings. See `docs/data-import-sync.md`.
-- Invite redirect: `APP_URL`, normally `http://localhost:5173` locally.
-
-### Landing page
-
-Copy `apps/landing-page/.env.example` to
-`apps/landing-page/.env.local`:
-
-```text
-NEXT_PUBLIC_SUPABASE_URL=
-SUPABASE_ANON_KEY=
-UPSTASH_REDIS_REST_URL=
-UPSTASH_REDIS_REST_TOKEN=
-```
-
-The lead form uses an Upstash sliding window of three submissions per hour per
-IP. The serverless product API also uses Upstash for distributed global and
-endpoint-specific limits.
-
-## Local Development
-
-Start the complete stack:
-
-```bash
 pnpm dev
 ```
 
-Local URLs:
+Fill only the values required for the surfaces you intend to run. Environment files are ignored by Git; never commit a service-role key, database URL, password, signing secret, or provider token.
 
-- Main app: `http://localhost:5173`
-- Admin and API: `http://localhost:4000`
-- API health: `http://localhost:4000/api/health`
-- Landing: `http://localhost:3100`
+The main variables are intentionally documented in the tracked examples:
 
-Vite proxies `/api/*` to port 4000 without stripping `/api`. In production,
-`apps/web/vercel.json` rewrites `/api/*` to the admin Vercel project, preserving
-same-origin browser requests.
+| Surface   | Required configuration groups                                                                                         |
+| --------- | --------------------------------------------------------------------------------------------------------------------- |
+| Web       | Supabase URL and browser-safe anon/publishable key                                                                    |
+| Admin/API | Supabase service-role + anon keys, admin session values, `OPENAI_API_KEY`, optional rate-limit/import provider values |
+| Landing   | browser-safe Supabase values and optional PostHog / Upstash lead-form values                                          |
 
-Run individual applications when needed:
+Local URLs: web `http://localhost:5173`, admin/API `http://localhost:4000`, landing `http://localhost:3100`, and API health `http://localhost:4000/api/health`.
 
-```bash
-pnpm --filter @85percent/admin dev
-pnpm --filter @85percent/web dev
-pnpm --filter @85percent/landing-page dev
-```
-
-## Tests And Builds
+Run these checks as separate invocations:
 
 ```bash
 pnpm typecheck
@@ -115,53 +160,24 @@ pnpm test
 pnpm build
 ```
 
-Additional database-backed onboarding verification:
+For database-backed template onboarding validation, use `pnpm --filter @85percent/admin test:onboarding` against a deliberately configured environment.
 
-```bash
-pnpm --filter @85percent/admin test:onboarding
-```
+## Data, imports, and migrations
 
-The root `pnpm test` now runs both the pure calculation engine tests and the
-migrated API script/unit tests owned by `apps/admin`.
+- The Prisma schema and normal development migrations live in `apps/admin/prisma`.
+- `supabase/migrations` holds the aggregate Supabase bootstrap/security history. Do not apply both histories to the same provisioned database without following the intended workflow.
+- Manual roster sync creates durable tasks per club or league, allowing independent progress, retry, review, and cancellation. External provider data may update public roster fields only; accounting assumptions remain club-owned.
 
-## Database And Schema
+See [the financial model](docs/financial-model.md), [database workflow](docs/database-workflow.md), and [data-import runbook](docs/data-import-sync.md).
 
-- Normal Prisma history: `apps/admin/prisma/migrations`.
-- Prisma schema: `apps/admin/prisma/schema.prisma`.
-- Supabase bootstrap/security migrations: `supabase/migrations`.
-- Runtime database access uses server-only Supabase clients.
-- The service-role client bypasses RLS, so every tenant query must explicitly
-  constrain `club_id` and, where appropriate, `user_id`.
+## Deliberate limitations
 
-Do not run the Prisma history and the aggregate Supabase baseline against the
-same already-provisioned database. See `docs/DEPLOYMENT_SOP.md`.
+- Regulatory content and AI answers are decision support, not legal or regulatory advice; source material must be validated before it is treated as authoritative.
+- Several roster and scenario mutations use compensating rollbacks instead of database transactions.
+- AI balance deduction occurs after a streamed response, so a failure at that boundary can leave provider usage unbilled.
+- The manual Transfermarkt adapter is unofficial and operationally fragile; it should be monitored and retried per task, not as a bulk blind refresh.
+- There is no application-level browser E2E suite yet.
 
-## Manual Football Data Sync
+## License
 
-Template onboarding reads `template_clubs` and `template_roster_items`, then
-hydrates a tenant's players, contracts, manager, and manager contracts.
-
-Football data is refreshed manually from **Admin → Data Sync**. Squad imports
-create one durable QStash task per selected club; standings imports create one
-task per league. There are no cron or recurring import jobs. Each task writes
-progress to Supabase, retries independently, and is limited to one club rather
-than attempting a full 44-club refresh in one Vercel request.
-
-External providers may update public biographical and roster fields only.
-Wages, fees, book values, amortisation policies, contract phases, and other
-accounting data remain manually owned and are never overwritten by this sync.
-See [the data-import runbook](docs/data-import-sync.md) for setup, matching,
-review, retry, cancellation, and deployment details.
-
-## Deployment
-
-All application compute is hosted by Vercel:
-
-- `85percent.pro`: landing Vercel project.
-- `app.85percent.pro`: Vite web Vercel project.
-- `admin.85percent.pro`: admin plus serverless API Vercel project.
-- Supabase: managed database, Auth, RLS, pgvector, and RPCs.
-- Upstash: distributed rate limiting.
-
-Railway, the old API Dockerfile, and the separate `api.85percent.pro` service are
-no longer part of the architecture.
+MIT © 2026 asset8k. See [LICENSE](LICENSE).
